@@ -1,0 +1,24 @@
+#pragma kernel CSMain
+
+StructuredBuffer<float3> rawVertices;
+AppendStructuredBuffer<float3> filteredVertices;
+
+cbuffer Params
+{
+    float4x4 localToWorld;
+    uint vertexCount;
+};
+
+[numthreads(256, 1, 1)]
+void CSMain(uint3 id : SV_DispatchThreadID)
+{
+    uint i = id.x;
+    if (i >= vertexCount)
+        return;
+
+    float3 local = rawVertices[i];
+    float4 global4 = mul(localToWorld, float4(local, 1.0));
+    float3 global = global4.xyz;
+
+    filteredVertices.Append(global);
+}
