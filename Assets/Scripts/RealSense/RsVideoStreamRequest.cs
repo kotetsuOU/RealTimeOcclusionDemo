@@ -1,17 +1,18 @@
 ﻿using Intel.RealSense;
 using System;
+using UnityEngine;
 
 [Serializable]
 public struct RsVideoStreamRequest : IEquatable<RsVideoStreamRequest>
 {
-    public Stream Stream;
+    public Intel.RealSense.Stream Stream;
     public Format Format;
     public int Framerate;
     public int StreamIndex;
     public int Width;
     public int Height;
 
-    public RsVideoStreamRequest(Stream stream, Format format, int framerate, int streamIndex, int width, int height)
+    public RsVideoStreamRequest(Intel.RealSense.Stream stream, Format format, int framerate, int streamIndex, int width, int height)
     {
         Stream = stream;
         Format = format;
@@ -19,6 +20,11 @@ public struct RsVideoStreamRequest : IEquatable<RsVideoStreamRequest>
         StreamIndex = streamIndex;
         Width = width;
         Height = height;
+    }
+
+    public void Apply(Config cfg)
+    {
+        cfg.EnableStream(Stream, StreamIndex, Width, Height, Format, Framerate);
     }
 
     public static RsVideoStreamRequest FromFrame(VideoFrame f)
@@ -33,7 +39,6 @@ public struct RsVideoStreamRequest : IEquatable<RsVideoStreamRequest>
                 f.Height
             );
     }
-
 
     public static RsVideoStreamRequest FromProfile(StreamProfile p)
     {
@@ -71,7 +76,7 @@ public struct RsVideoStreamRequest : IEquatable<RsVideoStreamRequest>
         var vf = f as VideoFrame;
         using (var p = vf.Profile)
         {
-            if (Stream != Stream.Any && Stream != p.Stream)
+            if (Stream != Intel.RealSense.Stream.Any && Stream != p.Stream)
                 return true;
             if (Format != Format.Any && Format != p.Format)
                 return true;
@@ -89,7 +94,7 @@ public struct RsVideoStreamRequest : IEquatable<RsVideoStreamRequest>
 
     public bool HasConflict(RsVideoStreamRequest other)
     {
-        if (Stream != Stream.Any && Stream != other.Stream)
+        if (Stream != Intel.RealSense.Stream.Any && Stream != other.Stream)
             return true;
         if (Format != Format.Any && Format != other.Format)
             return true;
@@ -106,7 +111,6 @@ public struct RsVideoStreamRequest : IEquatable<RsVideoStreamRequest>
 
     public override int GetHashCode()
     {
-        // https://stackoverflow.com/questions/263400/what-is-the-best-algorithm-for-an-overridden-system-object-gethashcode
         return new { Stream, Format, Framerate, StreamIndex, Width, Height }.GetHashCode();
     }
 }

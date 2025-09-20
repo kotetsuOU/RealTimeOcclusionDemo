@@ -2,52 +2,47 @@
 using Intel.RealSense;
 
 [Serializable]
-public struct RsConfiguration
+public class RsConfiguration
 {
     public enum Mode
     {
-        Live, Playback, Record
+        Live,
+        Playback,
+        Record
     }
 
     public Mode mode;
-    public RsVideoStreamRequest[] Profiles;
+
     public string RequestedSerialNumber;
+
     public string PlaybackFile;
+
     public string RecordPath;
 
+    public RsVideoStreamRequest[] Profiles;
 
     public Config ToPipelineConfig()
     {
-        Config cfg = new Config();
-
+        var cfg = new Config();
         switch (mode)
         {
             case Mode.Live:
-                cfg.EnableDevice(RequestedSerialNumber);
+                if (!string.IsNullOrEmpty(RequestedSerialNumber))
+                    cfg.EnableDevice(RequestedSerialNumber);
                 foreach (var p in Profiles)
-                    cfg.EnableStream(p.Stream, p.StreamIndex, p.Width, p.Height, p.Format, p.Framerate);
+                    p.Apply(cfg);
                 break;
-
             case Mode.Playback:
-                if (String.IsNullOrEmpty(PlaybackFile))
-                {
-                    mode = Mode.Live;
-                }
-                else
-                {
-                    cfg.EnableDeviceFromFile(PlaybackFile);
-                }
+                cfg.EnableDeviceFromFile(PlaybackFile);
                 break;
-
             case Mode.Record:
+                if (!string.IsNullOrEmpty(RequestedSerialNumber))
+                    cfg.EnableDevice(RequestedSerialNumber);
+                cfg.EnableRecordToFile(RecordPath);
                 foreach (var p in Profiles)
-                    cfg.EnableStream(p.Stream, p.StreamIndex, p.Width, p.Height, p.Format, p.Framerate);
-                if (!String.IsNullOrEmpty(RecordPath))
-                    cfg.EnableRecordToFile(RecordPath);
+                    p.Apply(cfg);
                 break;
-
         }
-
         return cfg;
     }
 }

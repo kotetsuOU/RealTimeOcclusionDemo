@@ -20,15 +20,19 @@ public class RsDevice : RsFrameProvider
         UnityThread,
     }
 
-    // public static RsDevice Instance { get; private set; }
-
     /// <summary>
     /// Threading mode of operation, Multithread or UnityThread
     /// </summary>
     [Tooltip("Threading mode of operation, Multithreads or Unitythread")]
     public ProcessMode processMode;
 
-    // public bool Streaming { get; private set; }
+    /// <summary>
+    /// The number of frames to record. Set to 0 for unlimited recording.
+    /// </summary>
+    [Tooltip("The number of frames to record. Set to 0 for unlimited recording.")]
+    public int recordDurationInFrames = 0;
+
+    private int frameCount = 0;
 
     /// <summary>
     /// Notifies upon streaming start
@@ -53,9 +57,7 @@ public class RsDevice : RsFrameProvider
         mode = RsConfiguration.Mode.Live,
         RequestedSerialNumber = string.Empty,
         Profiles = new RsVideoStreamRequest[] {
-            new RsVideoStreamRequest {Stream = Stream.Depth, StreamIndex = -1, Width = 640, Height = 480, Format = Format.Z16 , Framerate = 30 },
-            //new RsVideoStreamRequest {Stream = Stream.Infrared, StreamIndex = -1, Width = 640, Height = 480, Format = Format.Y8 , Framerate = 30 },
-            //new RsVideoStreamRequest {Stream = Stream.Color, StreamIndex = -1, Width = 640, Height = 480, Format = Format.Rgb8 , Framerate = 30 }
+            new RsVideoStreamRequest {Stream = Intel.RealSense.Stream.Depth, StreamIndex = -1, Width = 640, Height = 480, Format = Format.Z16 , Framerate = 30 },
         }
     };
 
@@ -65,10 +67,39 @@ public class RsDevice : RsFrameProvider
 
     void OnEnable()
     {
+        frameCount = 0;
         m_pipeline = new Pipeline();
 
-        using (var cfg = DeviceConfiguration.ToPipelineConfig())
+        using (var cfg = new Config())
+        {
+            switch (DeviceConfiguration.mode)
+            {
+                case RsConfiguration.Mode.Live:
+                    {
+                        if (!string.IsNullOrEmpty(DeviceConfiguration.RequestedSerialNumber))
+                            cfg.EnableDevice(DeviceConfiguration.RequestedSerialNumber);
+                        foreach (var p in DeviceConfiguration.Profiles)
+                            p.Apply(cfg);
+                        break;
+                    }
+                case RsConfiguration.Mode.Playback:
+                    {
+                        cfg.EnableDeviceFromFile(DeviceConfiguration.PlaybackFile);
+                        break;
+                    }
+                case RsConfiguration.Mode.Record:
+                    {
+                        if (!string.IsNullOrEmpty(DeviceConfiguration.RequestedSerialNumber))
+                            cfg.EnableDevice(DeviceConfiguration.RequestedSerialNumber);
+                        cfg.EnableRecordToFile(DeviceConfiguration.RecordPath);
+                        foreach (var p in DeviceConfiguration.Profiles)
+                            p.Apply(cfg);
+                        break;
+                    }
+            }
+
             ActiveProfile = m_pipeline.Start(cfg);
+        }
 
         DeviceConfiguration.Profiles = ActiveProfile.Streams.Select(RsVideoStreamRequest.FromProfile).ToArray();
 
@@ -93,51 +124,44 @@ public class RsDevice : RsFrameProvider
 
     void OnDisable()
     {
+        StopStreaming();
+    }
+
+    void OnDestroy()
+    {
+        OnStop = null;
+        if (ActiveProfile != null)
+        {
+            ActiveProfile.Dispose();
+            ActiveProfile = null;
+        }
+
+        if (m_pipeline != null)
+        {
+            m_pipeline.Dispose();
+            m_pipeline = null;
+        }
+    }
+
+    private void StopStreaming()
+    {
         OnNewSample = null;
-        // OnNewSampleSet = null;
 
         if (worker != null)
         {
             stopEvent.Set();
             worker.Join();
+            worker = null;
         }
 
         if (Streaming && OnStop != null)
             OnStop();
 
-        if (ActiveProfile != null)
-        {
-            ActiveProfile.Dispose();
-            ActiveProfile = null;
-        }
-
         if (m_pipeline != null)
         {
-            // if (Streaming)
-            // m_pipeline.Stop();
-            m_pipeline.Dispose();
-            m_pipeline = null;
+            m_pipeline.Stop();
         }
-
         Streaming = false;
-    }
-
-    void OnDestroy()
-    {
-        // OnStart = null;
-        OnStop = null;
-
-        if (ActiveProfile != null)
-        {
-            ActiveProfile.Dispose();
-            ActiveProfile = null;
-        }
-
-        if (m_pipeline != null)
-        {
-            m_pipeline.Dispose();
-            m_pipeline = null;
-        }
     }
 
     private void RaiseSampleEvent(Frame frame)
@@ -156,8 +180,17 @@ public class RsDevice : RsFrameProvider
     {
         while (!stopEvent.WaitOne(0))
         {
-            using (var frames = m_pipeline.WaitForFrames())
-                RaiseSampleEvent(frames);
+            try
+            {
+                using (var frames = m_pipeline.WaitForFrames())
+                {
+                    RaiseSampleEvent(frames);
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogError("RealSense WaitForFrames error: " + ex.Message);
+            }
         }
     }
 
@@ -173,8 +206,19 @@ public class RsDevice : RsFrameProvider
         if (m_pipeline.PollForFrames(out frames))
         {
             using (frames)
+            {
+                if (DeviceConfiguration.mode == RsConfiguration.Mode.Record && recordDurationInFrames > 0)
+                {
+                    frameCount++;
+                    if (frameCount >= recordDurationInFrames)
+                    {
+                        UnityEngine.Debug.Log($"Recording completed after {frameCount} frames.");
+                        StopStreaming();
+                        return;
+                    }
+                }
                 RaiseSampleEvent(frames);
+            }
         }
     }
-
 }
