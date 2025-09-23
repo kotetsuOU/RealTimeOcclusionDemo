@@ -4,6 +4,7 @@ using System.Linq;
 using System.Reflection;
 using UnityEditor;
 using UnityEngine;
+using static System.Net.Mime.MediaTypeNames;
 
 [CustomEditor(typeof(RsPointCloudGroupController))]
 public class RsPointCloudGroupControllerEditor : Editor
@@ -56,22 +57,35 @@ public class RsPointCloudGroupControllerEditor : Editor
 
         if (isAnyLogging)
         {
-            if (GUILayout.Button("Stop Performance Logging on All"))
+            GUI.backgroundColor = new Color(1f, 0.6f, 0.6f);
+            if (GUILayout.Button("Stop Performance Logging on All", GUILayout.Height(30)))
             {
                 ApplyToAllRenderers(renderer => renderer.StopPerformanceLog());
             }
+            GUI.backgroundColor = Color.white;
         }
         else
         {
             EditorGUILayout.BeginHorizontal();
-            if (GUILayout.Button("Start Logging on All (New Files)"))
+            GUI.backgroundColor = new Color(0.6f, 1f, 0.6f);
+
+            if (GUILayout.Button("Start Logging on All (New Files)", GUILayout.Height(30)))
             {
-                ApplyToAllRenderers(renderer => renderer.StartPerformanceLog());
+                ApplyToAllRenderers(renderer => {
+                    renderer.appendLog = false;
+                    renderer.StartPerformanceLog();
+                });
             }
-            if (GUILayout.Button("Start Logging on All (Append)"))
+
+            if (GUILayout.Button("Start Logging on All (Append)", GUILayout.Height(30)))
             {
-                ApplyToAllRenderers(renderer => renderer.StartPerformanceLog());
+                ApplyToAllRenderers(renderer => {
+                    renderer.appendLog = true;
+                    renderer.StartPerformanceLog();
+                });
             }
+
+            GUI.backgroundColor = Color.white;
             EditorGUILayout.EndHorizontal();
         }
 
