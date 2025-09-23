@@ -1,6 +1,4 @@
-﻿#if UNITY_EDITOR
-
-using UnityEditor;
+﻿using UnityEditor;
 using UnityEngine;
 
 [CustomEditor(typeof(PointCloudViewer))]
@@ -75,6 +73,7 @@ public class PointCloudViewerrEditor : Editor
             EditorGUILayout.Space();
 
             GUILayout.BeginHorizontal();
+            GUI.backgroundColor = new Color(0.6f, 1f, 0.6f);
             if (GUILayout.Button("すべてON"))
             {
                 useFile1Prop.boolValue = true;
@@ -82,6 +81,7 @@ public class PointCloudViewerrEditor : Editor
                 useFile3Prop.boolValue = true;
                 useFile4Prop.boolValue = true;
             }
+            GUI.backgroundColor = new Color(1f, 0.6f, 0.6f);
             if (GUILayout.Button("すべてOFF"))
             {
                 useFile1Prop.boolValue = false;
@@ -89,7 +89,10 @@ public class PointCloudViewerrEditor : Editor
                 useFile3Prop.boolValue = false;
                 useFile4Prop.boolValue = false;
             }
+
             GUILayout.EndHorizontal();
+
+            GUI.backgroundColor = new Color(0.8f, 0.8f, 0.6f);
 
             EditorGUILayout.Space();
 
@@ -97,6 +100,8 @@ public class PointCloudViewerrEditor : Editor
             {
                 ((PointCloudViewer)target).RebuildMesh();
             }
+
+            GUI.backgroundColor = Color.white;
 
             EditorGUI.indentLevel--;
         }
@@ -127,4 +132,3 @@ public class PointCloudViewerrEditor : Editor
         }
     }
 }
-#endif
