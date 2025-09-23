@@ -24,26 +24,26 @@ public class RsPointCloudRendererEditor : Editor
         serializedObject.Update();
         base.OnInspectorGUI();
 
+        var renderer = (RsPointCloudRenderer)target;
+
         EditorGUILayout.Space();
         EditorGUILayout.LabelField("Debug Tools", EditorStyles.boldLabel);
 
-        EditorGUI.BeginChangeCheck();
-
         if (exportFileNameProp != null)
         {
-            EditorGUILayout.PropertyField(exportFileNameProp);
+            EditorGUI.BeginChangeCheck();
+            EditorGUILayout.PropertyField(exportFileNameProp, new GUIContent("Export File Name"));
+            if (EditorGUI.EndChangeCheck())
+            {
+                isVerticesSaved = false;
+            }
         }
         else
         {
             EditorGUILayout.HelpBox("SerializedProperty 'exportFileName' not found.", MessageType.Error);
         }
 
-        if (EditorGUI.EndChangeCheck())
-            isVerticesSaved = false;
-
         EditorGUILayout.Space();
-
-        var renderer = (RsPointCloudRenderer)target;
 
         if (GUILayout.Button("Export Current Frame Vertices"))
         {
@@ -57,30 +57,41 @@ public class RsPointCloudRendererEditor : Editor
                 }
             }
             else
+            {
                 UnityEngine.Debug.LogWarning("Filtered vertices not available.");
+            }
         }
 
         if (isVerticesSaved && GUILayout.Button("Reset Save Status"))
+        {
             isVerticesSaved = false;
+        }
 
         EditorGUILayout.Space();
         EditorGUILayout.LabelField("Performance Logger", EditorStyles.boldLabel);
 
         EditorGUI.BeginDisabledGroup(!UnityEngine.Application.isPlaying);
+
+        GUIStyle buttonStyle = new GUIStyle(GUI.skin.button) { fontSize = 12, fontStyle = FontStyle.Bold, fixedHeight = 25 };
+
         if (renderer.IsPerformanceLogging)
         {
-            if (GUILayout.Button("Stop Performance Logging"))
+            GUI.backgroundColor = new Color(1f, 0.6f, 0.6f);
+            if (GUILayout.Button("Stop Performance Logging", buttonStyle))
             {
                 renderer.StopPerformanceLog();
             }
         }
         else
         {
-            if (GUILayout.Button("Start Performance Logging"))
+            GUI.backgroundColor = new Color(0.6f, 1f, 0.6f);
+            if (GUILayout.Button("Start Performance Logging", buttonStyle))
             {
                 renderer.StartPerformanceLog();
             }
         }
+        GUI.backgroundColor = Color.white;
+
         EditorGUI.EndDisabledGroup();
 
         EditorGUILayout.Space();

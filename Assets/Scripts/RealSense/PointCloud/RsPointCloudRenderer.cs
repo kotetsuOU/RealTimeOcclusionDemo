@@ -19,6 +19,12 @@ public class RsPointCloudRenderer : MonoBehaviour
 
     [Header("Performance Logging Settings")]
     public string logFilePrefix = "PointCloudPerfLog";
+    [Tooltip("ログ記録を開始するフレーム番号")]
+    public long startFrame = 200;
+    [Tooltip("ログ記録を終了するフレーム番号")]
+    public long endFrame = 1400;
+    [Tooltip("既存のログファイルに追記するかどうか")]
+    public bool appendLog = false;
 
     private RealSenseDataProvider _dataProvider;
     private PointCloudMesher _mesher;
@@ -102,6 +108,7 @@ public class RsPointCloudRenderer : MonoBehaviour
 
             long discardedCount;
             int finalVertexCount;
+            long totalCount = 0;
 
             if (IsGlobalRangeFilterEnabled)
             {
@@ -110,11 +117,13 @@ public class RsPointCloudRenderer : MonoBehaviour
                 EstimatedPoint = result.point;
                 EstimatedDir = result.dir;
                 discardedCount = result.discardedCount;
+                totalCount = result.sampledCount;
             }
             else
             {
                 finalVertexCount = _compute.Transform(_rawVertices, _globalVertices);
                 discardedCount = 0;
+                totalCount = _rawVertices.Length;
             }
 
             _finalVertexCount = finalVertexCount;
@@ -123,7 +132,7 @@ public class RsPointCloudRenderer : MonoBehaviour
             if (_logger.IsLogging)
             {
                 _stopwatch.Stop();
-                _logger.LogFrame(_frameCounter, _stopwatch.Elapsed.TotalMilliseconds, discardedCount, IsGlobalRangeFilterEnabled);
+                _logger.LogFrame(_frameCounter, _stopwatch.Elapsed.TotalMilliseconds, discardedCount, totalCount, IsGlobalRangeFilterEnabled);
             }
         }
     }
@@ -141,7 +150,11 @@ public class RsPointCloudRenderer : MonoBehaviour
         _logger?.Dispose();
     }
 
-    public void StartPerformanceLog(bool append = false) => _logger?.StartLogging(this.logFilePrefix, append);
+    public void StartPerformanceLog()
+    {
+        _logger?.StartLogging(this.logFilePrefix, this.appendLog, this.startFrame, this.endFrame);
+    }
+
     public void StopPerformanceLog() => _logger?.StopLogging();
 
     public Vector3[] GetFilteredVertices()

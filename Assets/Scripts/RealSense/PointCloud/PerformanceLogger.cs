@@ -9,13 +9,19 @@ public class PerformanceLogger : IDisposable
     private readonly StringBuilder _csvBuilder = new StringBuilder();
     public bool IsLogging { get; private set; } = false;
 
-    public void StartLogging(string fileNamePrefix, bool append = false)
+    private long _startFrame;
+    private long _endFrame;
+
+    public void StartLogging(string fileNamePrefix, bool append = false, long startFrame = 0, long endFrame = long.MaxValue)
     {
         if (IsLogging)
         {
             UnityEngine.Debug.LogWarning("パフォーマンスロガーは既に実行中です。");
             return;
         }
+
+        _startFrame = startFrame;
+        _endFrame = endFrame;
 
         try
         {
@@ -41,7 +47,7 @@ public class PerformanceLogger : IDisposable
             if (!fileExists || !append)
             {
                 _csvBuilder.Clear();
-                _csvBuilder.Append("Frame,ProcessingTime_ms,DiscardedCount,IsFilterEnabled");
+                _csvBuilder.Append("Frame,ProcessingTime_ms,DiscardedCount,TotalCount,IsFilterEnabled");
                 _csvWriter.WriteLine(_csvBuilder.ToString());
                 _csvBuilder.Clear();
             }
@@ -51,7 +57,7 @@ public class PerformanceLogger : IDisposable
             }
 
             IsLogging = true;
-            UnityEngine.Debug.Log($"パフォーマンスログを開始しました。出力先: {filePath}");
+            UnityEngine.Debug.Log($"パフォーマンスログを開始しました。出力先: {filePath} (記録範囲: {_startFrame}～{_endFrame}フレーム)");
         }
         catch (Exception e)
         {
@@ -71,13 +77,15 @@ public class PerformanceLogger : IDisposable
         UnityEngine.Debug.Log("パフォーマンスログを終了しました。");
     }
 
-    public void LogFrame(long frame, double processingTime, long discardedCount, bool isFilterEnabled)
+    public void LogFrame(long frame, double processingTime, long discardedCount, long totalCount, bool isFilterEnabled)
     {
         if (!IsLogging || _csvWriter == null) return;
+        if (frame < _startFrame || frame > _endFrame) return;
 
         _csvBuilder.Append(frame).Append(',');
         _csvBuilder.Append(processingTime.ToString("F4")).Append(',');
         _csvBuilder.Append(discardedCount).Append(',');
+        _csvBuilder.Append(totalCount).Append(',');
         _csvBuilder.Append(isFilterEnabled);
         _csvWriter.WriteLine(_csvBuilder.ToString());
         _csvBuilder.Clear();

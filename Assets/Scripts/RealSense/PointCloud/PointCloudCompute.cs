@@ -47,7 +47,7 @@ public class PointCloudCompute : IDisposable
         distanceDiscardBuffer = new ComputeBuffer(rsLength, sizeof(float) * 3, ComputeBufferType.Append);
     }
 
-    public (int finalCount, Vector3 point, Vector3 dir, int discardedCount, float discardPercentage) FilterAndEstimateLine(Vector3[] rawVertices, Vector3[] globalVertices, Vector3 previousLinePoint, Vector3 previousLineDir)
+    public (int finalCount, Vector3 point, Vector3 dir, int discardedCount, int sampledCount, float discardPercentage) FilterAndEstimateLine(Vector3[] rawVertices, Vector3[] globalVertices, Vector3 previousLinePoint, Vector3 previousLineDir)
     {
         rawVerticesBuffer.SetData(rawVertices);
         filteredVerticesBuffer.SetCounterValue(0);
@@ -111,7 +111,7 @@ public class PointCloudCompute : IDisposable
             Array.Clear(globalVertices, 0, globalVertices.Length);
         }
 
-        return (finalCount, point, dir, discardedCount, discardPercentage);
+        return (finalCount, point, dir, discardedCount, sampledCount, discardPercentage);
     }
 
     public int Transform(Vector3[] rawVertices, Vector3[] globalVertices)

@@ -66,11 +66,11 @@ public class RsPointCloudGroupControllerEditor : Editor
             EditorGUILayout.BeginHorizontal();
             if (GUILayout.Button("Start Logging on All (New Files)"))
             {
-                ApplyToAllRenderers(renderer => renderer.StartPerformanceLog(false));
+                ApplyToAllRenderers(renderer => renderer.StartPerformanceLog());
             }
             if (GUILayout.Button("Start Logging on All (Append)"))
             {
-                ApplyToAllRenderers(renderer => renderer.StartPerformanceLog(true));
+                ApplyToAllRenderers(renderer => renderer.StartPerformanceLog());
             }
             EditorGUILayout.EndHorizontal();
         }
