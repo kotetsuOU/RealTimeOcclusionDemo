@@ -80,7 +80,17 @@ public class PerformanceLogger : IDisposable
     public void LogFrame(long frame, double processingTime, long discardedCount, long totalCount, bool isFilterEnabled)
     {
         if (!IsLogging || _csvWriter == null) return;
-        if (frame < _startFrame || frame > _endFrame) return;
+
+        if (frame > _endFrame)
+        {
+            StopLogging();
+            return;
+        }
+
+        if (frame < _startFrame)
+        {
+            return;
+        }
 
         _csvBuilder.Append(frame).Append(',');
         _csvBuilder.Append(processingTime.ToString("F4")).Append(',');
