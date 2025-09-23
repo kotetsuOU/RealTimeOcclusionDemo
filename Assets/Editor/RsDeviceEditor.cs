@@ -61,6 +61,7 @@ public class RsDeviceEditor : Editor
                         {
                             prop.stringValue = path;
                         }
+                        GUIUtility.ExitGUI();
                     }
                     EditorGUILayout.EndHorizontal();
                     EditorGUILayout.Space();
