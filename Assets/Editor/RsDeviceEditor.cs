@@ -101,7 +101,6 @@ public class RsDeviceEditor : Editor
                 {
                     EditorGUI.BeginDisabledGroup(isStreaming);
                     EditorGUILayout.PropertyField(serializedObject.FindProperty("recordDurationInFrames"));
-                    // ここにシリアル番号のフィールドを追加
                     EditorGUILayout.PropertyField(config.FindPropertyRelative("RequestedSerialNumber"));
                     EditorGUILayout.BeginHorizontal();
                     var prop = config.FindPropertyRelative("RecordPath");
@@ -113,6 +112,7 @@ public class RsDeviceEditor : Editor
                         {
                             prop.stringValue = path;
                         }
+                        GUIUtility.ExitGUI();
                     }
                     EditorGUILayout.EndHorizontal();
                     EditorGUILayout.Space();
