@@ -1,30 +1,36 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using UnityEngine;
 
-public class CsvMultiAverager : MonoBehaviour
+public class CsvFolderAverager : MonoBehaviour
 {
-    [Header("処理したいCSVファイルのリスト")]
-    public string[] csvFilePaths;
+    [Header("検索するフォルダ")]
+    public string folderPath = "Assets/HandTrakingData/Filter";
+
+    [Header("CSV拡張子フィルタ")]
+    public string searchPattern = "*.csv";
 
     void Start()
     {
-        if (csvFilePaths == null || csvFilePaths.Length == 0)
+        if (!Directory.Exists(folderPath))
         {
-            Debug.LogWarning("CSVファイルが指定されていません");
+            UnityEngine.Debug.LogError("フォルダが見つかりません: " + folderPath);
             return;
         }
 
-        foreach (var path in csvFilePaths)
-        {
-            if (!File.Exists(path))
-            {
-                Debug.LogError("CSVファイルが見つかりません: " + path);
-                continue;
-            }
+        string[] files = Directory.GetFiles(folderPath, searchPattern, SearchOption.TopDirectoryOnly);
 
+        if (files.Length == 0)
+        {
+            UnityEngine.Debug.LogWarning("CSVファイルが見つかりません");
+            return;
+        }
+
+        foreach (var path in files)
+        {
             try
             {
                 var lines = File.ReadAllLines(path).Skip(1);
@@ -33,7 +39,6 @@ public class CsvMultiAverager : MonoBehaviour
                 foreach (var line in lines)
                 {
                     if (string.IsNullOrWhiteSpace(line)) continue;
-                    
                     var values = line.Split(',');
 
                     if (values.Length < 4) continue;
@@ -48,26 +53,32 @@ public class CsvMultiAverager : MonoBehaviour
 
                 if (rows.Count == 0)
                 {
-                    Debug.LogWarning($"データが存在しません: {path}");
+                    UnityEngine.Debug.LogWarning($"データが存在しません: {path}");
                     continue;
                 }
 
-                double avgFrame = rows.Average(r => r[0]);
                 double avgProcTime = rows.Average(r => r[1]);
                 double avgDiscarded = rows.Average(r => r[2]);
                 double avgTotal = rows.Average(r => r[3]);
                 double avgRatio = rows.Average(r => r[2] / r[3]);
 
-                Debug.Log($"==== {Path.GetFileName(path)} ====");
-                Debug.Log($"Frame Avg            = {avgFrame}");
-                Debug.Log($"ProcessingTime Avg   = {avgProcTime}");
-                Debug.Log($"DiscardedCount Avg   = {avgDiscarded}");
-                Debug.Log($"TotalCount Avg       = {avgTotal}");
-                Debug.Log($"Discarded/Total Avg  = {avgRatio}");
+                /*
+                UnityEngine.Debug.Log($"==== {Path.GetFileName(path)} ====");
+                UnityEngine.Debug.Log($"ProcessingTime Avg   = {avgProcTime}");
+                UnityEngine.Debug.Log($"DiscardedCount Avg   = {avgDiscarded}");
+                UnityEngine.Debug.Log($"TotalCount Avg       = {avgTotal}");
+                UnityEngine.Debug.Log($"Discarded/Total Avg  = {avgRatio}");
+                */
+
+                UnityEngine.Debug.Log($"==== {Path.GetFileName(path)} ====");
+                UnityEngine.Debug.Log($"{avgProcTime}");
+                UnityEngine.Debug.Log($"{avgDiscarded}");
+                UnityEngine.Debug.Log($"{avgTotal}");
+                UnityEngine.Debug.Log($"{avgRatio}");
             }
             catch (Exception ex)
             {
-                Debug.LogError($"CSV処理中にエラー ({path}): {ex.Message}");
+                UnityEngine.Debug.LogError($"CSV処理中にエラー ({path}): {ex.Message}");
             }
         }
     }

@@ -45,6 +45,7 @@ public class RsPointCloudRendererEditor : Editor
 
         EditorGUILayout.Space();
 
+        GUI.backgroundColor = new Color(1f, 1f, 0f);
         if (GUILayout.Button("Export Current Frame Vertices"))
         {
             Vector3[] vertices = renderer.GetFilteredVertices();
@@ -95,12 +96,28 @@ public class RsPointCloudRendererEditor : Editor
         EditorGUI.EndDisabledGroup();
 
         EditorGUILayout.Space();
-        string label = renderer.IsGlobalRangeFilterEnabled ? "Disable Range Filter" : "Enable Range Filter";
-        if (GUILayout.Button(label))
+        EditorGUILayout.Space();
+
+        if (renderer.IsGlobalRangeFilterEnabled)
         {
-            renderer.IsGlobalRangeFilterEnabled = !renderer.IsGlobalRangeFilterEnabled;
-            SceneView.RepaintAll();
+            GUI.backgroundColor = new Color(1f, 0.6f, 0.6f);
+            if (GUILayout.Button("Disable Range Filter"))
+            {
+                renderer.IsGlobalRangeFilterEnabled = false;
+                SceneView.RepaintAll();
+            }
         }
+        else
+        {
+            GUI.backgroundColor = new Color(0.6f, 1f, 0.6f);
+            if (GUILayout.Button("Enable Range Filter"))
+            {
+                renderer.IsGlobalRangeFilterEnabled = true;
+                SceneView.RepaintAll();
+            }
+        }
+ 
+        GUI.backgroundColor = Color.white;
 
         serializedObject.ApplyModifiedProperties();
     }

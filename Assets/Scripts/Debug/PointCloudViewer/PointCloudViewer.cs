@@ -5,10 +5,10 @@ using UnityEngine;
 
 public class PointCloudViewer : MonoBehaviour
 {
-    public string filePath1 = "Assets/HandTrakingSampleData/currentGlobalVerticesRight.txt";
-    public string filePath2 = "Assets/HandTrakingSampleData/currentGlobalVerticesLeft.txt";
-    public string filePath3 = "Assets/HandTrakingSampleData/currentGlobalVerticesBottom.txt";
-    public string filePath4 = "Assets/HandTrakingSampleData/currentGlobalVerticesTop.txt";
+    public string filePath1 = "Assets/HandTrakingData/PointCloudData/currentGlobalVerticesRight.txt";
+    public string filePath2 = "Assets/HandTrakingData/PointCloudData/currentGlobalVerticesLeft.txt";
+    public string filePath3 = "Assets/HandTrakingData/PointCloudData/currentGlobalVerticesBottom.txt";
+    public string filePath4 = "Assets/HandTrakingData/PointCloudData/currentGlobalVerticesTop.txt";
     public float pointSize = 0.01f;
 
     [Header("Use and Color per File")]
