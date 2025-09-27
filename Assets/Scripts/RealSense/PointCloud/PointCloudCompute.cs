@@ -143,7 +143,7 @@ public class PointCloudCompute : IDisposable
     {
         if (count < 2) return (Vector3.zero, Vector3.forward);
 
-        int sampleCount = Mathf.Clamp((int)(count * 0.01f), 3, 1000);
+        int sampleCount = Mathf.Clamp((int)(count * 0.01f), 100, 1000);
         List<Vector3> sample = new List<Vector3>(sampleCount);
 
         System.Random rnd = new System.Random();
