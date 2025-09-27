@@ -25,6 +25,15 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         return;
 
     float3 local = rawVertices[i];
+    
+    float distSq = dot(local, local);
+
+    //Minimum Depth Distance: 0.3m
+    //Maximum Range: 10m + Varies depending on performance accuracy, scene and light conditions
+    
+    if (distSq < 0.09f || distSq > 100.0f)
+        return;
+    
     float4 global4 = mul(localToWorld, float4(local, 1.0));
     float3 global = global4.xyz;
 
