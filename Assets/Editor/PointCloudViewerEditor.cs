@@ -2,7 +2,7 @@
 using UnityEngine;
 
 [CustomEditor(typeof(PointCloudViewer))]
-public class PointCloudViewerrEditor : Editor
+public class PointCloudViewerEditor : Editor
 {
     // Foldout 管理用
     private bool showFileSettings = true;
@@ -135,6 +135,23 @@ public class PointCloudViewerrEditor : Editor
             EditorGUILayout.PropertyField(voxelSizeProp, new GUIContent("Voxel Size"));
             EditorGUILayout.PropertyField(searchRadiusProp, new GUIContent("Search Radius"));
             EditorGUILayout.PropertyField(neighborColorProp, new GUIContent("Neighbor Color"));
+
+            EditorGUILayout.Space();
+
+            GUI.backgroundColor = new Color(0.6f, 0.8f, 1f);
+            if (GUILayout.Button("ノイズ除去を実行 (閾値100)"))
+            {
+                if (UnityEngine.Application.isPlaying)
+                {
+                    ((PointCloudViewer)target).FilterNoiseAndRebuildMesh();
+                }
+                else
+                {
+                    UnityEngine.Debug.LogWarning("ノイズ除去はプレイモード中のみ実行可能です。");
+                }
+            }
+            GUI.backgroundColor = Color.white;
+
             EditorGUI.indentLevel--;
         }
 
