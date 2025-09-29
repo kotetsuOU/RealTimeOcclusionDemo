@@ -8,6 +8,7 @@ public class PointCloudViewerrEditor : Editor
     private bool showFileSettings = true;
     private bool showPerFileSettings = true;
     private bool showOutlineSettings = true;
+    private bool showVoxelSettings = true;
 
     // SerializedProperties
     SerializedProperty filePath1Prop, filePath2Prop, filePath3Prop, filePath4Prop;
@@ -19,6 +20,8 @@ public class PointCloudViewerrEditor : Editor
     SerializedProperty useFile4Prop, color4Prop;
 
     SerializedProperty outlineProp, outlineColorProp;
+
+    SerializedProperty voxelSizeProp, searchRadiusProp, neighborColorProp;
 
     void OnEnable()
     {
@@ -39,6 +42,10 @@ public class PointCloudViewerrEditor : Editor
 
         outlineProp = serializedObject.FindProperty("outline");
         outlineColorProp = serializedObject.FindProperty("outlineColor");
+
+        voxelSizeProp = serializedObject.FindProperty("voxelSize");
+        searchRadiusProp = serializedObject.FindProperty("searchRadius");
+        neighborColorProp = serializedObject.FindProperty("neighborColor");
     }
 
     public override void OnInspectorGUI()
@@ -115,6 +122,19 @@ public class PointCloudViewerrEditor : Editor
             EditorGUI.indentLevel++;
             EditorGUILayout.PropertyField(outlineProp);
             EditorGUILayout.PropertyField(outlineColorProp);
+            EditorGUI.indentLevel--;
+        }
+
+        EditorGUILayout.Space();
+
+        // Voxel Grid Settings セクション
+        showVoxelSettings = EditorGUILayout.Foldout(showVoxelSettings, "Voxel Grid Settings", true);
+        if (showVoxelSettings)
+        {
+            EditorGUI.indentLevel++;
+            EditorGUILayout.PropertyField(voxelSizeProp, new GUIContent("Voxel Size"));
+            EditorGUILayout.PropertyField(searchRadiusProp, new GUIContent("Search Radius"));
+            EditorGUILayout.PropertyField(neighborColorProp, new GUIContent("Neighbor Color"));
             EditorGUI.indentLevel--;
         }
 

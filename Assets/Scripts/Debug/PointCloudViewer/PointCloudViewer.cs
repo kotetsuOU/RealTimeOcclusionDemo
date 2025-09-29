@@ -1,7 +1,6 @@
 using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
-//using static System.Net.Mime.MediaTypeNames;
 
 public class PointCloudViewer : MonoBehaviour
 {
@@ -24,10 +23,23 @@ public class PointCloudViewer : MonoBehaviour
     [SerializeField] public bool useFile4 = false;
     [SerializeField] public Color color4 = Color.yellow;
 
+    [Header("Outline")]
     [SerializeField] GameObject outline;
     [SerializeField] Color outlineColor;
 
+    [Header("Voxel Grid Neighbor Search")]
+    [Tooltip("空間インデックス作成時のボクセルサイズ")]
+    [SerializeField] public float voxelSize = 0.05f;
+    [Tooltip("近傍点と見なす探索半径")]
+    [SerializeField] public float searchRadius = 0.1f;
+    [Tooltip("ハイライトする近傍点の色")]
+    [SerializeField] public Color neighborColor = Color.cyan;
+
     private Mesh mesh;
+    private Material pointCloudMaterial;
+    private VoxelGrid voxelGrid;
+    private Vector3[] currentVertices;
+    private Color[] originalColors;
 
     private bool lastUseFile1, lastUseFile2, lastUseFile3, lastUseFile4;
     private Color lastColor1, lastColor2, lastColor3, lastColor4;
@@ -36,6 +48,7 @@ public class PointCloudViewer : MonoBehaviour
     {
         if (UnityEngine.Application.isPlaying)
         {
+            pointCloudMaterial = new Material(Shader.Find("Unlit/PointCloudViewer"));
             InitMaterials();
             RebuildMesh();
             SaveState();
@@ -50,6 +63,11 @@ public class PointCloudViewer : MonoBehaviour
         {
             RebuildMesh();
             SaveState();
+        }
+
+        if (Input.GetMouseButtonDown(0))
+        {
+            FindAndHighlightNeighbors();
         }
     }
 
@@ -83,15 +101,20 @@ public class PointCloudViewer : MonoBehaviour
         if (useFile4) AddPointsWithColor(filePath4, color4, allPoints, allColors);
 
         if (mesh != null)
+        {
             DestroyImmediate(mesh);
+        }
 
         if (allPoints.Count > 0)
         {
             mesh = new Mesh();
             mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
 
-            mesh.vertices = allPoints.ToArray();
-            mesh.colors = allColors.ToArray();
+            currentVertices = allPoints.ToArray();
+            originalColors = allColors.ToArray();
+
+            mesh.vertices = currentVertices;
+            mesh.colors = originalColors;
 
             int[] indices = new int[allPoints.Count];
             for (int i = 0; i < indices.Length; i++)
@@ -101,14 +124,17 @@ public class PointCloudViewer : MonoBehaviour
             mesh.RecalculateBounds();
 
             GetComponent<MeshFilter>().mesh = mesh;
+            GetComponent<MeshRenderer>().material = pointCloudMaterial;
 
-            var renderer = GetComponent<MeshRenderer>();
-            var mat = new Material(Shader.Find("Unlit/PointCloudViewer"));
-            renderer.material = mat;
+            voxelGrid = new VoxelGrid(currentVertices, voxelSize);
+            UnityEngine.Debug.Log($"Voxel Grid has been built with {currentVertices.Length} points.");
         }
         else
         {
             GetComponent<MeshFilter>().mesh = null;
+            currentVertices = null;
+            originalColors = null;
+            voxelGrid = null;
         }
     }
 
@@ -128,7 +154,7 @@ public class PointCloudViewer : MonoBehaviour
 
     void AddPointsWithColor(string path, Color color, List<Vector3> positions, List<Color> colors)
     {
-        var verts = LoadVerticesFromFile(path);
+        Vector3[] verts = LoadVerticesFromFile(path);
         positions.AddRange(verts);
         for (int i = 0; i < verts.Length; i++)
             colors.Add(color);
@@ -154,7 +180,46 @@ public class PointCloudViewer : MonoBehaviour
                 vertices.Add(new Vector3(x, y, z));
             }
         }
-
         return vertices.ToArray();
+    }
+
+    void FindAndHighlightNeighbors()
+    {
+        if (mesh == null || voxelGrid == null || Camera.main == null)
+        {
+            UnityEngine.Debug.LogWarning("Mesh, VoxelGrid, or Main Camera is not available.");
+            return;
+        }
+
+        Ray ray = Camera.main.ScreenPointToRay(Input.mousePosition);
+        float minDistanceSq = float.MaxValue;
+        int closestPointIndex = -1;
+
+        for (int i = 0; i < currentVertices.Length; i++)
+        {
+            float distanceSq = Vector3.Cross(ray.direction, currentVertices[i] - ray.origin).sqrMagnitude;
+            if (distanceSq < minDistanceSq)
+            {
+                minDistanceSq = distanceSq;
+                closestPointIndex = i;
+            }
+        }
+
+        if (closestPointIndex != -1 && minDistanceSq < 0.01f)
+        {
+            UnityEngine.Debug.Log($"Closest point found at index: {closestPointIndex}.");
+
+            List<int> neighborIndices = voxelGrid.FindNeighbors(closestPointIndex, searchRadius);
+            UnityEngine.Debug.Log($"Found {neighborIndices.Count} neighbors using Voxel Grid.");
+
+            Color[] updatedColors = (Color[])originalColors.Clone();
+            updatedColors[closestPointIndex] = Color.magenta;
+
+            foreach (int index in neighborIndices)
+            {
+                updatedColors[index] = neighborColor;
+            }
+            mesh.colors = updatedColors;
+        }
     }
 }
