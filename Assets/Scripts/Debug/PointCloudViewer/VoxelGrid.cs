@@ -20,11 +20,7 @@ public class VoxelGrid
         for (int i = 0; i < originalPoints.Length; i++)
         {
             Vector3 point = originalPoints[i];
-            Vector3Int voxelIndex = new Vector3Int(
-                Mathf.FloorToInt(point.x / voxelSize),
-                Mathf.FloorToInt(point.y / voxelSize),
-                Mathf.FloorToInt(point.z / voxelSize)
-            );
+            Vector3Int voxelIndex = GetVoxelIndex(point);
 
             if (!grid.ContainsKey(voxelIndex))
             {
@@ -34,16 +30,21 @@ public class VoxelGrid
         }
     }
 
+    private Vector3Int GetVoxelIndex(Vector3 point)
+    {
+        return new Vector3Int(
+            Mathf.FloorToInt(point.x / voxelSize),
+            Mathf.FloorToInt(point.y / voxelSize),
+            Mathf.FloorToInt(point.z / voxelSize)
+        );
+    }
+
     public List<int> FindNeighbors(int pointIndex, float searchRadius)
     {
         List<int> neighbors = new List<int>();
         Vector3 searchPoint = originalPoints[pointIndex];
-        Vector3Int centerVoxelIndex = new Vector3Int(
-            Mathf.FloorToInt(searchPoint.x / voxelSize),
-            Mathf.FloorToInt(searchPoint.y / voxelSize),
-            Mathf.FloorToInt(searchPoint.z / voxelSize)
-        );
 
+        Vector3Int centerVoxelIndex = GetVoxelIndex(searchPoint);
         float searchRadiusSq = searchRadius * searchRadius;
 
         for (int x = -1; x <= 1; x++)

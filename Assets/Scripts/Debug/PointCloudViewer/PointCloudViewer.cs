@@ -2,6 +2,7 @@ using UnityEngine;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System;
 
 [RequireComponent(typeof(MeshFilter), typeof(MeshRenderer))]
 public class PointCloudViewer : MonoBehaviour
@@ -17,11 +18,11 @@ public class PointCloudViewer : MonoBehaviour
     };
 
     [Header("Rendering Settings")]
-    public float pointSize = 0.01f; // この変数は現在シェーダー側で利用される想定です。
+    public float pointSize = 0.01f;
 
     [Header("Outline")]
     [SerializeField] private GameObject outline;
-    [SerializeField] private Color outlineColor;
+    [SerializeField] private Color outlineColor = Color.white;
 
     [Header("Neighbor Search & Filtering")]
     [Tooltip("空間分割グリッドの各セルのサイズ")]
@@ -41,6 +42,7 @@ public class PointCloudViewer : MonoBehaviour
     private Mesh pointCloudMesh;
 
     private PCV_Data currentPointCloudData;
+    private PCV_Data originalPointCloudData;
     private PCV_Processor pointCloudProcessor;
 
     // Inspector state tracking
@@ -58,6 +60,7 @@ public class PointCloudViewer : MonoBehaviour
         meshRenderer.material = pointCloudMaterial;
 
         InitializeOutlineMaterials();
+
         RebuildPointCloud();
         SaveInspectorState();
     }
@@ -65,6 +68,11 @@ public class PointCloudViewer : MonoBehaviour
     private void Update()
     {
         if (!UnityEngine.Application.isPlaying) return;
+
+        if (pointCloudMaterial != null)
+        {
+            pointCloudMaterial.SetFloat("_PointSize", pointSize);
+        }
 
         if (HasInspectorStateChanged())
         {
@@ -87,11 +95,21 @@ public class PointCloudViewer : MonoBehaviour
     #region Core Logic
     public void RebuildPointCloud()
     {
-        currentPointCloudData = PCV_Loader.LoadFromFiles(fileSettings);
+        if (meshFilter == null)
+        {
+            meshFilter = GetComponent<MeshFilter>();
+            if (meshFilter == null) return;
+        }
+        
+        PCV_Data loadedData = PCV_Loader.LoadFromFiles(fileSettings);
+
         ClearMesh();
 
-        if (currentPointCloudData != null && currentPointCloudData.PointCount > 0)
+        if (loadedData != null && loadedData.PointCount > 0)
         {
+            currentPointCloudData = loadedData;
+            originalPointCloudData = loadedData;
+
             pointCloudProcessor = new PCV_Processor(currentPointCloudData, voxelSize);
             pointCloudMesh = PCV_MeshGenerator.CreatePointCloudMesh(currentPointCloudData.Vertices, currentPointCloudData.Colors);
             meshFilter.mesh = pointCloudMesh;
@@ -100,6 +118,8 @@ public class PointCloudViewer : MonoBehaviour
         else
         {
             pointCloudProcessor = null;
+            currentPointCloudData = null;
+            originalPointCloudData = null;
             UnityEngine.Debug.LogWarning("読み込む点群データが存在しません。");
         }
     }
@@ -161,6 +181,8 @@ public class PointCloudViewer : MonoBehaviour
 
         Ray ray = Camera.main.ScreenPointToRay(Input.mousePosition);
 
+        ResetHighlightColors();
+
         if (pointCloudProcessor.FindClosestPoint(ray, 0.1f, out int closestPointIndex))
         {
             UnityEngine.Debug.Log($"最近傍点がインデックス: {closestPointIndex} で見つかりました。");
@@ -171,10 +193,17 @@ public class PointCloudViewer : MonoBehaviour
         }
     }
 
+    private void ResetHighlightColors()
+    {
+        if (pointCloudMesh != null && currentPointCloudData != null && currentPointCloudData.PointCount > 0)
+        {
+            pointCloudMesh.colors = currentPointCloudData.Colors;
+        }
+    }
+
     private void HighlightPoints(int centerIndex, List<int> neighborIndices)
     {
         if (pointCloudMesh == null || currentPointCloudData == null) return;
-
         var updatedColors = (Color[])currentPointCloudData.Colors.Clone();
 
         if (centerIndex >= 0 && centerIndex < updatedColors.Length)
@@ -194,9 +223,15 @@ public class PointCloudViewer : MonoBehaviour
 
     private void ClearMesh()
     {
+        if (meshFilter == null)
+        {
+            meshFilter = GetComponent<MeshFilter>();
+            if (meshFilter == null) return;
+        }
+
         if (pointCloudMesh != null)
         {
-            Destroy(pointCloudMesh);
+            DestroyImmediate(pointCloudMesh);
             pointCloudMesh = null;
         }
         meshFilter.mesh = null;
