@@ -1,118 +1,208 @@
-using System.Collections.Generic;
-using System.IO;
 using UnityEngine;
-//using static System.Net.Mime.MediaTypeNames;
+using System.Collections;
+using System.Collections.Generic;
+using System.Diagnostics;
 
+[RequireComponent(typeof(MeshFilter), typeof(MeshRenderer))]
 public class PointCloudViewer : MonoBehaviour
 {
-    public string filePath1 = "Assets/HandTrakingData/PointCloudData/currentGlobalVerticesRight.txt";
-    public string filePath2 = "Assets/HandTrakingData/PointCloudData/currentGlobalVerticesLeft.txt";
-    public string filePath3 = "Assets/HandTrakingData/PointCloudData/currentGlobalVerticesBottom.txt";
-    public string filePath4 = "Assets/HandTrakingData/PointCloudData/currentGlobalVerticesTop.txt";
-    public float pointSize = 0.01f;
-
-    [Header("Use and Color per File")]
-    [SerializeField] public bool useFile1 = true;
-    [SerializeField] public Color color1 = Color.red;
-
-    [SerializeField] public bool useFile2 = false;
-    [SerializeField] public Color color2 = Color.green;
-
-    [SerializeField] public bool useFile3 = false;
-    [SerializeField] public Color color3 = Color.blue;
-
-    [SerializeField] public bool useFile4 = false;
-    [SerializeField] public Color color4 = Color.yellow;
-
-    [SerializeField] GameObject outline;
-    [SerializeField] Color outlineColor;
-
-    private Mesh mesh;
-
-    private bool lastUseFile1, lastUseFile2, lastUseFile3, lastUseFile4;
-    private Color lastColor1, lastColor2, lastColor3, lastColor4;
-
-    void Start()
+    #region Public Fields (Inspector)
+    [Header("Data Files")]
+    public FileSettings[] fileSettings = new FileSettings[4]
     {
-        if (UnityEngine.Application.isPlaying)
-        {
-            InitMaterials();
-            RebuildMesh();
-            SaveState();
-        }
-    }
+        new FileSettings { useFile = true,  filePath = "Assets/HandTrakingData/PointCloudData/currentGlobalVerticesRight.txt",  color = Color.red },
+        new FileSettings { useFile = false, filePath = "Assets/HandTrakingData/PointCloudData/currentGlobalVerticesLeft.txt",   color = Color.green },
+        new FileSettings { useFile = false, filePath = "Assets/HandTrakingData/PointCloudData/currentGlobalVerticesBottom.txt", color = Color.blue },
+        new FileSettings { useFile = false, filePath = "Assets/HandTrakingData/PointCloudData/currentGlobalVerticesTop.txt",    color = Color.yellow }
+    };
 
-    void Update()
+    [Header("Rendering Settings")]
+    public float pointSize = 0.01f; // この変数は現在シェーダー側で利用される想定です。
+
+    [Header("Outline")]
+    [SerializeField] private GameObject outline;
+    [SerializeField] private Color outlineColor;
+
+    [Header("Neighbor Search & Filtering")]
+    [Tooltip("空間分割グリッドの各セルのサイズ")]
+    [SerializeField] public float voxelSize = 0.05f;
+    [Tooltip("点の周囲で近傍点を探索する半径")]
+    [SerializeField] public float searchRadius = 0.1f;
+    [Tooltip("近傍点をハイライトする色")]
+    [SerializeField] public Color neighborColor = Color.cyan;
+    [Tooltip("ノイズと判断する近傍点の閾値")]
+    [SerializeField] public int neighborThreshold = 100;
+    #endregion
+
+    #region Private State
+    private MeshFilter meshFilter;
+    private MeshRenderer meshRenderer;
+    private Material pointCloudMaterial;
+    private Mesh pointCloudMesh;
+
+    private PCV_Data currentPointCloudData;
+    private PCV_Processor pointCloudProcessor;
+
+    // Inspector state tracking
+    private FileSettings[] lastFileSettings;
+    #endregion
+
+    #region Unity Lifecycle
+    private void Start()
     {
         if (!UnityEngine.Application.isPlaying) return;
 
-        if (HasChanged())
+        meshFilter = GetComponent<MeshFilter>();
+        meshRenderer = GetComponent<MeshRenderer>();
+        pointCloudMaterial = new Material(Shader.Find("Unlit/PointCloudViewer"));
+        meshRenderer.material = pointCloudMaterial;
+
+        InitializeOutlineMaterials();
+        RebuildPointCloud();
+        SaveInspectorState();
+    }
+
+    private void Update()
+    {
+        if (!UnityEngine.Application.isPlaying) return;
+
+        if (HasInspectorStateChanged())
         {
-            RebuildMesh();
-            SaveState();
+            RebuildPointCloud();
+            SaveInspectorState();
+        }
+
+        if (Input.GetMouseButtonDown(0))
+        {
+            HandleInteraction();
+        }
+
+        if (Input.GetKeyDown(KeyCode.F))
+        {
+            StartCoroutine(FilterNoiseCoroutine());
         }
     }
+    #endregion
 
-    private void SaveState()
+    #region Core Logic
+    public void RebuildPointCloud()
     {
-        lastUseFile1 = useFile1;
-        lastUseFile2 = useFile2;
-        lastUseFile3 = useFile3;
-        lastUseFile4 = useFile4;
+        currentPointCloudData = PCV_Loader.LoadFromFiles(fileSettings);
+        ClearMesh();
 
-        lastColor1 = color1;
-        lastColor2 = color2;
-        lastColor3 = color3;
-        lastColor4 = color4;
-    }
-
-    private bool HasChanged()
-    {
-        return useFile1 != lastUseFile1 || useFile2 != lastUseFile2 || useFile3 != lastUseFile3 || useFile4 != lastUseFile4 ||
-               color1 != lastColor1 || color2 != lastColor2 || color3 != lastColor3 || color4 != lastColor4;
-    }
-
-    public void RebuildMesh()
-    {
-        List<Vector3> allPoints = new List<Vector3>();
-        List<Color> allColors = new List<Color>();
-
-        if (useFile1) AddPointsWithColor(filePath1, color1, allPoints, allColors);
-        if (useFile2) AddPointsWithColor(filePath2, color2, allPoints, allColors);
-        if (useFile3) AddPointsWithColor(filePath3, color3, allPoints, allColors);
-        if (useFile4) AddPointsWithColor(filePath4, color4, allPoints, allColors);
-
-        if (mesh != null)
-            DestroyImmediate(mesh);
-
-        if (allPoints.Count > 0)
+        if (currentPointCloudData != null && currentPointCloudData.PointCount > 0)
         {
-            mesh = new Mesh();
-            mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
-
-            mesh.vertices = allPoints.ToArray();
-            mesh.colors = allColors.ToArray();
-
-            int[] indices = new int[allPoints.Count];
-            for (int i = 0; i < indices.Length; i++)
-                indices[i] = i;
-
-            mesh.SetIndices(indices, MeshTopology.Points, 0);
-            mesh.RecalculateBounds();
-
-            GetComponent<MeshFilter>().mesh = mesh;
-
-            var renderer = GetComponent<MeshRenderer>();
-            var mat = new Material(Shader.Find("Unlit/PointCloudViewer"));
-            renderer.material = mat;
+            pointCloudProcessor = new PCV_Processor(currentPointCloudData, voxelSize);
+            pointCloudMesh = PCV_MeshGenerator.CreatePointCloudMesh(currentPointCloudData.Vertices, currentPointCloudData.Colors);
+            meshFilter.mesh = pointCloudMesh;
+            UnityEngine.Debug.Log($"点群が {currentPointCloudData.PointCount} 点で再構築されました。");
         }
         else
         {
-            GetComponent<MeshFilter>().mesh = null;
+            pointCloudProcessor = null;
+            UnityEngine.Debug.LogWarning("読み込む点群データが存在しません。");
         }
     }
 
-    void InitMaterials()
+    public void StartNoiseFiltering()
+    {
+        StartCoroutine(FilterNoiseCoroutine());
+    }
+
+    private IEnumerator FilterNoiseCoroutine()
+    {
+        if (pointCloudProcessor == null)
+        {
+            UnityEngine.Debug.LogWarning("プロセッサーが初期化されていません。ノイズ除去は実行不可能です。");
+            yield break;
+        }
+
+        var stopwatch = Stopwatch.StartNew();
+        UnityEngine.Debug.Log($"ノイズ除去処理を開始します。(閾値: {neighborThreshold})");
+        int originalPointCount = currentPointCloudData.PointCount;
+
+        yield return pointCloudProcessor.FilterNoiseCoroutine(
+            searchRadius,
+            neighborThreshold,
+            filteredData =>
+            {
+                currentPointCloudData = filteredData;
+                ClearMesh();
+
+                if (currentPointCloudData != null && currentPointCloudData.PointCount > 0)
+                {
+                    pointCloudProcessor = new PCV_Processor(currentPointCloudData, voxelSize);
+                    pointCloudMesh = PCV_MeshGenerator.CreatePointCloudMesh(currentPointCloudData.Vertices, currentPointCloudData.Colors);
+                    meshFilter.mesh = pointCloudMesh;
+                    UnityEngine.Debug.Log("フィルタリングされた点群でメッシュとVoxel Gridを再構築しました。");
+                }
+                else
+                {
+                    pointCloudProcessor = null;
+                    UnityEngine.Debug.LogWarning("全ての点がノイズとして除去されました。メッシュは空になります。");
+                }
+
+                stopwatch.Stop();
+                long elapsedMilliseconds = stopwatch.ElapsedMilliseconds;
+                int filteredPointCount = (currentPointCloudData != null) ? currentPointCloudData.PointCount : 0;
+                UnityEngine.Debug.Log($"ノイズ除去処理が完了しました。処理時間: {elapsedMilliseconds} ms. 元の点数: {originalPointCount}, 除去後の点数: {filteredPointCount}");
+            });
+    }
+    #endregion
+
+    #region Helper & Interaction Methods
+    private void HandleInteraction()
+    {
+        if (pointCloudProcessor == null || Camera.main == null)
+        {
+            UnityEngine.Debug.LogWarning("プロセッサーまたはMain Cameraが利用できません。");
+            return;
+        }
+
+        Ray ray = Camera.main.ScreenPointToRay(Input.mousePosition);
+
+        if (pointCloudProcessor.FindClosestPoint(ray, 0.1f, out int closestPointIndex))
+        {
+            UnityEngine.Debug.Log($"最近傍点がインデックス: {closestPointIndex} で見つかりました。");
+            List<int> neighborIndices = pointCloudProcessor.FindNeighbors(closestPointIndex, searchRadius);
+            UnityEngine.Debug.Log($"Voxel Gridを使用して {neighborIndices.Count} 個の近傍点が見つかりました。");
+
+            HighlightPoints(closestPointIndex, neighborIndices);
+        }
+    }
+
+    private void HighlightPoints(int centerIndex, List<int> neighborIndices)
+    {
+        if (pointCloudMesh == null || currentPointCloudData == null) return;
+
+        var updatedColors = (Color[])currentPointCloudData.Colors.Clone();
+
+        if (centerIndex >= 0 && centerIndex < updatedColors.Length)
+        {
+            updatedColors[centerIndex] = Color.magenta;
+        }
+
+        foreach (int index in neighborIndices)
+        {
+            if (index >= 0 && index < updatedColors.Length)
+            {
+                updatedColors[index] = neighborColor;
+            }
+        }
+        pointCloudMesh.colors = updatedColors;
+    }
+
+    private void ClearMesh()
+    {
+        if (pointCloudMesh != null)
+        {
+            Destroy(pointCloudMesh);
+            pointCloudMesh = null;
+        }
+        meshFilter.mesh = null;
+    }
+
+    private void InitializeOutlineMaterials()
     {
         if (outline != null)
         {
@@ -125,36 +215,43 @@ public class PointCloudViewer : MonoBehaviour
             }
         }
     }
+    #endregion
 
-    void AddPointsWithColor(string path, Color color, List<Vector3> positions, List<Color> colors)
+    #region Inspector State Tracking
+    [System.Serializable]
+    public struct FileSettings
     {
-        var verts = LoadVerticesFromFile(path);
-        positions.AddRange(verts);
-        for (int i = 0; i < verts.Length; i++)
-            colors.Add(color);
+        public bool useFile;
+        public string filePath;
+        public Color color;
+
+        public bool IsDifferent(FileSettings other)
+        {
+            return useFile != other.useFile || color != other.color;
+        }
     }
 
-    Vector3[] LoadVerticesFromFile(string path)
+    private void SaveInspectorState()
     {
-        if (!File.Exists(path))
+        lastFileSettings = new FileSettings[fileSettings.Length];
+        for (int i = 0; i < fileSettings.Length; i++)
         {
-            UnityEngine.Debug.LogError($"File not found: {path}");
-            return new Vector3[0];
+            lastFileSettings[i] = fileSettings[i];
         }
+    }
 
-        List<Vector3> vertices = new List<Vector3>();
-        foreach (var line in File.ReadLines(path))
+    private bool HasInspectorStateChanged()
+    {
+        if (lastFileSettings == null || lastFileSettings.Length != fileSettings.Length) return true;
+
+        for (int i = 0; i < fileSettings.Length; i++)
         {
-            var parts = line.Split(',');
-            if (parts.Length == 3 &&
-                float.TryParse(parts[0], out float x) &&
-                float.TryParse(parts[1], out float y) &&
-                float.TryParse(parts[2], out float z))
+            if (fileSettings[i].IsDifferent(lastFileSettings[i]))
             {
-                vertices.Add(new Vector3(x, y, z));
+                return true;
             }
         }
-
-        return vertices.ToArray();
+        return false;
     }
+    #endregion
 }
