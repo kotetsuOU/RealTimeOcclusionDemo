@@ -1,6 +1,7 @@
 using UnityEngine;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics; // Stopwatchを使用するために追加
 
 [RequireComponent(typeof(MeshFilter), typeof(MeshRenderer))]
 public class PointCloudViewer : MonoBehaviour
@@ -36,6 +37,8 @@ public class PointCloudViewer : MonoBehaviour
     [SerializeField] public float searchRadius = 0.1f;
     [Tooltip("近傍点をハイライトする色")]
     [SerializeField] public Color neighborColor = Color.cyan;
+    [Tooltip("ノイズと判断する近傍点の閾値")]
+    [SerializeField] public int neighborThreshold = 100;
     #endregion
 
     #region Private State
@@ -138,9 +141,11 @@ public class PointCloudViewer : MonoBehaviour
             yield break;
         }
 
-        UnityEngine.Debug.Log("ノイズ除去処理を開始します。");
+        var stopwatch = new Stopwatch();
+        stopwatch.Start();
 
-        const int neighborThreshold = 100;
+        UnityEngine.Debug.Log($"ノイズ除去処理を開始します。(閾値: {neighborThreshold})");
+
         var filteredVertices = new List<Vector3>();
         var filteredColors = new List<Color>();
         int pointsPerFrame = 5000;
@@ -156,15 +161,18 @@ public class PointCloudViewer : MonoBehaviour
 
             if (i > 0 && i % pointsPerFrame == 0)
             {
-                yield return null; // 次のフレームまで待機
+                yield return null;
             }
         }
 
         yield return null;
 
+        stopwatch.Stop();
+        long elapsedMilliseconds = stopwatch.ElapsedMilliseconds;
+
         int originalPointCount = currentVertices.Length;
         int filteredPointCount = filteredVertices.Count;
-        UnityEngine.Debug.Log($"ノイズ除去処理が完了しました。元の点数: {originalPointCount}, 除去後の点数: {filteredPointCount}");
+        UnityEngine.Debug.Log($"ノイズ除去処理が完了しました。処理時間: {elapsedMilliseconds} ms. 元の点数: {originalPointCount}, 除去後の点数: {filteredPointCount}");
 
         if (pointCloudMesh != null)
         {

@@ -21,7 +21,7 @@ public class PointCloudViewerEditor : Editor
 
     SerializedProperty outlineProp, outlineColorProp;
 
-    SerializedProperty voxelSizeProp, searchRadiusProp, neighborColorProp;
+    SerializedProperty voxelSizeProp, searchRadiusProp, neighborColorProp, neighborThresholdProp;
 
     void OnEnable()
     {
@@ -46,6 +46,7 @@ public class PointCloudViewerEditor : Editor
         voxelSizeProp = serializedObject.FindProperty("voxelSize");
         searchRadiusProp = serializedObject.FindProperty("searchRadius");
         neighborColorProp = serializedObject.FindProperty("neighborColor");
+        neighborThresholdProp = serializedObject.FindProperty("neighborThreshold");
     }
 
     public override void OnInspectorGUI()
@@ -135,11 +136,12 @@ public class PointCloudViewerEditor : Editor
             EditorGUILayout.PropertyField(voxelSizeProp, new GUIContent("Voxel Size"));
             EditorGUILayout.PropertyField(searchRadiusProp, new GUIContent("Search Radius"));
             EditorGUILayout.PropertyField(neighborColorProp, new GUIContent("Neighbor Color"));
+            EditorGUILayout.PropertyField(neighborThresholdProp, new GUIContent("Neighbor Threshold"));
 
             EditorGUILayout.Space();
 
             GUI.backgroundColor = new Color(0.6f, 0.8f, 1f);
-            if (GUILayout.Button("ノイズ除去を実行 (閾値100)"))
+            if (GUILayout.Button("ノイズ除去を実行"))
             {
                 if (UnityEngine.Application.isPlaying)
                 {
