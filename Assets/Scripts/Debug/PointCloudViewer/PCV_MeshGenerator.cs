@@ -1,7 +1,5 @@
 using UnityEngine;
 using System.Collections.Generic;
-using System;
-
 
 public static class PCV_MeshGenerator
 {
@@ -13,7 +11,10 @@ public static class PCV_MeshGenerator
         }
 
         var mesh = new Mesh();
-        mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
+        if (vertices.Length > 65535)
+        {
+            mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
+        }
 
         mesh.SetVertices(vertices);
         mesh.SetColors(colors);

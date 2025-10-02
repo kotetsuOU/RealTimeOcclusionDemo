@@ -1,0 +1,48 @@
+#pragma kernel CSMain
+
+struct Point
+{
+    float3 position;
+    float4 color;
+};
+
+StructuredBuffer<Point> _Points;
+AppendStructuredBuffer<Point> _FilteredPoints;
+
+int _PointCount;
+float _SearchRadius;
+int _NeighborThreshold;
+
+[numthreads(64, 1, 1)]
+void CSMain(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= _PointCount)
+    {
+        return;
+    }
+
+    Point currentPoint = _Points[id.x];
+    int neighborCount = 0;
+    float searchRadiusSq = _SearchRadius * _SearchRadius;
+
+    for (int i = 0; i < _PointCount; i++)
+    {
+        if (id.x == i)
+        {
+            continue;
+        }
+        
+        float3 diff = currentPoint.position - _Points[i].position;
+        float distSq = dot(diff, diff);
+
+        if (distSq <= searchRadiusSq)
+        {
+            neighborCount++;
+        }
+    }
+
+    if (neighborCount >= _NeighborThreshold)
+    {
+        _FilteredPoints.Append(currentPoint);
+    }
+}
