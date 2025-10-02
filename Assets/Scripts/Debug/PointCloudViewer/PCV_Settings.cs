@@ -27,7 +27,7 @@ public class PCV_Settings : MonoBehaviour
     [Header("Rendering Settings")]
     public float pointSize = 0.01f;
 
-    [Header("Outline")]
+    [Header("Outline Settings")]
     public GameObject outline;
     public Color outlineColor = Color.white;
 

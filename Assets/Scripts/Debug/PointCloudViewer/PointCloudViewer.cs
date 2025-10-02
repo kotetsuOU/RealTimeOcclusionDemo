@@ -23,6 +23,14 @@ public class PointCloudViewer : MonoBehaviour
     {
         settings = GetComponent<PCV_Settings>();
         pointCloudRenderer = GetComponent<PCV_Renderer>();
+        if (settings != null)
+        {
+            settings.hideFlags = HideFlags.HideInInspector;
+        }
+        if (pointCloudRenderer != null)
+        {
+            pointCloudRenderer.hideFlags = HideFlags.HideInInspector;
+        }
     }
 
     private void Start()

@@ -41,11 +41,9 @@ public class PointCloudViewerEditor : Editor
         }
         settingsObject.Update();
 
-        EditorGUILayout.LabelField("Rendering Settings", EditorStyles.boldLabel);
         EditorGUILayout.PropertyField(pointSizeProp);
         EditorGUILayout.Space();
 
-        EditorGUILayout.LabelField("Data Files", EditorStyles.boldLabel);
         EditorGUILayout.PropertyField(fileSettingsProp, true);
         EditorGUILayout.Space();
 
@@ -61,19 +59,16 @@ public class PointCloudViewerEditor : Editor
         EditorGUILayout.Space();
         GUI.backgroundColor = Color.white;
 
-        EditorGUILayout.LabelField("Outline Settings", EditorStyles.boldLabel);
         EditorGUILayout.PropertyField(outlineProp);
         EditorGUILayout.PropertyField(outlineColorProp);
         EditorGUILayout.Space();
 
-        EditorGUILayout.LabelField("Neighbor Search & Filtering", EditorStyles.boldLabel);
         EditorGUILayout.PropertyField(voxelSizeProp);
         EditorGUILayout.PropertyField(searchRadiusProp);
         EditorGUILayout.PropertyField(neighborColorProp);
         EditorGUILayout.PropertyField(neighborThresholdProp);
         EditorGUILayout.Space();
 
-        EditorGUILayout.LabelField("GPU Acceleration", EditorStyles.boldLabel);
         EditorGUILayout.PropertyField(pointCloudFilterShaderProp);
 
         GUI.backgroundColor = new Color(0.6f, 0.8f, 1f);
