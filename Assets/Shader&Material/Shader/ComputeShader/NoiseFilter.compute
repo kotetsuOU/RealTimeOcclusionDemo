@@ -1,0 +1,33 @@
+#pragma kernel FindNeighborsAndFilter
+
+StructuredBuffer<float3> InputVertices;
+RWStructuredBuffer<uint> KeepFlags;
+
+uint PointCount;
+float VoxelSize;
+float SearchRadiusSq;
+uint NeighborThreshold;
+
+int3 GetVoxelIndex(float3 p)
+{
+    return (int3) (floor(p / VoxelSize));
+}
+
+[numthreads(64, 1, 1)]
+void FindNeighborsAndFilter(uint id : SV_DispatchThreadID)
+{
+    if (id >= PointCount)
+        return;
+
+    float3 currentPoint = InputVertices[id];
+    uint neighborCount = 0;
+        
+    if (neighborCount >= NeighborThreshold)
+    {
+        KeepFlags[id] = 1;
+    }
+    else
+    {
+        KeepFlags[id] = 0;
+    }
+}

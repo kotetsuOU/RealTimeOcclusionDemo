@@ -1,4 +1,4 @@
-using System;
+ï»¿using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -77,13 +77,13 @@ public class PCV_Processor
                 float progress = (float)(i + 1) / totalPoints;
                 int percent = Mathf.FloorToInt(progress * 100);
 
-                UnityEngine.Debug.Log($"ƒmƒCƒYœ‹ˆ—’†: {percent}% Š®—¹ ({i + 1}/{totalPoints} “_ˆ—Ï‚İ)");
+                UnityEngine.Debug.Log($"ãƒã‚¤ã‚ºé™¤å»å‡¦ç†ä¸­: {percent}% å®Œäº† ({i + 1}/{totalPoints} ç‚¹å‡¦ç†æ¸ˆã¿)");
 
                 yield return null;
             }
         }
 
-        UnityEngine.Debug.Log($"ƒmƒCƒYœ‹ˆ—: 100% Š®—¹ ({totalPoints}/{totalPoints} “_ˆ—Ï‚İ)");
+        UnityEngine.Debug.Log($"ãƒã‚¤ã‚ºé™¤å»å‡¦ç†: 100% å®Œäº† ({totalPoints}/{totalPoints} ç‚¹å‡¦ç†æ¸ˆã¿)");
 
         onComplete?.Invoke(new PCV_Data(filteredVertices, filteredColors));
     }
