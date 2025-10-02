@@ -6,7 +6,7 @@ using System.Globalization;
 
 public static class PCV_Loader
 {
-    public static PCV_Data LoadFromFiles(PointCloudViewer.FileSettings[] settings)
+    public static PCV_Data LoadFromFiles(FileSettings[] settings)
     {
         var allPoints = new List<Vector3>();
         var allColors = new List<Color>();
