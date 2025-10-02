@@ -33,8 +33,10 @@ public class PointCloudViewer : MonoBehaviour
     [SerializeField] public Color neighborColor = Color.cyan;
     [Tooltip("ノイズと判断する近傍点の閾値")]
     [SerializeField] public int neighborThreshold = 100;
-    #endregion
 
+    [Header("GPU Acceleration")]
+    [SerializeField] private ComputeShader pointCloudFilterShader;
+    #endregion
     #region Private State
     private MeshFilter meshFilter;
     private MeshRenderer meshRenderer;
@@ -45,7 +47,6 @@ public class PointCloudViewer : MonoBehaviour
     private PCV_Data originalPointCloudData;
     private PCV_Processor pointCloudProcessor;
 
-    // Inspector state tracking
     private FileSettings[] lastFileSettings;
     #endregion
 
@@ -87,7 +88,7 @@ public class PointCloudViewer : MonoBehaviour
 
         if (Input.GetKeyDown(KeyCode.F))
         {
-            StartCoroutine(FilterNoiseCoroutine());
+            StartNoiseFiltering();
         }
     }
     #endregion
@@ -100,7 +101,7 @@ public class PointCloudViewer : MonoBehaviour
             meshFilter = GetComponent<MeshFilter>();
             if (meshFilter == null) return;
         }
-        
+
         PCV_Data loadedData = PCV_Loader.LoadFromFiles(fileSettings);
 
         ClearMesh();
@@ -126,19 +127,44 @@ public class PointCloudViewer : MonoBehaviour
 
     public void StartNoiseFiltering()
     {
-        StartCoroutine(FilterNoiseCoroutine());
-    }
-
-    private IEnumerator FilterNoiseCoroutine()
-    {
         if (pointCloudProcessor == null)
         {
             UnityEngine.Debug.LogWarning("プロセッサーが初期化されていません。ノイズ除去は実行不可能です。");
-            yield break;
+            return;
         }
 
+        if (pointCloudFilterShader != null)
+        {
+            ExecuteNoiseFilteringGPU();
+        }
+        else
+        {
+            UnityEngine.Debug.LogWarning("Compute Shaderが設定されていません。CPUで処理を実行します。");
+            StartCoroutine(FilterNoiseCoroutine());
+        }
+    }
+
+    private void ExecuteNoiseFilteringGPU()
+    {
+        UnityEngine.Debug.Log($"GPUによるノイズ除去処理を開始します。(閾値: {neighborThreshold})");
+        int originalPointCount = currentPointCloudData.PointCount;
+
+        PCV_Data filteredData = pointCloudProcessor.FilterNoiseGPU(
+            pointCloudFilterShader,
+            searchRadius,
+            neighborThreshold,
+            out long elapsedMilliseconds
+        );
+
+        UpdatePointCloud(filteredData);
+
+        int filteredPointCount = (currentPointCloudData != null) ? currentPointCloudData.PointCount : 0;
+        UnityEngine.Debug.Log($"ノイズ除去処理が完了しました。処理時間: {elapsedMilliseconds} ms. 元の点数: {originalPointCount}, 除去後の点数: {filteredPointCount}");
+    }
+    private IEnumerator FilterNoiseCoroutine()
+    {
         var stopwatch = Stopwatch.StartNew();
-        UnityEngine.Debug.Log($"ノイズ除去処理を開始します。(閾値: {neighborThreshold})");
+        UnityEngine.Debug.Log($"CPUによるノイズ除去処理を開始します。(閾値: {neighborThreshold})");
         int originalPointCount = currentPointCloudData.PointCount;
 
         yield return pointCloudProcessor.FilterNoiseCoroutine(
@@ -146,21 +172,7 @@ public class PointCloudViewer : MonoBehaviour
             neighborThreshold,
             filteredData =>
             {
-                currentPointCloudData = filteredData;
-                ClearMesh();
-
-                if (currentPointCloudData != null && currentPointCloudData.PointCount > 0)
-                {
-                    pointCloudProcessor = new PCV_Processor(currentPointCloudData, voxelSize);
-                    pointCloudMesh = PCV_MeshGenerator.CreatePointCloudMesh(currentPointCloudData.Vertices, currentPointCloudData.Colors);
-                    meshFilter.mesh = pointCloudMesh;
-                    UnityEngine.Debug.Log("フィルタリングされた点群でメッシュとVoxel Gridを再構築しました。");
-                }
-                else
-                {
-                    pointCloudProcessor = null;
-                    UnityEngine.Debug.LogWarning("全ての点がノイズとして除去されました。メッシュは空になります。");
-                }
+                UpdatePointCloud(filteredData);
 
                 stopwatch.Stop();
                 long elapsedMilliseconds = stopwatch.ElapsedMilliseconds;
@@ -168,8 +180,26 @@ public class PointCloudViewer : MonoBehaviour
                 UnityEngine.Debug.Log($"ノイズ除去処理が完了しました。処理時間: {elapsedMilliseconds} ms. 元の点数: {originalPointCount}, 除去後の点数: {filteredPointCount}");
             });
     }
-    #endregion
 
+    private void UpdatePointCloud(PCV_Data data)
+    {
+        currentPointCloudData = data;
+        ClearMesh();
+
+        if (currentPointCloudData != null && currentPointCloudData.PointCount > 0)
+        {
+            pointCloudProcessor = new PCV_Processor(currentPointCloudData, voxelSize);
+            pointCloudMesh = PCV_MeshGenerator.CreatePointCloudMesh(currentPointCloudData.Vertices, currentPointCloudData.Colors);
+            meshFilter.mesh = pointCloudMesh;
+            UnityEngine.Debug.Log("フィルタリングされた点群でメッシュとVoxel Gridを再構築しました。");
+        }
+        else
+        {
+            pointCloudProcessor = null;
+            UnityEngine.Debug.LogWarning("全ての点がノイズとして除去されました。メッシュは空になります。");
+        }
+    }
+    #endregion
     #region Helper & Interaction Methods
     private void HandleInteraction()
     {

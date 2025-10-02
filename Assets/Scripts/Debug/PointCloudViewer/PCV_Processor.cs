@@ -58,14 +58,11 @@ public class PCV_Processor
 
         var filteredVertices = new List<Vector3>();
         var filteredColors = new List<Color>();
-        int pointsPerFrame = 3000;
+        int pointsPerFrame = 5000;
 
-        int totalPoints = data.PointCount;
-
-        for (int i = 0; i < totalPoints; i++)
+        for (int i = 0; i < data.PointCount; i++)
         {
             List<int> neighbors = voxelGrid.FindNeighbors(i, searchRadius);
-
             if (neighbors.Count >= threshold)
             {
                 filteredVertices.Add(data.Vertices[i]);
@@ -74,17 +71,80 @@ public class PCV_Processor
 
             if (i > 0 && (i + 1) % pointsPerFrame == 0)
             {
-                float progress = (float)(i + 1) / totalPoints;
-                int percent = Mathf.FloorToInt(progress * 100);
-
-                UnityEngine.Debug.Log($"ノイズ除去処理中: {percent}% 完了 ({i + 1}/{totalPoints} 点処理済み)");
-
                 yield return null;
             }
         }
-
-        UnityEngine.Debug.Log($"ノイズ除去処理: 100% 完了 ({totalPoints}/{totalPoints} 点処理済み)");
-
         onComplete?.Invoke(new PCV_Data(filteredVertices, filteredColors));
+    }
+
+    private struct Point
+    {
+        public Vector3 position;
+        public Color color;
+    }
+
+    public PCV_Data FilterNoiseGPU(ComputeShader computeShader, float searchRadius, int threshold, out long elapsedMilliseconds)
+    {
+        var stopwatch = Stopwatch.StartNew();
+
+        if (data == null || data.PointCount == 0)
+        {
+            stopwatch.Stop();
+            elapsedMilliseconds = stopwatch.ElapsedMilliseconds;
+            return new PCV_Data(new List<Vector3>(), new List<Color>());
+        }
+
+        var pointData = new Point[data.PointCount];
+        for (int i = 0; i < data.PointCount; i++)
+        {
+            pointData[i] = new Point { position = data.Vertices[i], color = data.Colors[i] };
+        }
+
+        int pointStructSize = sizeof(float) * 3 + sizeof(float) * 4;
+        var pointsBuffer = new ComputeBuffer(data.PointCount, pointStructSize);
+        pointsBuffer.SetData(pointData);
+
+        var filteredPointsBuffer = new ComputeBuffer(data.PointCount, pointStructSize, ComputeBufferType.Append);
+        filteredPointsBuffer.SetCounterValue(0);
+
+        int kernel = computeShader.FindKernel("CSMain");
+        computeShader.SetInt("_PointCount", data.PointCount);
+        computeShader.SetFloat("_SearchRadius", searchRadius);
+        computeShader.SetInt("_NeighborThreshold", threshold);
+        computeShader.SetBuffer(kernel, "_Points", pointsBuffer);
+        computeShader.SetBuffer(kernel, "_FilteredPoints", filteredPointsBuffer);
+
+        int threadGroups = Mathf.CeilToInt(data.PointCount / 64.0f);
+        computeShader.Dispatch(kernel, threadGroups, 1, 1);
+
+        var countBuffer = new ComputeBuffer(1, sizeof(int), ComputeBufferType.Raw);
+        ComputeBuffer.CopyCount(filteredPointsBuffer, countBuffer, 0);
+        int[] countArray = { 0 };
+        countBuffer.GetData(countArray);
+        int filteredPointCount = countArray[0];
+
+        var filteredVertices = new List<Vector3>();
+        var filteredColors = new List<Color>();
+
+        if (filteredPointCount > 0)
+        {
+            var filteredPointData = new Point[filteredPointCount];
+            filteredPointsBuffer.GetData(filteredPointData, 0, 0, filteredPointCount);
+
+            for (int i = 0; i < filteredPointCount; i++)
+            {
+                filteredVertices.Add(filteredPointData[i].position);
+                filteredColors.Add(filteredPointData[i].color);
+            }
+        }
+
+        pointsBuffer.Release();
+        filteredPointsBuffer.Release();
+        countBuffer.Release();
+
+        stopwatch.Stop();
+        elapsedMilliseconds = stopwatch.ElapsedMilliseconds;
+
+        return new PCV_Data(filteredVertices, filteredColors);
     }
 }

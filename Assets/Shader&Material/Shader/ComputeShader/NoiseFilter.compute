@@ -1,33 +1,48 @@
-#pragma kernel FindNeighborsAndFilter
+#pragma kernel CSMain
 
-StructuredBuffer<float3> InputVertices;
-RWStructuredBuffer<uint> KeepFlags;
-
-uint PointCount;
-float VoxelSize;
-float SearchRadiusSq;
-uint NeighborThreshold;
-
-int3 GetVoxelIndex(float3 p)
+struct Point
 {
-    return (int3) (floor(p / VoxelSize));
-}
+    float3 position;
+    float4 color;
+};
+
+StructuredBuffer<Point> _Points;
+AppendStructuredBuffer<Point> _FilteredPoints;
+
+int _PointCount;
+float _SearchRadius;
+int _NeighborThreshold;
 
 [numthreads(64, 1, 1)]
-void FindNeighborsAndFilter(uint id : SV_DispatchThreadID)
+void CSMain(uint3 id : SV_DispatchThreadID)
 {
-    if (id >= PointCount)
+    if (id.x >= _PointCount)
+    {
         return;
-
-    float3 currentPoint = InputVertices[id];
-    uint neighborCount = 0;
-        
-    if (neighborCount >= NeighborThreshold)
-    {
-        KeepFlags[id] = 1;
     }
-    else
+
+    Point currentPoint = _Points[id.x];
+    int neighborCount = 0;
+    float searchRadiusSq = _SearchRadius * _SearchRadius;
+
+    for (int i = 0; i < _PointCount; i++)
     {
-        KeepFlags[id] = 0;
+        if (id.x == i)
+        {
+            continue;
+        }
+        
+        float3 diff = currentPoint.position - _Points[i].position;
+        float distSq = dot(diff, diff);
+
+        if (distSq <= searchRadiusSq)
+        {
+            neighborCount++;
+        }
+    }
+
+    if (neighborCount >= _NeighborThreshold)
+    {
+        _FilteredPoints.Append(currentPoint);
     }
 }

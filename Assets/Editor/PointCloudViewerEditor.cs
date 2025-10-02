@@ -9,6 +9,7 @@ public class PointCloudViewerEditor : Editor
     SerializedProperty pointSizeProp;
     SerializedProperty outlineProp, outlineColorProp;
     SerializedProperty voxelSizeProp, searchRadiusProp, neighborColorProp, neighborThresholdProp;
+    SerializedProperty pointCloudFilterShaderProp;
 
     void OnEnable()
     {
@@ -20,6 +21,7 @@ public class PointCloudViewerEditor : Editor
         searchRadiusProp = serializedObject.FindProperty("searchRadius");
         neighborColorProp = serializedObject.FindProperty("neighborColor");
         neighborThresholdProp = serializedObject.FindProperty("neighborThreshold");
+        pointCloudFilterShaderProp = serializedObject.FindProperty("pointCloudFilterShader");
     }
 
     public override void OnInspectorGUI()
@@ -62,12 +64,15 @@ public class PointCloudViewerEditor : Editor
         EditorGUILayout.PropertyField(outlineColorProp);
         EditorGUILayout.Space();
 
-
         EditorGUILayout.LabelField("Neighbor Search & Filtering", EditorStyles.boldLabel);
         EditorGUILayout.PropertyField(voxelSizeProp);
         EditorGUILayout.PropertyField(searchRadiusProp);
         EditorGUILayout.PropertyField(neighborColorProp);
         EditorGUILayout.PropertyField(neighborThresholdProp);
+
+        EditorGUILayout.Space();
+        EditorGUILayout.LabelField("GPU Acceleration", EditorStyles.boldLabel);
+        EditorGUILayout.PropertyField(pointCloudFilterShaderProp);
 
         GUI.backgroundColor = new Color(0.6f, 0.8f, 1f);
         if (GUILayout.Button("ノイズ除去を実行"))
@@ -81,8 +86,8 @@ public class PointCloudViewerEditor : Editor
                 UnityEngine.Debug.LogWarning("ノイズ除去はプレイモード中のみ実行可能です。");
             }
         }
-        
-        GUI.backgroundColor = new Color(0.6f, 0.8f, 1f);
+
+        GUI.backgroundColor = Color.white;
 
         serializedObject.ApplyModifiedProperties();
     }
