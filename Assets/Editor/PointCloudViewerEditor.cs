@@ -4,30 +4,42 @@ using UnityEngine;
 [CustomEditor(typeof(PointCloudViewer))]
 public class PointCloudViewerEditor : Editor
 {
-    // SerializedProperties
-    SerializedProperty fileSettingsProp;
-    SerializedProperty pointSizeProp;
-    SerializedProperty outlineProp, outlineColorProp;
-    SerializedProperty voxelSizeProp, searchRadiusProp, neighborColorProp, neighborThresholdProp;
-    SerializedProperty pointCloudFilterShaderProp;
+    private PointCloudViewer viewer;
+    private SerializedObject settingsObject;
+
+    private SerializedProperty fileSettingsProp;
+    private SerializedProperty pointSizeProp;
+    private SerializedProperty outlineProp, outlineColorProp;
+    private SerializedProperty voxelSizeProp, searchRadiusProp, neighborColorProp, neighborThresholdProp;
+    private SerializedProperty pointCloudFilterShaderProp;
 
     void OnEnable()
     {
-        fileSettingsProp = serializedObject.FindProperty("fileSettings");
-        pointSizeProp = serializedObject.FindProperty("pointSize");
-        outlineProp = serializedObject.FindProperty("outline");
-        outlineColorProp = serializedObject.FindProperty("outlineColor");
-        voxelSizeProp = serializedObject.FindProperty("voxelSize");
-        searchRadiusProp = serializedObject.FindProperty("searchRadius");
-        neighborColorProp = serializedObject.FindProperty("neighborColor");
-        neighborThresholdProp = serializedObject.FindProperty("neighborThreshold");
-        pointCloudFilterShaderProp = serializedObject.FindProperty("pointCloudFilterShader");
+        viewer = (PointCloudViewer)target;
+        var settingsComponent = viewer.GetComponent<PCV_Settings>();
+        if (settingsComponent != null)
+        {
+            settingsObject = new SerializedObject(settingsComponent);
+            fileSettingsProp = settingsObject.FindProperty("fileSettings");
+            pointSizeProp = settingsObject.FindProperty("pointSize");
+            outlineProp = settingsObject.FindProperty("outline");
+            outlineColorProp = settingsObject.FindProperty("outlineColor");
+            voxelSizeProp = settingsObject.FindProperty("voxelSize");
+            searchRadiusProp = settingsObject.FindProperty("searchRadius");
+            neighborColorProp = settingsObject.FindProperty("neighborColor");
+            neighborThresholdProp = settingsObject.FindProperty("neighborThreshold");
+            pointCloudFilterShaderProp = settingsObject.FindProperty("pointCloudFilterShader");
+        }
     }
 
     public override void OnInspectorGUI()
     {
-        serializedObject.Update();
-        PointCloudViewer viewer = (PointCloudViewer)target;
+        if (settingsObject == null)
+        {
+            EditorGUILayout.HelpBox("PCV_Settings component is missing.", MessageType.Error);
+            return;
+        }
+        settingsObject.Update();
 
         EditorGUILayout.LabelField("Rendering Settings", EditorStyles.boldLabel);
         EditorGUILayout.PropertyField(pointSizeProp);
@@ -39,24 +51,14 @@ public class PointCloudViewerEditor : Editor
 
         EditorGUILayout.BeginHorizontal();
         GUI.backgroundColor = new Color(0.6f, 1f, 0.6f);
-        if (GUILayout.Button("すべてON"))
-        {
-            SetAllFileUsage(true);
-        }
+        if (GUILayout.Button("すべてON")) SetAllFileUsage(true);
         GUI.backgroundColor = new Color(1f, 0.6f, 0.6f);
-        if (GUILayout.Button("すべてOFF"))
-        {
-            SetAllFileUsage(false);
-        }
+        if (GUILayout.Button("すべてOFF")) SetAllFileUsage(false);
         EditorGUILayout.EndHorizontal();
 
         GUI.backgroundColor = new Color(0.8f, 0.8f, 0.6f);
-        if (GUILayout.Button("点群を再構築"))
-        {
-            viewer.RebuildPointCloud();
-        }
+        if (GUILayout.Button("点群を再構築")) viewer.RebuildPointCloud();
         EditorGUILayout.Space();
-
         GUI.backgroundColor = Color.white;
 
         EditorGUILayout.LabelField("Outline Settings", EditorStyles.boldLabel);
@@ -69,8 +71,8 @@ public class PointCloudViewerEditor : Editor
         EditorGUILayout.PropertyField(searchRadiusProp);
         EditorGUILayout.PropertyField(neighborColorProp);
         EditorGUILayout.PropertyField(neighborThresholdProp);
-
         EditorGUILayout.Space();
+
         EditorGUILayout.LabelField("GPU Acceleration", EditorStyles.boldLabel);
         EditorGUILayout.PropertyField(pointCloudFilterShaderProp);
 
@@ -86,10 +88,9 @@ public class PointCloudViewerEditor : Editor
                 UnityEngine.Debug.LogWarning("ノイズ除去はプレイモード中のみ実行可能です。");
             }
         }
-
         GUI.backgroundColor = Color.white;
 
-        serializedObject.ApplyModifiedProperties();
+        settingsObject.ApplyModifiedProperties();
     }
 
     private void SetAllFileUsage(bool value)
