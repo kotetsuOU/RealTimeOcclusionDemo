@@ -61,11 +61,8 @@ public class PointCloudViewerEditor : Editor
 
         GUI.backgroundColor = new Color(0.8f, 0.8f, 0.6f);
         if (GUILayout.Button("点群を再構築")) viewer.RebuildPointCloud();
-        EditorGUILayout.Space();
         GUI.backgroundColor = Color.white;
 
-        EditorGUILayout.PropertyField(outlineProp);
-        EditorGUILayout.PropertyField(outlineColorProp);
         EditorGUILayout.Space();
 
         EditorGUILayout.PropertyField(voxelSizeProp);
@@ -81,8 +78,9 @@ public class PointCloudViewerEditor : Editor
         EditorGUILayout.PropertyField(pointCloudFilterShaderProp);
         EditorGUILayout.PropertyField(morpologyOperationShaderProp);
 
+        EditorGUILayout.BeginHorizontal();
         GUI.backgroundColor = new Color(0.6f, 0.8f, 1f);
-        if (GUILayout.Button("ノイズ除去を実行"))
+        if (GUILayout.Button("近傍探索ノイズ除去を実行"))
         {
             if (UnityEngine.Application.isPlaying)
             {
@@ -90,10 +88,28 @@ public class PointCloudViewerEditor : Editor
             }
             else
             {
-                UnityEngine.Debug.LogWarning("ノイズ除去はプレイモード中のみ実行可能です。");
+                UnityEngine.Debug.LogWarning("近傍探索ノイズ除去はプレイモード中のみ実行可能です。");
+            }
+        }
+        GUI.backgroundColor = new Color(1f, 0.8f, 0.6f);
+        if (GUILayout.Button("モルフォロジー演算を実行 (Morpology)"))
+        {
+            if (UnityEngine.Application.isPlaying)
+            {
+                viewer.StartMorpologyOperation();
+            }
+            else
+            {
+                UnityEngine.Debug.LogWarning("モルフォロジー演算はプレイモード中のみ実行可能です。");
             }
         }
         GUI.backgroundColor = Color.white;
+        EditorGUILayout.EndHorizontal();
+
+        EditorGUILayout.Space();
+
+        EditorGUILayout.PropertyField(outlineProp);
+        EditorGUILayout.PropertyField(outlineColorProp);
 
         settingsObject.ApplyModifiedProperties();
     }

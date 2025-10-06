@@ -87,7 +87,26 @@ public class PointCloudViewer : MonoBehaviour
     {
         if (pointCloudProcessor == null)
         {
-            UnityEngine.Debug.LogWarning("プロセッサーが初期化されていません。ノイズ除去は実行不可能です。");
+            UnityEngine.Debug.LogWarning("プロセッサーが初期化されていません。処理は実行不可能です。");
+            return;
+        }
+
+        if (settings.pointCloudFilterShader != null)
+        {
+            ExecuteNoiseFilteringGPU();
+        }
+        else
+        {
+            UnityEngine.Debug.LogWarning("近傍探索ノイズフィルターCompute Shaderが設定されていません。CPUで処理を実行します。");
+            StartCoroutine(FilterNoiseCoroutine());
+        }
+    }
+
+    public void StartMorpologyOperation()
+    {
+        if (pointCloudProcessor == null)
+        {
+            UnityEngine.Debug.LogWarning("プロセッサーが初期化されていません。処理は実行不可能です。");
             return;
         }
 
@@ -95,20 +114,15 @@ public class PointCloudViewer : MonoBehaviour
         {
             ExecuteMorpologyOperationGPU();
         }
-        else if (settings.pointCloudFilterShader != null)
-        {
-            ExecuteNoiseFilteringGPU();
-        }
         else
         {
-            UnityEngine.Debug.LogWarning("Compute Shaderが設定されていません。CPUで処理を実行します。");
-            StartCoroutine(FilterNoiseCoroutine());
+            UnityEngine.Debug.LogWarning("モルフォロジー演算Compute Shaderが設定されていません。");
         }
     }
 
     private void ExecuteNoiseFilteringGPU()
     {
-        UnityEngine.Debug.Log($"GPUによるノイズ除去処理を開始します。(閾値: {settings.neighborThreshold})");
+        UnityEngine.Debug.Log($"GPUによる近傍探索ノイズ除去処理を開始します。(閾値: {settings.neighborThreshold})");
         int originalPointCount = currentPointCloudData.PointCount;
 
         PCV_Data filteredData = pointCloudProcessor.FilterNoiseGPU(
@@ -121,7 +135,7 @@ public class PointCloudViewer : MonoBehaviour
         UpdatePointCloudAfterFiltering(filteredData);
 
         int filteredPointCount = (currentPointCloudData != null) ? currentPointCloudData.PointCount : 0;
-        UnityEngine.Debug.Log($"ノイズ除去処理が完了しました。処理時間: {elapsedMilliseconds} ms. 元の点数: {originalPointCount}, 除去後の点数: {filteredPointCount}");
+        UnityEngine.Debug.Log($"近傍探索ノイズ除去処理が完了しました。処理時間: {elapsedMilliseconds} ms. 元の点数: {originalPointCount}, 除去後の点数: {filteredPointCount}");
     }
 
     private void ExecuteMorpologyOperationGPU()
