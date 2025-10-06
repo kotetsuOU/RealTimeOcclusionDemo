@@ -91,7 +91,11 @@ public class PointCloudViewer : MonoBehaviour
             return;
         }
 
-        if (settings.pointCloudFilterShader != null)
+        if (settings.morpologyOperationShader != null)
+        {
+            ExecuteMorpologyOperationGPU();
+        }
+        else if (settings.pointCloudFilterShader != null)
         {
             ExecuteNoiseFilteringGPU();
         }
@@ -118,6 +122,25 @@ public class PointCloudViewer : MonoBehaviour
 
         int filteredPointCount = (currentPointCloudData != null) ? currentPointCloudData.PointCount : 0;
         UnityEngine.Debug.Log($"ノイズ除去処理が完了しました。処理時間: {elapsedMilliseconds} ms. 元の点数: {originalPointCount}, 除去後の点数: {filteredPointCount}");
+    }
+
+    private void ExecuteMorpologyOperationGPU()
+    {
+        UnityEngine.Debug.Log($"GPUによるモルフォロジー演算を開始します。(侵食: {settings.erosionIterations}回, 膨張: {settings.dilationIterations}回)");
+        int originalPointCount = currentPointCloudData.PointCount;
+
+        PCV_Data filteredData = pointCloudProcessor.FilterMorpologyGPU(
+            settings.morpologyOperationShader,
+            settings.voxelSize,
+            settings.erosionIterations,
+            settings.dilationIterations,
+            out long elapsedMilliseconds
+        );
+
+        UpdatePointCloudAfterFiltering(filteredData);
+
+        int filteredPointCount = (currentPointCloudData != null) ? currentPointCloudData.PointCount : 0;
+        UnityEngine.Debug.Log($"モルフォロジー演算が完了しました。処理時間: {elapsedMilliseconds} ms. 元の点数: {originalPointCount}, 処理後の点数: {filteredPointCount}");
     }
 
     private IEnumerator FilterNoiseCoroutine()

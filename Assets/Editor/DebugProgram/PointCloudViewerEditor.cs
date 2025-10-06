@@ -11,7 +11,9 @@ public class PointCloudViewerEditor : Editor
     private SerializedProperty pointSizeProp;
     private SerializedProperty outlineProp, outlineColorProp;
     private SerializedProperty voxelSizeProp, searchRadiusProp, neighborColorProp, neighborThresholdProp;
+    private SerializedProperty erosionIterationsProp, dilationIterationsProp;
     private SerializedProperty pointCloudFilterShaderProp;
+    private SerializedProperty morpologyOperationShaderProp;
 
     void OnEnable()
     {
@@ -28,7 +30,10 @@ public class PointCloudViewerEditor : Editor
             searchRadiusProp = settingsObject.FindProperty("searchRadius");
             neighborColorProp = settingsObject.FindProperty("neighborColor");
             neighborThresholdProp = settingsObject.FindProperty("neighborThreshold");
+            erosionIterationsProp = settingsObject.FindProperty("erosionIterations");
+            dilationIterationsProp = settingsObject.FindProperty("dilationIterations");
             pointCloudFilterShaderProp = settingsObject.FindProperty("pointCloudFilterShader");
+            morpologyOperationShaderProp = settingsObject.FindProperty("morpologyOperationShader");
         }
     }
 
@@ -69,7 +74,12 @@ public class PointCloudViewerEditor : Editor
         EditorGUILayout.PropertyField(neighborThresholdProp);
         EditorGUILayout.Space();
 
+        EditorGUILayout.PropertyField(erosionIterationsProp);
+        EditorGUILayout.PropertyField(dilationIterationsProp);
+        EditorGUILayout.Space();
+
         EditorGUILayout.PropertyField(pointCloudFilterShaderProp);
+        EditorGUILayout.PropertyField(morpologyOperationShaderProp);
 
         GUI.backgroundColor = new Color(0.6f, 0.8f, 1f);
         if (GUILayout.Button("ノイズ除去を実行"))
