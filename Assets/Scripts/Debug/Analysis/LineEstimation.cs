@@ -2,6 +2,10 @@ using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
 
+#if UNITY_EDITOR
+using UnityEditor;
+#endif
+
 public class LineEstimation : MonoBehaviour
 {
     [Header("Point Cloud Files")]
@@ -9,7 +13,7 @@ public class LineEstimation : MonoBehaviour
     public string filePath2 = "Assets/HandTrakingData/currentGlobalVerticesLeft.txt";
     public string filePath3 = "Assets/HandTrakingData/currentGlobalVerticesBottom.txt";
     public string filePath4 = "Assets/HandTrakingData/currentGlobalVerticesTop.txt";
-    public string outputFilePath = "LineDistanceHistogram.csv"; // CSV出力ファイル名
+    public string outputFilePath = "LineDistanceHistogram.csv";
 
     [Header("Options")]
     public bool useFile1 = true;
@@ -18,19 +22,38 @@ public class LineEstimation : MonoBehaviour
     public bool useFile4 = true;
 
     [Header("Cylinder Options")]
-    public float fixedRadius = 0.05f; // 半径
-    public float extendLength = 0.3f; // 長さ
+    public float fixedRadius = 0.05f;
+    public float extendLength = 0.3f;
     public Color cylinderColor = Color.white;
 
     [Header("Histogram Options")]
-    public float binSize = 0.005f; // ヒストグラムのビンのサイズ
-    public int numberOfBins = 50; // ヒストグラムのビンの数
+    public float binSize = 0.005f;
+    public int numberOfBins = 50;
 
     private Vector3 centroid;
     private Vector3 direction;
+    private GameObject lastCylinder;
 
-    void Start()
+    public void ExecuteEstimation()
     {
+        if (lastCylinder != null)
+        {
+            Renderer oldRenderer = lastCylinder.GetComponent<Renderer>();
+            if (!UnityEngine.Application.isPlaying && oldRenderer != null && oldRenderer.material != null)
+            {
+                DestroyImmediate(oldRenderer.material);
+            }
+
+            if (UnityEngine.Application.isPlaying)
+            {
+                Destroy(lastCylinder);
+            }
+            else
+            {
+                DestroyImmediate(lastCylinder);
+            }
+        }
+
         List<Vector3> allPoints = new List<Vector3>();
         if (useFile1) allPoints.AddRange(LoadVerticesFromFile(filePath1));
         if (useFile2) allPoints.AddRange(LoadVerticesFromFile(filePath2));
@@ -39,7 +62,7 @@ public class LineEstimation : MonoBehaviour
 
         if (allPoints.Count < 2)
         {
-            Debug.LogWarning("点が少なすぎて直線推定できません");
+            UnityEngine.Debug.LogWarning("点が少なすぎて直線推定できません");
             return;
         }
 
@@ -71,13 +94,15 @@ public class LineEstimation : MonoBehaviour
         };
 
         direction = EigenMaxVector(cov).normalized;
-        Debug.Log($"直線方向: {direction}, 通過点: {centroid}");
+        UnityEngine.Debug.Log($"直線方向: {direction}, 通過点: {centroid}");
     }
 
     private void CreateCylinder()
     {
         GameObject cylinder = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
         cylinder.name = "FittedCylinder";
+        lastCylinder = cylinder;
+        cylinder.transform.parent = this.transform;
 
         cylinder.transform.position = centroid;
         cylinder.transform.rotation = Quaternion.FromToRotation(Vector3.up, direction);
@@ -87,7 +112,7 @@ public class LineEstimation : MonoBehaviour
         if (renderer != null)
         {
             Material material = renderer.material;
-
+            material.color = cylinderColor;
             material.SetFloat("_Mode", 2);
             material.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
             material.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
@@ -96,8 +121,6 @@ public class LineEstimation : MonoBehaviour
             material.EnableKeyword("_ALPHABLEND_ON");
             material.DisableKeyword("_ALPHAPREMULTIPLY_ON");
             material.renderQueue = 3000;
-
-            material.color = cylinderColor;
         }
     }
 
@@ -133,7 +156,7 @@ public class LineEstimation : MonoBehaviour
             }
         }
 
-        Debug.Log($"直線からの距離ヒストグラムデータを {outputFilePath} に保存しました。");
+        UnityEngine.Debug.Log($"直線からの距離ヒストグラムデータを {outputFilePath} に保存しました。");
     }
 
     private Vector3 EigenMaxVector(float[,] cov)
@@ -169,3 +192,24 @@ public class LineEstimation : MonoBehaviour
         return vertices.ToArray();
     }
 }
+
+
+#if UNITY_EDITOR
+[CustomEditor(typeof(LineEstimation))]
+public class LineEstimationEditor : Editor
+{
+    public override void OnInspectorGUI()
+    {
+        DrawDefaultInspector();
+
+        LineEstimation script = (LineEstimation)target;
+
+        EditorGUILayout.Space();
+
+        if (GUILayout.Button("Execute Line Estimation"))
+        {
+            script.ExecuteEstimation();
+        }
+    }
+}
+#endif
