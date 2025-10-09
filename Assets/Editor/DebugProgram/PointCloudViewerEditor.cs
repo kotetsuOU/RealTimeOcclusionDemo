@@ -82,26 +82,12 @@ public class PointCloudViewerEditor : Editor
         GUI.backgroundColor = new Color(0.6f, 0.8f, 1f);
         if (GUILayout.Button("近傍探索ノイズ除去を実行"))
         {
-            if (UnityEngine.Application.isPlaying)
-            {
-                viewer.StartNoiseFiltering();
-            }
-            else
-            {
-                UnityEngine.Debug.LogWarning("近傍探索ノイズ除去はプレイモード中のみ実行可能です。");
-            }
+            viewer.StartNoiseFiltering();
         }
         GUI.backgroundColor = new Color(1f, 0.8f, 0.6f);
         if (GUILayout.Button("モルフォロジー演算を実行 (Morpology)"))
         {
-            if (UnityEngine.Application.isPlaying)
-            {
-                viewer.StartMorpologyOperation();
-            }
-            else
-            {
-                UnityEngine.Debug.LogWarning("モルフォロジー演算はプレイモード中のみ実行可能です。");
-            }
+            viewer.StartMorpologyOperation();
         }
         GUI.backgroundColor = Color.white;
         EditorGUILayout.EndHorizontal();

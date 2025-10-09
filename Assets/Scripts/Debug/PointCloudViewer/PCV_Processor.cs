@@ -48,6 +48,28 @@ public class PCV_Processor
         return voxelGrid.FindNeighbors(pointIndex, searchRadius);
     }
 
+    public PCV_Data FilterNoise(float searchRadius, int threshold)
+    {
+        if (data == null || data.PointCount == 0 || voxelGrid == null)
+        {
+            return new PCV_Data(new List<Vector3>(), new List<Color>());
+        }
+
+        var filteredVertices = new List<Vector3>();
+        var filteredColors = new List<Color>();
+
+        for (int i = 0; i < data.PointCount; i++)
+        {
+            List<int> neighbors = voxelGrid.FindNeighbors(i, searchRadius);
+            if (neighbors.Count >= threshold)
+            {
+                filteredVertices.Add(data.Vertices[i]);
+                filteredColors.Add(data.Colors[i]);
+            }
+        }
+        return new PCV_Data(filteredVertices, filteredColors);
+    }
+
     public IEnumerator FilterNoiseCoroutine(float searchRadius, int threshold, Action<PCV_Data> onComplete)
     {
         if (data == null || data.PointCount == 0 || voxelGrid == null)
@@ -171,80 +193,56 @@ public class PCV_Processor
         ComputeBuffer bufferA = new ComputeBuffer(maxPoints, pointStructSize, ComputeBufferType.Default);
         ComputeBuffer bufferB = new ComputeBuffer(maxPoints, pointStructSize, ComputeBufferType.Default);
 
-        // カウンターバッファ (RW_BUFFER_U_INT _PointCountOut に対応)
-        // 1要素のuintを保持
         ComputeBuffer countBuffer = new ComputeBuffer(1, sizeof(uint), ComputeBufferType.Default);
 
-        // 初期データ設定 (bufferAを最初の入力とする)
         bufferA.SetData(initialPointData);
 
         int morpologyKernel = computeShader.FindKernel("CSMorpology");
 
-        // 現在の有効点数
         int currentPointCount = maxPoints;
 
-        // 現在のバッファのインデックス (0: bufferAがIN, bufferBがOUT)
         int currentBufferIndex = 0;
 
-        // -------------------------------------------------
-        // 2. 複数回処理の実行 (GPUで完結)
-        // -------------------------------------------------
-
-        // 侵食 (Erosion) -> 膨張 (Dilation) の順に処理
         int totalIterations = erosionIterations + dilationIterations;
 
         for (int iter = 0; iter < totalIterations; iter++)
         {
             bool isErosion = iter < erosionIterations;
 
-            // バッファの決定 (Ping-Pong)
             ComputeBuffer pointsIn = (currentBufferIndex == 0) ? bufferA : bufferB;
             ComputeBuffer pointsOut = (currentBufferIndex == 0) ? bufferB : bufferA;
 
-            // 💡 カウンターをリセット（次の出力点数を0にする）
             countBuffer.SetData(new uint[] { 0 });
 
-            // 1. Morpology カーネルのパラメーター設定
             computeShader.SetInt("_PointCountIn", currentPointCount);
             computeShader.SetFloat("_VoxelSize", voxelSize);
-            computeShader.SetInt("_CurrentIterationMode", isErosion ? 0 : 1); // 0:侵食, 1:膨張
+            computeShader.SetInt("_CurrentIterationMode", isErosion ? 0 : 1);
 
-            // バッファのバインド
             computeShader.SetBuffer(morpologyKernel, "_PointsIn", pointsIn);
             computeShader.SetBuffer(morpologyKernel, "_PointsOut", pointsOut);
             computeShader.SetBuffer(morpologyKernel, "_PointCountOut", countBuffer);
 
-            // 2. ディスパッチ実行
             int threadGroups = Mathf.CeilToInt(currentPointCount / 64.0f);
             if (threadGroups > 0)
             {
                 computeShader.Dispatch(morpologyKernel, threadGroups, 1, 1);
             }
 
-            // 3. 結果の点数を取得 (GPU -> CPU通信: ここだけは必須)
             uint[] countArray = { 0 };
             countBuffer.GetData(countArray);
             int nextPointCount = (int)countArray[0];
 
-            // 4. 次のイテレーションの準備
             currentPointCount = nextPointCount;
 
             if (currentPointCount == 0)
             {
-                // 点がなくなったら、以降の処理はスキップ
-                currentBufferIndex = (currentBufferIndex == 0) ? 1 : 0; // 最終結果が空でないバッファに入るように調整
+                currentBufferIndex = (currentBufferIndex == 0) ? 1 : 0;
                 break;
             }
 
-            // バッファを反転
             currentBufferIndex = (currentBufferIndex == 0) ? 1 : 0;
         }
 
-        // ------------------------------------
-        // 3. 最終結果の取得
-        // ------------------------------------
-
-        // 最終的なデータが格納されているバッファ
         ComputeBuffer finalBuffer = (currentBufferIndex == 0) ? bufferA : bufferB;
 
         var filteredVertices = new List<Vector3>();
@@ -253,7 +251,7 @@ public class PCV_Processor
         if (currentPointCount > 0)
         {
             var filteredPointData = new Point[currentPointCount];
-            finalBuffer.GetData(filteredPointData, 0, 0, currentPointCount); // 最終結果のみCPUに転送
+            finalBuffer.GetData(filteredPointData, 0, 0, currentPointCount);
 
             for (int i = 0; i < currentPointCount; i++)
             {
@@ -262,7 +260,6 @@ public class PCV_Processor
             }
         }
 
-        // 4. バッファの解放
         bufferA.Release();
         bufferB.Release();
         countBuffer.Release();

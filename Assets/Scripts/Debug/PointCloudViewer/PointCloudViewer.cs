@@ -63,6 +63,21 @@ public class PointCloudViewer : MonoBehaviour
     #region Core Logic
     public void RebuildPointCloud()
     {
+        if (settings == null)
+        {
+            settings = GetComponent<PCV_Settings>();
+        }
+        if (pointCloudRenderer == null)
+        {
+            pointCloudRenderer = GetComponent<PCV_Renderer>();
+        }
+
+        if (settings == null || pointCloudRenderer == null)
+        {
+            UnityEngine.Debug.LogError("必要なコンポーネント (PCV_Settings or PCV_Renderer) が見つかりません。");
+            return;
+        }
+
         PCV_Data loadedData = PCV_Loader.LoadFromFiles(settings.fileSettings);
 
         if (loadedData != null && loadedData.PointCount > 0)
@@ -98,7 +113,14 @@ public class PointCloudViewer : MonoBehaviour
         else
         {
             UnityEngine.Debug.LogWarning("近傍探索ノイズフィルターCompute Shaderが設定されていません。CPUで処理を実行します。");
-            StartCoroutine(FilterNoiseCoroutine());
+            if (UnityEngine.Application.isPlaying)
+            {
+                StartCoroutine(FilterNoiseCoroutine());
+            }
+            else
+            {
+                ExecuteNoiseFilteringCPU();
+            }
         }
     }
 
@@ -118,6 +140,24 @@ public class PointCloudViewer : MonoBehaviour
         {
             UnityEngine.Debug.LogWarning("モルフォロジー演算Compute Shaderが設定されていません。");
         }
+    }
+
+    private void ExecuteNoiseFilteringCPU()
+    {
+        var stopwatch = Stopwatch.StartNew();
+        UnityEngine.Debug.Log($"CPUによるノイズ除去処理を開始します。(閾値: {settings.neighborThreshold})");
+        int originalPointCount = currentPointCloudData.PointCount;
+
+        PCV_Data filteredData = pointCloudProcessor.FilterNoise(
+            settings.searchRadius,
+            settings.neighborThreshold
+        );
+
+        UpdatePointCloudAfterFiltering(filteredData);
+        stopwatch.Stop();
+        long elapsedMilliseconds = stopwatch.ElapsedMilliseconds;
+        int filteredPointCount = (currentPointCloudData != null) ? currentPointCloudData.PointCount : 0;
+        UnityEngine.Debug.Log($"ノイズ除去処理が完了しました。処理時間: {elapsedMilliseconds} ms. 元の点数: {originalPointCount}, 除去後の点数: {filteredPointCount}");
     }
 
     private void ExecuteNoiseFilteringGPU()
