@@ -8,25 +8,21 @@ using UnityEditor;
 
 public class LineEstimation : MonoBehaviour
 {
-    [Header("Point Cloud Files")]
     public string filePath1 = "Assets/HandTrakingData/currentGlobalVerticesRight.txt";
     public string filePath2 = "Assets/HandTrakingData/currentGlobalVerticesLeft.txt";
     public string filePath3 = "Assets/HandTrakingData/currentGlobalVerticesBottom.txt";
     public string filePath4 = "Assets/HandTrakingData/currentGlobalVerticesTop.txt";
     public string outputFilePath = "LineDistanceHistogram.csv";
 
-    [Header("Options")]
     public bool useFile1 = true;
     public bool useFile2 = true;
     public bool useFile3 = true;
     public bool useFile4 = true;
 
-    [Header("Cylinder Options")]
     public float fixedRadius = 0.05f;
     public float extendLength = 0.3f;
     public Color cylinderColor = Color.white;
 
-    [Header("Histogram Options")]
     public float binSize = 0.005f;
     public int numberOfBins = 50;
 
@@ -36,23 +32,7 @@ public class LineEstimation : MonoBehaviour
 
     public void ExecuteEstimation()
     {
-        if (lastCylinder != null)
-        {
-            Renderer oldRenderer = lastCylinder.GetComponent<Renderer>();
-            if (!UnityEngine.Application.isPlaying && oldRenderer != null && oldRenderer.material != null)
-            {
-                DestroyImmediate(oldRenderer.material);
-            }
-
-            if (UnityEngine.Application.isPlaying)
-            {
-                Destroy(lastCylinder);
-            }
-            else
-            {
-                DestroyImmediate(lastCylinder);
-            }
-        }
+        ClearCylinder();
 
         List<Vector3> allPoints = new List<Vector3>();
         if (useFile1) allPoints.AddRange(LoadVerticesFromFile(filePath1));
@@ -69,6 +49,31 @@ public class LineEstimation : MonoBehaviour
         FitLine(allPoints.ToArray());
         CreateCylinder();
         SaveHistogramToCsv(allPoints);
+    }
+
+    public void ClearCylinder()
+    {
+        if (lastCylinder != null)
+        {
+            Renderer renderer = lastCylinder.GetComponent<Renderer>();
+            if (!UnityEngine.Application.isPlaying && renderer != null && renderer.material != null)
+            {
+                if (!EditorUtility.IsPersistent(renderer.material))
+                {
+                    DestroyImmediate(renderer.material);
+                }
+            }
+
+            if (UnityEngine.Application.isPlaying)
+            {
+                Destroy(lastCylinder);
+            }
+            else
+            {
+                DestroyImmediate(lastCylinder);
+            }
+            lastCylinder = null;
+        }
     }
 
     private void FitLine(Vector3[] vertices)
@@ -155,7 +160,6 @@ public class LineEstimation : MonoBehaviour
                 writer.WriteLine($"{distanceRange},{bins[i]}");
             }
         }
-
         UnityEngine.Debug.Log($"直線からの距離ヒストグラムデータを {outputFilePath} に保存しました。");
     }
 
@@ -198,18 +202,114 @@ public class LineEstimation : MonoBehaviour
 [CustomEditor(typeof(LineEstimation))]
 public class LineEstimationEditor : Editor
 {
+    private bool pointCloudFilesFold = true;
+    private bool optionsFold = true;
+    private bool cylinderOptionsFold = true;
+    private bool histogramOptionsFold = true;
+
+    private SerializedProperty filePath1, filePath2, filePath3, filePath4, outputFilePath;
+    private SerializedProperty useFile1, useFile2, useFile3, useFile4;
+    private SerializedProperty fixedRadius, extendLength, cylinderColor;
+    private SerializedProperty binSize, numberOfBins;
+
+    private void OnEnable()
+    {
+        pointCloudFilesFold = EditorPrefs.GetBool(nameof(pointCloudFilesFold), true);
+        optionsFold = EditorPrefs.GetBool(nameof(optionsFold), true);
+        cylinderOptionsFold = EditorPrefs.GetBool(nameof(cylinderOptionsFold), true);
+        histogramOptionsFold = EditorPrefs.GetBool(nameof(histogramOptionsFold), true);
+
+        filePath1 = serializedObject.FindProperty("filePath1");
+        filePath2 = serializedObject.FindProperty("filePath2");
+        filePath3 = serializedObject.FindProperty("filePath3");
+        filePath4 = serializedObject.FindProperty("filePath4");
+        outputFilePath = serializedObject.FindProperty("outputFilePath");
+
+        useFile1 = serializedObject.FindProperty("useFile1");
+        useFile2 = serializedObject.FindProperty("useFile2");
+        useFile3 = serializedObject.FindProperty("useFile3");
+        useFile4 = serializedObject.FindProperty("useFile4");
+        
+        fixedRadius = serializedObject.FindProperty("fixedRadius");
+        extendLength = serializedObject.FindProperty("extendLength");
+        cylinderColor = serializedObject.FindProperty("cylinderColor");
+
+        binSize = serializedObject.FindProperty("binSize");
+        numberOfBins = serializedObject.FindProperty("numberOfBins");
+    }
+
+    private void OnDisable()
+    {
+        EditorPrefs.SetBool(nameof(pointCloudFilesFold), pointCloudFilesFold);
+        EditorPrefs.SetBool(nameof(optionsFold), optionsFold);
+        EditorPrefs.SetBool(nameof(cylinderOptionsFold), cylinderOptionsFold);
+        EditorPrefs.SetBool(nameof(histogramOptionsFold), histogramOptionsFold);
+    }
+
     public override void OnInspectorGUI()
     {
-        DrawDefaultInspector();
+        serializedObject.Update();
 
-        LineEstimation script = (LineEstimation)target;
+        pointCloudFilesFold = EditorGUILayout.Foldout(pointCloudFilesFold, "Point Cloud Files", true, EditorStyles.foldoutHeader);
+        if (pointCloudFilesFold)
+        {
+            EditorGUI.indentLevel++;
+            EditorGUILayout.PropertyField(filePath1);
+            EditorGUILayout.PropertyField(filePath2);
+            EditorGUILayout.PropertyField(filePath3);
+            EditorGUILayout.PropertyField(filePath4);
+            EditorGUILayout.PropertyField(outputFilePath);
+            EditorGUI.indentLevel--;
+        }
+
+        optionsFold = EditorGUILayout.Foldout(optionsFold, "Options", true, EditorStyles.foldoutHeader);
+        if (optionsFold)
+        {
+            EditorGUI.indentLevel++;
+            EditorGUILayout.PropertyField(useFile1);
+            EditorGUILayout.PropertyField(useFile2);
+            EditorGUILayout.PropertyField(useFile3);
+            EditorGUILayout.PropertyField(useFile4);
+            EditorGUI.indentLevel--;
+        }
+
+        cylinderOptionsFold = EditorGUILayout.Foldout(cylinderOptionsFold, "Cylinder Options", true, EditorStyles.foldoutHeader);
+        if (cylinderOptionsFold)
+        {
+            EditorGUI.indentLevel++;
+            EditorGUILayout.PropertyField(fixedRadius);
+            EditorGUILayout.PropertyField(extendLength);
+            EditorGUILayout.PropertyField(cylinderColor);
+            EditorGUI.indentLevel--;
+        }
+
+        histogramOptionsFold = EditorGUILayout.Foldout(histogramOptionsFold, "Histogram Options", true, EditorStyles.foldoutHeader);
+        if (histogramOptionsFold)
+        {
+            EditorGUI.indentLevel++;
+            EditorGUILayout.PropertyField(binSize);
+            EditorGUILayout.PropertyField(numberOfBins);
+            EditorGUI.indentLevel--;
+        }
+
+        serializedObject.ApplyModifiedProperties();
 
         EditorGUILayout.Space();
+        LineEstimation script = (LineEstimation)target;
 
+        GUI.backgroundColor = new Color(0.6f, 1f, 0.6f);
         if (GUILayout.Button("Execute Line Estimation"))
         {
             script.ExecuteEstimation();
         }
+
+        GUI.backgroundColor = new Color(1f, 0.6f, 0.6f);
+        if (GUILayout.Button("Clear Cylinder"))
+        {
+            script.ClearCylinder();
+        }
+
+        GUI.backgroundColor = Color.white;
     }
 }
 #endif
