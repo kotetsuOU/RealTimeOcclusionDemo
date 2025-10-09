@@ -11,7 +11,9 @@ public class PointCloudViewerEditor : Editor
     private SerializedProperty pointSizeProp;
     private SerializedProperty outlineProp, outlineColorProp;
     private SerializedProperty voxelSizeProp, searchRadiusProp, neighborColorProp, neighborThresholdProp;
+    private SerializedProperty erosionIterationsProp, dilationIterationsProp;
     private SerializedProperty pointCloudFilterShaderProp;
+    private SerializedProperty morpologyOperationShaderProp;
 
     void OnEnable()
     {
@@ -28,7 +30,10 @@ public class PointCloudViewerEditor : Editor
             searchRadiusProp = settingsObject.FindProperty("searchRadius");
             neighborColorProp = settingsObject.FindProperty("neighborColor");
             neighborThresholdProp = settingsObject.FindProperty("neighborThreshold");
+            erosionIterationsProp = settingsObject.FindProperty("erosionIterations");
+            dilationIterationsProp = settingsObject.FindProperty("dilationIterations");
             pointCloudFilterShaderProp = settingsObject.FindProperty("pointCloudFilterShader");
+            morpologyOperationShaderProp = settingsObject.FindProperty("morpologyOperationShader");
         }
     }
 
@@ -56,11 +61,8 @@ public class PointCloudViewerEditor : Editor
 
         GUI.backgroundColor = new Color(0.8f, 0.8f, 0.6f);
         if (GUILayout.Button("点群を再構築")) viewer.RebuildPointCloud();
-        EditorGUILayout.Space();
         GUI.backgroundColor = Color.white;
 
-        EditorGUILayout.PropertyField(outlineProp);
-        EditorGUILayout.PropertyField(outlineColorProp);
         EditorGUILayout.Space();
 
         EditorGUILayout.PropertyField(voxelSizeProp);
@@ -69,21 +71,31 @@ public class PointCloudViewerEditor : Editor
         EditorGUILayout.PropertyField(neighborThresholdProp);
         EditorGUILayout.Space();
 
-        EditorGUILayout.PropertyField(pointCloudFilterShaderProp);
+        EditorGUILayout.PropertyField(erosionIterationsProp);
+        EditorGUILayout.PropertyField(dilationIterationsProp);
+        EditorGUILayout.Space();
 
+        EditorGUILayout.PropertyField(pointCloudFilterShaderProp);
+        EditorGUILayout.PropertyField(morpologyOperationShaderProp);
+
+        EditorGUILayout.BeginHorizontal();
         GUI.backgroundColor = new Color(0.6f, 0.8f, 1f);
-        if (GUILayout.Button("ノイズ除去を実行"))
+        if (GUILayout.Button("近傍探索ノイズ除去を実行"))
         {
-            if (UnityEngine.Application.isPlaying)
-            {
-                viewer.StartNoiseFiltering();
-            }
-            else
-            {
-                UnityEngine.Debug.LogWarning("ノイズ除去はプレイモード中のみ実行可能です。");
-            }
+            viewer.StartNoiseFiltering();
+        }
+        GUI.backgroundColor = new Color(1f, 0.8f, 0.6f);
+        if (GUILayout.Button("モルフォロジー演算を実行 (Morpology)"))
+        {
+            viewer.StartMorpologyOperation();
         }
         GUI.backgroundColor = Color.white;
+        EditorGUILayout.EndHorizontal();
+
+        EditorGUILayout.Space();
+
+        EditorGUILayout.PropertyField(outlineProp);
+        EditorGUILayout.PropertyField(outlineColorProp);
 
         settingsObject.ApplyModifiedProperties();
     }

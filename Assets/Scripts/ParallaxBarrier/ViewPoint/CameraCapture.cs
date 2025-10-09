@@ -5,7 +5,7 @@ using System.Collections;
 public class CameraCapture : MonoBehaviour
 {
     [Header("Common Settings")]
-    public Camera targetCamera;
+    public UnityEngine.Camera targetCamera;
     public int captureWidth = 2560;
     public int captureHeight = 1440;
 
@@ -16,20 +16,57 @@ public class CameraCapture : MonoBehaviour
     public int frameRate = 30;
     public string videoFramesFolder = "HandTrakingData/RecordedViewPointPicture/VideoFrames";
 
+    [Header("Frame Control")]
+    [Tooltip("録画を開始するフレーム番号 (カウントは0から)。")]
+    public int startFrame = 0;
+
+    [Tooltip("録画を終了するフレーム番号 (このフレームのキャプチャは実行されない)。")]
+    public int endFrame = 300;
+
+    [Header("Automation Options")]
+    [Tooltip("ゲーム開始時に自動で録画を開始します。")]
+    public bool autoStartRecordingOnPlay = false;
+
+    [Tooltip("このキーを押すことで録画の開始/停止をトグルします。")]
+    public UnityEngine.KeyCode toggleRecordingKey = UnityEngine.KeyCode.R;
+
     private bool isRecording = false;
     private string currentVideoFolderPath;
     private int frameCount = 0;
 
+    void Start()
+    {
+        if (autoStartRecordingOnPlay)
+        {
+            StartRecording();
+        }
+    }
+
+    void Update()
+    {
+        if (UnityEngine.Input.GetKeyDown(toggleRecordingKey))
+        {
+            if (isRecording)
+            {
+                StopRecording();
+            }
+            else
+            {
+                StartRecording();
+            }
+        }
+    }
+
     public void Capture()
     {
-        string directoryPath = Path.Combine(UnityEngine.Application.dataPath, singleCaptureFolder);
-        if (!Directory.Exists(directoryPath))
+        string directoryPath = System.IO.Path.Combine(UnityEngine.Application.dataPath, singleCaptureFolder);
+        if (!System.IO.Directory.Exists(directoryPath))
         {
-            Directory.CreateDirectory(directoryPath);
+            System.IO.Directory.CreateDirectory(directoryPath);
         }
 
         string fileName = string.Format("capture_{0}.png", System.DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss"));
-        string filePath = Path.Combine(directoryPath, fileName);
+        string filePath = System.IO.Path.Combine(directoryPath, fileName);
 
         SaveFrameToFile(filePath);
         UnityEngine.Debug.Log(string.Format("キャプチャを保存しました: {0}", filePath));
@@ -43,19 +80,25 @@ public class CameraCapture : MonoBehaviour
             return;
         }
 
+        if (endFrame <= startFrame)
+        {
+            UnityEngine.Debug.LogError(string.Format("終了フレーム ({0}) は開始フレーム ({1}) より大きく設定してください。", endFrame, startFrame));
+            return;
+        }
+
         isRecording = true;
         frameCount = 0;
 
         string timeStamp = System.DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss");
-        currentVideoFolderPath = Path.Combine(UnityEngine.Application.dataPath, videoFramesFolder, timeStamp);
+        currentVideoFolderPath = System.IO.Path.Combine(UnityEngine.Application.dataPath, videoFramesFolder, timeStamp);
 
-        if (!Directory.Exists(currentVideoFolderPath))
+        if (!System.IO.Directory.Exists(currentVideoFolderPath))
         {
-            Directory.CreateDirectory(currentVideoFolderPath);
+            System.IO.Directory.CreateDirectory(currentVideoFolderPath);
         }
 
         StartCoroutine(RecordFrames());
-        UnityEngine.Debug.Log("録画を開始しました。保存先: " + currentVideoFolderPath);
+        UnityEngine.Debug.Log(string.Format("録画を開始しました。カウント開始: 0、キャプチャ範囲: {0}～{1} (フレーム{1}は除く)、保存先: {2}", startFrame, endFrame, currentVideoFolderPath));
     }
 
     public void StopRecording()
@@ -69,35 +112,48 @@ public class CameraCapture : MonoBehaviour
         UnityEngine.Debug.Log("録画を停止しました。合計フレーム数: " + frameCount);
     }
 
-    private IEnumerator RecordFrames()
+    private System.Collections.IEnumerator RecordFrames()
     {
+        float frameDuration = 1f / frameRate;
+
         while (isRecording)
         {
-            string filePath = Path.Combine(currentVideoFolderPath, $"frame_{frameCount:D5}.png");
-            SaveFrameToFile(filePath);
+            if (frameCount >= endFrame)
+            {
+                StopRecording();
+                yield break;
+            }
+
+            if (frameCount >= startFrame && frameCount < endFrame)
+            {
+                string filePath = System.IO.Path.Combine(currentVideoFolderPath, $"frame_{frameCount:D5}.png");
+                SaveFrameToFile(filePath);
+            }
+
             frameCount++;
 
-            yield return new WaitForSeconds(1f / frameRate);
+            yield return new UnityEngine.WaitForSeconds(frameDuration);
         }
     }
 
     private void SaveFrameToFile(string filePath)
     {
-        RenderTexture rt = new RenderTexture(captureWidth, captureHeight, 24);
+        UnityEngine.RenderTexture rt = new UnityEngine.RenderTexture(captureWidth, captureHeight, 24);
         targetCamera.targetTexture = rt;
 
-        Texture2D screenShot = new Texture2D(captureWidth, captureHeight, TextureFormat.RGB24, false);
+        UnityEngine.Texture2D screenShot = new UnityEngine.Texture2D(captureWidth, captureHeight, UnityEngine.TextureFormat.RGB24, false);
         targetCamera.Render();
-        RenderTexture.active = rt;
-        screenShot.ReadPixels(new Rect(0, 0, captureWidth, captureHeight), 0, 0);
+
+        UnityEngine.RenderTexture.active = rt;
+        screenShot.ReadPixels(new UnityEngine.Rect(0, 0, captureWidth, captureHeight), 0, 0);
 
         targetCamera.targetTexture = null;
-        RenderTexture.active = null;
-        Destroy(rt);
+        UnityEngine.RenderTexture.active = null;
+        UnityEngine.Object.Destroy(rt);
 
         byte[] bytes = screenShot.EncodeToPNG();
-        File.WriteAllBytes(filePath, bytes);
+        System.IO.File.WriteAllBytes(filePath, bytes);
 
-        Destroy(screenShot);
+        UnityEngine.Object.Destroy(screenShot);
     }
 }

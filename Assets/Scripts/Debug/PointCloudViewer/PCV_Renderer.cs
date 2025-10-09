@@ -8,17 +8,44 @@ public class PCV_Renderer : MonoBehaviour
     private MeshRenderer meshRenderer;
     private Material pointCloudMaterial;
     private Mesh pointCloudMesh;
+    private bool isInitialized = false;
 
     private void Awake()
     {
+        Initialize();
+    }
+
+    private void Initialize()
+    {
+        if (isInitialized) return;
+
         meshFilter = GetComponent<MeshFilter>();
         meshRenderer = GetComponent<MeshRenderer>();
-        pointCloudMaterial = new Material(Shader.Find("Unlit/PointCloudViewer"));
-        meshRenderer.material = pointCloudMaterial;
+
+        if (meshFilter == null || meshRenderer == null)
+        {
+            UnityEngine.Debug.LogError("PCV_Rendererに必要なMeshFilterまたはMeshRendererコンポーネントが見つかりません。");
+            return;
+        }
+
+        if (meshRenderer.sharedMaterial == null || meshRenderer.sharedMaterial.shader.name != "Unlit/PointCloudViewer")
+        {
+            pointCloudMaterial = new Material(Shader.Find("Unlit/PointCloudViewer"));
+            meshRenderer.material = pointCloudMaterial;
+        }
+        else
+        {
+            pointCloudMaterial = meshRenderer.sharedMaterial;
+        }
+
+        isInitialized = true;
     }
 
     public void UpdateMesh(PCV_Data data)
     {
+        Initialize();
+        if (!isInitialized) return;
+
         ClearMesh();
         if (data != null && data.PointCount > 0)
         {
@@ -29,6 +56,9 @@ public class PCV_Renderer : MonoBehaviour
 
     public void UpdatePointSize(float size)
     {
+        Initialize();
+        if (!isInitialized) return;
+
         if (pointCloudMaterial != null)
         {
             pointCloudMaterial.SetFloat("_PointSize", size);
@@ -37,6 +67,9 @@ public class PCV_Renderer : MonoBehaviour
 
     public void ClearMesh()
     {
+        Initialize();
+        if (!isInitialized) return;
+
         if (meshFilter == null) return;
         if (pointCloudMesh != null)
         {
@@ -55,6 +88,9 @@ public class PCV_Renderer : MonoBehaviour
 
     public void InitializeOutline(GameObject outlineObject, Color color)
     {
+        Initialize();
+        if (!isInitialized) return;
+
         if (outlineObject != null)
         {
             var renderers = outlineObject.GetComponentsInChildren<MeshRenderer>();
@@ -69,6 +105,9 @@ public class PCV_Renderer : MonoBehaviour
 
     public void HighlightPoints(int centerIndex, List<int> neighborIndices, PCV_Data currentData, Color highlightColor, Color neighborColor)
     {
+        Initialize();
+        if (!isInitialized) return;
+
         if (pointCloudMesh == null || currentData == null) return;
         var updatedColors = (Color[])currentData.Colors.Clone();
 
@@ -89,6 +128,9 @@ public class PCV_Renderer : MonoBehaviour
 
     public void ResetHighlight(PCV_Data currentData)
     {
+        Initialize();
+        if (!isInitialized) return;
+
         if (pointCloudMesh != null && currentData != null && currentData.PointCount > 0)
         {
             pointCloudMesh.colors = currentData.Colors;

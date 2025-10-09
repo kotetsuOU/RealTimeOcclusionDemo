@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using UnityEngine;
 
 [System.Serializable]
@@ -41,8 +42,13 @@ public class PCV_Settings : MonoBehaviour
     [Tooltip("ノイズと判断する近傍点の閾値")]
     public int neighborThreshold = 100;
 
+    [Header("Morpology Operation")]
+    public int erosionIterations = 1;
+    public int dilationIterations = 1;
+
     [Header("GPU Acceleration")]
     public ComputeShader pointCloudFilterShader;
+    public ComputeShader morpologyOperationShader;
 
     private FileSettings[] lastFileSettings;
     private float lastPointSize;
@@ -51,6 +57,10 @@ public class PCV_Settings : MonoBehaviour
     private float lastSearchRadius;
     private Color lastNeighborColor;
     private int lastNeighborThreshold;
+
+    private int lastErosionIterations;
+    private int lastDilationIterations;
+    private ComputeShader lastMorpologyOperationShader;
 
 
     private void Awake()
@@ -71,6 +81,10 @@ public class PCV_Settings : MonoBehaviour
         lastSearchRadius = searchRadius;
         lastNeighborColor = neighborColor;
         lastNeighborThreshold = neighborThreshold;
+
+        lastErosionIterations = erosionIterations;
+        lastDilationIterations = dilationIterations;
+        lastMorpologyOperationShader = morpologyOperationShader;
     }
 
     public bool HasFileSettingsChanged()
@@ -92,8 +106,13 @@ public class PCV_Settings : MonoBehaviour
         return pointSize != lastPointSize || outlineColor != lastOutlineColor;
     }
 
+    public bool HasMorpologySettingsChanged()
+    {
+        return erosionIterations != lastErosionIterations || dilationIterations != lastDilationIterations || morpologyOperationShader != lastMorpologyOperationShader;
+    }
+
     public bool HasProcessingSettingsChanged()
     {
-        return voxelSize != lastVoxelSize || searchRadius != lastSearchRadius || neighborColor != lastNeighborColor || neighborThreshold != lastNeighborThreshold;
+        return voxelSize != lastVoxelSize || searchRadius != lastSearchRadius || neighborColor != lastNeighborColor || neighborThreshold != lastNeighborThreshold || HasMorpologySettingsChanged();
     }
 }

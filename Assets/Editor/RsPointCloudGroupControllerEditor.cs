@@ -58,7 +58,7 @@ public class RsPointCloudGroupControllerEditor : Editor
         if (isAnyLogging)
         {
             GUI.backgroundColor = new Color(1f, 0.6f, 0.6f);
-            if (GUILayout.Button("Stop Performance Logging on All", GUILayout.Height(30)))
+            if (GUILayout.Button("Stop Performance Logging on All"))
             {
                 ApplyToAllRenderers(renderer => renderer.StopPerformanceLog());
             }
@@ -69,7 +69,7 @@ public class RsPointCloudGroupControllerEditor : Editor
             EditorGUILayout.BeginHorizontal();
             GUI.backgroundColor = new Color(0.6f, 1f, 0.6f);
 
-            if (GUILayout.Button("Start Logging on All (New Files)", GUILayout.Height(30)))
+            if (GUILayout.Button("Start Logging on All (New Files)"))
             {
                 ApplyToAllRenderers(renderer => {
                     renderer.appendLog = false;
@@ -77,7 +77,7 @@ public class RsPointCloudGroupControllerEditor : Editor
                 });
             }
 
-            if (GUILayout.Button("Start Logging on All (Append)", GUILayout.Height(30)))
+            if (GUILayout.Button("Start Logging on All (Append)"))
             {
                 ApplyToAllRenderers(renderer => {
                     renderer.appendLog = true;
