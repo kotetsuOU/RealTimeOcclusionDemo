@@ -7,6 +7,8 @@ public class VoxelGrid
     private readonly float voxelSize;
     private readonly Vector3[] originalPoints;
 
+    public IReadOnlyDictionary<Vector3Int, List<int>> Grid => grid;
+
     public VoxelGrid(Vector3[] points, float size)
     {
         originalPoints = points;

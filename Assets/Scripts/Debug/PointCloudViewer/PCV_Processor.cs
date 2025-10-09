@@ -7,14 +7,14 @@ using UnityEngine;
 public class PCV_Processor
 {
     private readonly PCV_Data data;
-    private readonly VoxelGrid voxelGrid;
+    public VoxelGrid VoxelGrid { get; private set; }
 
     public PCV_Processor(PCV_Data pointCloudData, float voxelSize)
     {
         this.data = pointCloudData;
         if (this.data != null && this.data.PointCount > 0)
         {
-            this.voxelGrid = new VoxelGrid(this.data.Vertices, voxelSize);
+            this.VoxelGrid = new VoxelGrid(this.data.Vertices, voxelSize);
         }
     }
 
@@ -44,13 +44,13 @@ public class PCV_Processor
 
     public List<int> FindNeighbors(int pointIndex, float searchRadius)
     {
-        if (voxelGrid == null) return new List<int>();
-        return voxelGrid.FindNeighbors(pointIndex, searchRadius);
+        if (VoxelGrid == null) return new List<int>();
+        return VoxelGrid.FindNeighbors(pointIndex, searchRadius);
     }
 
     public PCV_Data FilterNoise(float searchRadius, int threshold)
     {
-        if (data == null || data.PointCount == 0 || voxelGrid == null)
+        if (data == null || data.PointCount == 0 || VoxelGrid == null)
         {
             return new PCV_Data(new List<Vector3>(), new List<Color>());
         }
@@ -60,7 +60,7 @@ public class PCV_Processor
 
         for (int i = 0; i < data.PointCount; i++)
         {
-            List<int> neighbors = voxelGrid.FindNeighbors(i, searchRadius);
+            List<int> neighbors = VoxelGrid.FindNeighbors(i, searchRadius);
             if (neighbors.Count >= threshold)
             {
                 filteredVertices.Add(data.Vertices[i]);
@@ -72,7 +72,7 @@ public class PCV_Processor
 
     public IEnumerator FilterNoiseCoroutine(float searchRadius, int threshold, Action<PCV_Data> onComplete)
     {
-        if (data == null || data.PointCount == 0 || voxelGrid == null)
+        if (data == null || data.PointCount == 0 || VoxelGrid == null)
         {
             onComplete?.Invoke(new PCV_Data(new List<Vector3>(), new List<Color>()));
             yield break;
@@ -84,7 +84,7 @@ public class PCV_Processor
 
         for (int i = 0; i < data.PointCount; i++)
         {
-            List<int> neighbors = voxelGrid.FindNeighbors(i, searchRadius);
+            List<int> neighbors = VoxelGrid.FindNeighbors(i, searchRadius);
             if (neighbors.Count >= threshold)
             {
                 filteredVertices.Add(data.Vertices[i]);

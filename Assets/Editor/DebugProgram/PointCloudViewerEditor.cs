@@ -65,6 +65,15 @@ public class PointCloudViewerEditor : Editor
 
         EditorGUILayout.Space();
 
+        GUI.backgroundColor = new Color(0.7f, 0.9f, 0.7f);
+        if (GUILayout.Button("Voxelごとの点群数をCSV出力"))
+        {
+            viewer.ExportVoxelCountsToCSV();
+        }
+        GUI.backgroundColor = Color.white;
+        EditorGUILayout.Space();
+
+
         EditorGUILayout.PropertyField(voxelSizeProp);
         EditorGUILayout.PropertyField(searchRadiusProp);
         EditorGUILayout.PropertyField(neighborColorProp);

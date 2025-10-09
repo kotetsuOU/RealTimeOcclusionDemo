@@ -252,4 +252,23 @@ public class PointCloudViewer : MonoBehaviour
         }
     }
     #endregion
+
+#if UNITY_EDITOR
+    public void ExportVoxelCountsToCSV()
+    {
+        if (pointCloudProcessor == null)
+        {
+            UnityEngine.Debug.Log("点群データがロードされていません。再構築を実行します。");
+            RebuildPointCloud();
+        }
+
+        if (pointCloudProcessor == null || pointCloudProcessor.VoxelGrid == null)
+        {
+            UnityEngine.Debug.LogError("VoxelGridの初期化に失敗しました。点群をロードしてください。");
+            return;
+        }
+
+        PCV_VoxelCountExporter.Export(pointCloudProcessor.VoxelGrid);
+    }
+#endif
 }
