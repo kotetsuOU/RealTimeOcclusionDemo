@@ -1,5 +1,8 @@
 ﻿using UnityEngine;
+using UnityEngine.Rendering;
+using UnityEngine.Rendering.Universal;
 using System.Collections.Generic;
+using System.Collections;
 
 [RequireComponent(typeof(PCV_Settings), typeof(PCV_Renderer), typeof(PCV_InputHandler))]
 [RequireComponent(typeof(PCV_DataManager), typeof(PCV_OperationHandler))]
@@ -13,11 +16,13 @@ public class PointCloudViewer : MonoBehaviour
     #endregion
 
     private bool isSubscribed = false;
+    private PCDRendererFeature pcdRendererFeature;
 
     #region Unity Lifecycle
     private void Awake()
     {
         InitializeComponentsAndSubscribe();
+        FindPCDRendererFeature();
     }
 
     private void OnEnable()
@@ -42,6 +47,13 @@ public class PointCloudViewer : MonoBehaviour
         if (!UnityEngine.Application.isPlaying) return;
         pointCloudRenderer.InitializeOutline(settings.outline, settings.outlineColor);
         pointCloudRenderer.UpdatePointSize(settings.pointSize);
+
+        StartCoroutine(RebuildPointCloudAfterFrame());
+    }
+
+    private IEnumerator RebuildPointCloudAfterFrame()
+    {
+        yield return null;
         RebuildPointCloud();
     }
 
@@ -94,6 +106,34 @@ public class PointCloudViewer : MonoBehaviour
         else
         {
             pointCloudRenderer.ClearMesh();
+        }
+
+        if (pcdRendererFeature == null)
+        {
+            FindPCDRendererFeature();
+        }
+
+        if (pcdRendererFeature != null)
+        {
+            pcdRendererFeature.SetPointCloudData(data);
+        }
+        else
+        {
+            UnityEngine.Debug.LogWarning("PCDRendererFeature instance is not ready yet. Data will be sent on the next update.");
+        }
+    }
+
+    private void FindPCDRendererFeature()
+    {
+        pcdRendererFeature = PCDRendererFeature.Instance;
+
+        if (pcdRendererFeature == null)
+        {
+            UnityEngine.Debug.LogWarning("PCDRendererFeatureのインスタンスが見つかりません。アクティブなURPレンダラーにPCDRendererFeatureが追加されているか確認してください。");
+        }
+        else
+        {
+            UnityEngine.Debug.Log("PCDRendererFeatureのインスタンスを発見しました。");
         }
     }
 
