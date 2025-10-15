@@ -15,13 +15,16 @@ public class PCDRendererFeature : ScriptableRendererFeature
     [Tooltip("近傍領域サイズを決定するための調整パラメータ")]
     public float neighborhoodParam_p_prime = 4.8f;
 
+    [Header("Blending Assets")]
+    public Material blendMaterial;
+
     private PCDRenderPass _scriptablePass;
 
     public override void Create()
     {
         Instance = this;
 
-        _scriptablePass = new PCDRenderPass(this);
+        _scriptablePass = new PCDRenderPass(this, blendMaterial);
         _scriptablePass.renderPassEvent = RenderPassEvent.BeforeRenderingPostProcessing;
     }
 
@@ -38,6 +41,12 @@ public class PCDRendererFeature : ScriptableRendererFeature
         if (pointCloudCompute == null)
         {
             UnityEngine.Debug.LogWarningFormat("PCDRendererFeature: Compute Shader is not assigned. Skipping pass.");
+            return;
+        }
+
+        if (blendMaterial == null)
+        {
+            UnityEngine.Debug.LogWarningFormat("PCDRendererFeature: Blend Material is not assigned. Skipping pass.");
             return;
         }
         renderer.EnqueuePass(_scriptablePass);

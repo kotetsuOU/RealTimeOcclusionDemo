@@ -17,6 +17,7 @@ public class PCDRenderPass : ScriptableRenderPass
     private ComputeShader pointCloudCompute;
     private float densityThreshold_e;
     private float neighborhoodParam_p_prime;
+    private Material m_BlendMaterial; // MODIFIED: ブレンド用マテリアルを保持する変数
 
     private ComputeBuffer _pointBuffer;
     private int _pointCount = 0;
@@ -37,11 +38,13 @@ public class PCDRenderPass : ScriptableRenderPass
 
     private bool _isInitialized = false;
 
-    public PCDRenderPass(PCDRendererFeature settings)
+    // MODIFIED: コンストラクタでブレンド用マテリアルを受け取るように変更
+    public PCDRenderPass(PCDRendererFeature settings, Material blendMaterial)
     {
         this.pointCloudCompute = settings.pointCloudCompute;
         this.densityThreshold_e = settings.densityThreshold_e;
         this.neighborhoodParam_p_prime = settings.neighborhoodParam_p_prime;
+        this.m_BlendMaterial = blendMaterial;
     }
 
     public void SetPointCloudData(PCV_Data data)
@@ -122,7 +125,7 @@ public class PCDRenderPass : ScriptableRenderPass
         int gridHeight = Mathf.CeilToInt(height / 16.0f);
 
         _colorMap = CreateRT(width, height, RenderTextureFormat.ARGBFloat);
-        _depthMap = CreateRT(width, height, RenderTextureFormat.RInt);
+        _depthMap = CreateRT(width, height, RenderTextureFormat.RInt); // RIntはuintとして扱われる
         _gridZMinMap = CreateRT(gridWidth, gridHeight, RenderTextureFormat.RInt);
         _densityMap = CreateRT(gridWidth, gridHeight, RenderTextureFormat.RFloat);
         _neighborhoodSizeMap = CreateRT(width, height, RenderTextureFormat.RInt);
@@ -159,7 +162,6 @@ public class PCDRenderPass : ScriptableRenderPass
         }
         if (_pointBuffer == null || _pointCount == 0)
         {
-            UnityEngine.Debug.Log("Point buffer is null or empty. Skipping rendering pass.");
             return;
         }
 
@@ -188,7 +190,10 @@ public class PCDRenderPass : ScriptableRenderPass
         int gridGroupsX = Mathf.CeilToInt(screenWidth / 16.0f);
         int gridGroupsY = Mathf.CeilToInt(screenHeight / 16.0f);
 
+        // MODIFIED: ClearMapsカーネルに必要なテクスチャをすべて設定する
         cmd.SetComputeTextureParam(pointCloudCompute, _kernelClear, "_DepthMap_RW", _depthMap);
+        cmd.SetComputeTextureParam(pointCloudCompute, _kernelClear, "_OcclusionResultMap_RW", _occlusionResultMap);
+        cmd.SetComputeTextureParam(pointCloudCompute, _kernelClear, "_FinalImage_RW", _finalImage);
         cmd.DispatchCompute(pointCloudCompute, _kernelClear, threadGroupsX, threadGroupsY, 1);
 
         cmd.SetComputeTextureParam(pointCloudCompute, _kernelProject, "_ColorMap_RW", _colorMap);
@@ -222,7 +227,17 @@ public class PCDRenderPass : ScriptableRenderPass
         cmd.SetComputeTextureParam(pointCloudCompute, _kernelInterpolate, "_FinalImage_RW", _finalImage);
         cmd.DispatchCompute(pointCloudCompute, _kernelInterpolate, threadGroupsX, threadGroupsY, 1);
 
-        cmd.Blit(_finalImage, renderingData.cameraData.renderer.cameraColorTargetHandle);
+        // MODIFIED: ブレンド用マテリアルを使ってBlitを実行する
+        if (m_BlendMaterial != null)
+        {
+            cmd.Blit(_finalImage, renderingData.cameraData.renderer.cameraColorTargetHandle, m_BlendMaterial);
+        }
+        else
+        {
+            // マテリアルがなければ、以前と同じく上書きする
+            cmd.Blit(_finalImage, renderingData.cameraData.renderer.cameraColorTargetHandle);
+            UnityEngine.Debug.LogWarning("Blend Material is not set in PCDRendererFeature. Point cloud will overwrite the screen.");
+        }
 
         context.ExecuteCommandBuffer(cmd);
         CommandBufferPool.Release(cmd);
