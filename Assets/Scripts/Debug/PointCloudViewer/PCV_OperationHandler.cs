@@ -1,11 +1,32 @@
 using UnityEngine;
 using System.Collections;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 
 public class PCV_OperationHandler : MonoBehaviour
 {
     [SerializeField] private PCV_Settings settings;
     [SerializeField] private PCV_DataManager dataManager;
+
+    public void ExecuteVoxelDensityFilter()
+    {
+        if (dataManager.CurrentData == null || dataManager.SpatialSearch == null)
+        {
+            UnityEngine.Debug.LogWarning("点群データがロードされていません。処理は実行不可能です。");
+            return;
+        }
+
+        var stopwatch = Stopwatch.StartNew();
+        int originalCount = dataManager.CurrentData.PointCount;
+        UnityEngine.Debug.Log($"ボクセル密度フィルタリングを開始します。(閾値: {settings.voxelDensityThreshold})");
+
+        var filteredData = FilterByVoxelDensity(dataManager.CurrentData, dataManager.SpatialSearch.VoxelGrid, settings.voxelDensityThreshold);
+
+        stopwatch.Stop();
+        LogFilteringResult("ボクセル密度フィルタリング", originalCount, filteredData.PointCount, stopwatch.ElapsedMilliseconds);
+        dataManager.SetData(filteredData, settings.voxelSize);
+    }
 
     public void ExecuteNoiseFilter()
     {
@@ -57,6 +78,37 @@ public class PCV_OperationHandler : MonoBehaviour
         dataManager.SetData(filteredData, settings.voxelSize);
     }
 
+    private PCV_Data FilterByVoxelDensity(PCV_Data inputData, VoxelGrid voxelGrid, int densityThreshold)
+    {
+        var passedPointIndices = new HashSet<int>();
+
+        foreach (var voxelContent in voxelGrid.Grid)
+        {
+            if (voxelContent.Value.Count >= densityThreshold)
+            {
+                foreach (int pointIndex in voxelContent.Value)
+                {
+                    passedPointIndices.Add(pointIndex);
+                }
+            }
+        }
+
+        var sortedIndices = passedPointIndices.ToList();
+        sortedIndices.Sort();
+
+        var filteredVertices = new Vector3[sortedIndices.Count];
+        var filteredColors = new Color[sortedIndices.Count];
+
+        for (int i = 0; i < sortedIndices.Count; i++)
+        {
+            int originalIndex = sortedIndices[i];
+            filteredVertices[i] = inputData.Vertices[originalIndex];
+            filteredColors[i] = inputData.Colors[originalIndex];
+        }
+
+        return new PCV_Data(filteredVertices, filteredColors);
+    }
+
     private void ExecuteNoiseFilteringCPU()
     {
         var stopwatch = Stopwatch.StartNew();
@@ -66,7 +118,7 @@ public class PCV_OperationHandler : MonoBehaviour
         PCV_Data filteredData = PCV_NoiseFilter.FilterCPU(dataManager.CurrentData, dataManager.SpatialSearch.VoxelGrid, settings.searchRadius, settings.neighborThreshold);
 
         stopwatch.Stop();
-        LogFilteringResult("ノイズ除去", originalCount, filteredData.PointCount, stopwatch.ElapsedMilliseconds);
+        LogFilteringResult("近傍探索ノイズ除去", originalCount, filteredData.PointCount, stopwatch.ElapsedMilliseconds);
         dataManager.SetData(filteredData, settings.voxelSize);
     }
 
@@ -82,7 +134,7 @@ public class PCV_OperationHandler : MonoBehaviour
         );
 
         stopwatch.Stop();
-        LogFilteringResult("ノイズ除去", originalCount, result.PointCount, stopwatch.ElapsedMilliseconds);
+        LogFilteringResult("近傍探索ノイズ除去", result.PointCount, result.PointCount, stopwatch.ElapsedMilliseconds);
         dataManager.SetData(result, settings.voxelSize);
     }
 

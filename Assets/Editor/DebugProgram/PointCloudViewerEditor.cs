@@ -11,6 +11,7 @@ public class PointCloudViewerEditor : Editor
     private SerializedProperty pointSizeProp;
     private SerializedProperty outlineProp, outlineColorProp;
     private SerializedProperty voxelSizeProp, searchRadiusProp, neighborColorProp, neighborThresholdProp;
+    private SerializedProperty voxelDensityThresholdProp;
     private SerializedProperty erosionIterationsProp, dilationIterationsProp;
     private SerializedProperty pointCloudFilterShaderProp;
     private SerializedProperty morpologyOperationShaderProp;
@@ -30,6 +31,7 @@ public class PointCloudViewerEditor : Editor
             searchRadiusProp = settingsObject.FindProperty("searchRadius");
             neighborColorProp = settingsObject.FindProperty("neighborColor");
             neighborThresholdProp = settingsObject.FindProperty("neighborThreshold");
+            voxelDensityThresholdProp = settingsObject.FindProperty("voxelDensityThreshold");
             erosionIterationsProp = settingsObject.FindProperty("erosionIterations");
             dilationIterationsProp = settingsObject.FindProperty("dilationIterations");
             pointCloudFilterShaderProp = settingsObject.FindProperty("pointCloudFilterShader");
@@ -73,11 +75,11 @@ public class PointCloudViewerEditor : Editor
         GUI.backgroundColor = Color.white;
         EditorGUILayout.Space();
 
-
         EditorGUILayout.PropertyField(voxelSizeProp);
         EditorGUILayout.PropertyField(searchRadiusProp);
         EditorGUILayout.PropertyField(neighborColorProp);
         EditorGUILayout.PropertyField(neighborThresholdProp);
+        EditorGUILayout.PropertyField(voxelDensityThresholdProp);
         EditorGUILayout.Space();
 
         EditorGUILayout.PropertyField(erosionIterationsProp);
@@ -88,11 +90,19 @@ public class PointCloudViewerEditor : Editor
         EditorGUILayout.PropertyField(morpologyOperationShaderProp);
 
         EditorGUILayout.BeginHorizontal();
+        GUI.backgroundColor = new Color(0.8f, 1f, 0.8f);
+        if (GUILayout.Button("ボクセル密度フィルタリングを実行"))
+        {
+            viewer.StartVoxelDensityFiltering();
+        }
         GUI.backgroundColor = new Color(0.6f, 0.8f, 1f);
         if (GUILayout.Button("近傍探索ノイズ除去を実行"))
         {
             viewer.StartNoiseFiltering();
         }
+        EditorGUILayout.EndHorizontal();
+
+        EditorGUILayout.BeginHorizontal();
         GUI.backgroundColor = new Color(1f, 0.8f, 0.6f);
         if (GUILayout.Button("モルフォロジー演算を実行 (Morpology)"))
         {

@@ -1,4 +1,3 @@
-using System.Runtime.InteropServices;
 using UnityEngine;
 
 [System.Serializable]
@@ -41,6 +40,8 @@ public class PCV_Settings : MonoBehaviour
     public Color neighborColor = Color.cyan;
     [Tooltip("ノイズと判断する近傍点の閾値")]
     public int neighborThreshold = 100;
+    [Tooltip("ノイズと判断するボクセル内の最小点数")]
+    public int voxelDensityThreshold = 5;
 
     [Header("Morpology Operation")]
     public int erosionIterations = 1;
@@ -57,6 +58,7 @@ public class PCV_Settings : MonoBehaviour
     private float lastSearchRadius;
     private Color lastNeighborColor;
     private int lastNeighborThreshold;
+    private int lastVoxelDensityThreshold;
 
     private int lastErosionIterations;
     private int lastDilationIterations;
@@ -81,6 +83,7 @@ public class PCV_Settings : MonoBehaviour
         lastSearchRadius = searchRadius;
         lastNeighborColor = neighborColor;
         lastNeighborThreshold = neighborThreshold;
+        lastVoxelDensityThreshold = voxelDensityThreshold;
 
         lastErosionIterations = erosionIterations;
         lastDilationIterations = dilationIterations;
@@ -113,6 +116,6 @@ public class PCV_Settings : MonoBehaviour
 
     public bool HasProcessingSettingsChanged()
     {
-        return voxelSize != lastVoxelSize || searchRadius != lastSearchRadius || neighborColor != lastNeighborColor || neighborThreshold != lastNeighborThreshold || HasMorpologySettingsChanged();
+        return voxelSize != lastVoxelSize || searchRadius != lastSearchRadius || neighborColor != lastNeighborColor || neighborThreshold != lastNeighborThreshold || voxelDensityThreshold != lastVoxelDensityThreshold || HasMorpologySettingsChanged();
     }
 }

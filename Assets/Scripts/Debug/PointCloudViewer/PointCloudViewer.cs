@@ -151,6 +151,12 @@ public class PointCloudViewer : MonoBehaviour
         dataManager.LoadAndSetData(settings.fileSettings, settings.voxelSize);
     }
 
+    public void StartVoxelDensityFiltering()
+    {
+        if (operationHandler == null) InitializeComponentsAndSubscribe();
+        operationHandler.ExecuteVoxelDensityFilter();
+    }
+
     public void StartNoiseFiltering()
     {
         if (operationHandler == null) InitializeComponentsAndSubscribe();
