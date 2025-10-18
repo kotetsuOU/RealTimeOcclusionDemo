@@ -1,6 +1,4 @@
-﻿// MorpologyOperation.compute
-
-#pragma kernel CSMorpology
+﻿#pragma kernel CSMorpology
 
 struct Point
 {
@@ -14,7 +12,7 @@ RWStructuredBuffer<Point> _PointsOut;
 
 RWStructuredBuffer<uint> _PointCountOut;
 
-int _PointCountIn;
+uint _PointCountIn;
 float _VoxelSize;
 int _CurrentIterationMode;
 
@@ -33,7 +31,7 @@ void CSMorpology(uint3 id : SV_DispatchThreadID)
     int neighborCount = 0;
     float searchRadiusSq = _VoxelSize * _VoxelSize;
 
-    for (int i = 0; i < _PointCountIn; i++)
+    for (uint i = 0; i < _PointCountIn; i++)
     {
         if (id.x == i)
         {
