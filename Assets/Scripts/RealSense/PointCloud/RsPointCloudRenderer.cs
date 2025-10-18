@@ -34,6 +34,7 @@ public class RsPointCloudRenderer : MonoBehaviour
 
     private Vector3[] _rawVertices;
     private Vector3[] _globalVertices;
+    private ComputeBuffer _rawVerticesBuffer;
     private Texture2D _uvmap;
     private int _frameCounter = 0;
     private int _finalVertexCount = 0;
@@ -57,12 +58,16 @@ public class RsPointCloudRenderer : MonoBehaviour
     {
         int width = _dataProvider.FrameWidth;
         int height = _dataProvider.FrameHeight;
+        int rsLength = width * height;
 
         _compute = new PointCloudCompute(pointCloudFilterShader, pointCloudTransformerShader, rsDeviceController.RealSenseScanRange, rsDeviceController.FrameWidth, maxPlaneDistance);
-        _compute.InitializeBuffers(width * height, transform.localToWorldMatrix);
+        
+        _compute.InitializeBuffers(rsLength, transform.localToWorldMatrix); 
 
-        _rawVertices = new Vector3[width * height];
-        _globalVertices = new Vector3[width * height];
+        _rawVertices = new Vector3[rsLength];
+        _globalVertices = new Vector3[rsLength];
+        
+        _rawVerticesBuffer = new ComputeBuffer(rsLength, sizeof(float) * 3);
 
         _uvmap = new Texture2D(width, height, TextureFormat.RGFloat, false, true)
         {
@@ -106,13 +111,18 @@ public class RsPointCloudRenderer : MonoBehaviour
         {
             points.CopyVertices(_rawVertices);
 
+            if (_rawVerticesBuffer != null)
+            {
+                _rawVerticesBuffer.SetData(_rawVertices);
+            }
+
             long discardedCount;
             int finalVertexCount;
             long totalCount = 0;
 
             if (IsGlobalRangeFilterEnabled)
             {
-                var result = _compute.FilterAndEstimateLine(_rawVertices, _globalVertices, EstimatedPoint, EstimatedDir);
+                var result = _compute.FilterAndEstimateLine(_rawVerticesBuffer, _globalVertices, EstimatedPoint, EstimatedDir);
                 finalVertexCount = result.finalCount;
                 EstimatedPoint = result.point;
                 EstimatedDir = result.dir;
@@ -121,7 +131,7 @@ public class RsPointCloudRenderer : MonoBehaviour
             }
             else
             {
-                finalVertexCount = _compute.Transform(_rawVertices, _globalVertices);
+                finalVertexCount = _compute.Transform(_rawVerticesBuffer, _globalVertices);
                 discardedCount = 0;
                 totalCount = _rawVertices.Length;
             }
@@ -148,6 +158,8 @@ public class RsPointCloudRenderer : MonoBehaviour
         _dataProvider?.Dispose();
         _compute?.Dispose();
         _logger?.Dispose();
+        _rawVerticesBuffer?.Release();
+        _rawVerticesBuffer = null;
     }
 
     public void StartPerformanceLog()

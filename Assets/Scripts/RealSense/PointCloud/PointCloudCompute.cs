@@ -7,7 +7,6 @@ public class PointCloudCompute : IDisposable
     private ComputeShader filterShader;
     private ComputeShader transformShader;
 
-    private ComputeBuffer rawVerticesBuffer;
     private ComputeBuffer filteredVerticesBuffer;
     private ComputeBuffer countBuffer;
     private ComputeBuffer samplingBuffer;
@@ -40,21 +39,20 @@ public class PointCloudCompute : IDisposable
         this.localToWorld = localToWorld;
 
         ReleaseBuffers();
-        rawVerticesBuffer = new ComputeBuffer(rsLength, sizeof(float) * 3);
         filteredVerticesBuffer = new ComputeBuffer(rsLength, sizeof(float) * 3, ComputeBufferType.Append);
         countBuffer = new ComputeBuffer(1, sizeof(int), ComputeBufferType.Raw);
         samplingBuffer = new ComputeBuffer(rsLength, sizeof(float) * 3, ComputeBufferType.Append);
         distanceDiscardBuffer = new ComputeBuffer(rsLength, sizeof(float) * 3, ComputeBufferType.Append);
     }
 
-    public (int finalCount, Vector3 point, Vector3 dir, int discardedCount, int sampledCount, float discardPercentage) FilterAndEstimateLine(Vector3[] rawVertices, Vector3[] globalVertices, Vector3 previousLinePoint, Vector3 previousLineDir)
+    public (int finalCount, Vector3 point, Vector3 dir, int discardedCount, int sampledCount, float discardPercentage) FilterAndEstimateLine(ComputeBuffer rawVerticesBuffer, Vector3[] globalVertices, Vector3 previousLinePoint, Vector3 previousLineDir)
     {
-        rawVerticesBuffer.SetData(rawVertices);
         filteredVerticesBuffer.SetCounterValue(0);
         samplingBuffer.SetCounterValue(0);
         distanceDiscardBuffer.SetCounterValue(0);
 
         int kernel = filterShader.FindKernel("CSMain");
+
         filterShader.SetBuffer(kernel, "rawVertices", rawVerticesBuffer);
         filterShader.SetBuffer(kernel, "filteredVertices", filteredVerticesBuffer);
         filterShader.SetBuffer(kernel, "samplingBuffer", samplingBuffer);
@@ -63,13 +61,14 @@ public class PointCloudCompute : IDisposable
         filterShader.SetMatrix("localToWorld", localToWorld);
         filterShader.SetVector("globalThreshold1", globalThreshold1);
         filterShader.SetVector("globalThreshold2", globalThreshold2);
-        filterShader.SetInt("vertexCount", rawVertices.Length);
+        filterShader.SetInt("vertexCount", rsLength);
         filterShader.SetFloat("maxDistance", maxPlaneDistance);
         filterShader.SetVector("linePoint", previousLinePoint);
         filterShader.SetVector("lineDir", previousLineDir);
 
-        int threadGroups = Mathf.CeilToInt(rawVertices.Length / 256.0f);
+        int threadGroups = Mathf.CeilToInt(rsLength / 256.0f);
         filterShader.Dispatch(kernel, threadGroups, 1, 1);
+
 
         ComputeBuffer.CopyCount(samplingBuffer, countBuffer, 0);
         int[] sampledCountArr = new int[1];
@@ -114,18 +113,18 @@ public class PointCloudCompute : IDisposable
         return (finalCount, point, dir, discardedCount, sampledCount, discardPercentage);
     }
 
-    public int Transform(Vector3[] rawVertices, Vector3[] globalVertices)
+    public int Transform(ComputeBuffer rawVerticesBuffer, Vector3[] globalVertices)
     {
-        rawVerticesBuffer.SetData(rawVertices);
         filteredVerticesBuffer.SetCounterValue(0);
 
         int kernel = transformShader.FindKernel("CSMain");
+
         transformShader.SetBuffer(kernel, "rawVertices", rawVerticesBuffer);
         transformShader.SetBuffer(kernel, "filteredVertices", filteredVerticesBuffer);
         transformShader.SetMatrix("localToWorld", localToWorld);
-        transformShader.SetInt("vertexCount", rawVertices.Length);
+        transformShader.SetInt("vertexCount", rsLength);
 
-        int threadGroups = Mathf.CeilToInt(rawVertices.Length / 256.0f);
+        int threadGroups = Mathf.CeilToInt(rsLength / 256.0f);
         transformShader.Dispatch(kernel, threadGroups, 1, 1);
 
         ComputeBuffer.CopyCount(filteredVerticesBuffer, countBuffer, 0);
@@ -202,7 +201,6 @@ public class PointCloudCompute : IDisposable
 
     private void ReleaseBuffers()
     {
-        rawVerticesBuffer?.Release();
         filteredVerticesBuffer?.Release();
         countBuffer?.Release();
         samplingBuffer?.Release();
