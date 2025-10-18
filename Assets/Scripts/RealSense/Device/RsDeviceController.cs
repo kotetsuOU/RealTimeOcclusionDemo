@@ -17,7 +17,7 @@ public class RsDeviceController : MonoBehaviour
     {
         if (adaptIntervalFrame)
         {
-            var pipes = FindObjectsOfType<RsProcessingPipe>();
+            var pipes = FindObjectsByType<RsProcessingPipe>(FindObjectsSortMode.None);
             foreach (var pipe in pipes)
             {
                 pipe.SetProcessIntervalFrames(rsProcessIntervalFrames);
