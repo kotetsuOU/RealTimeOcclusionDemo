@@ -3,7 +3,7 @@ using System;
 using System.Diagnostics;
 using UnityEngine;
 
-[RequireComponent(typeof(MeshFilter), typeof(MeshRenderer))]
+[RequireComponent(typeof(MeshRenderer))]
 public class RsPointCloudRenderer : MonoBehaviour
 {
     [Header("Dependencies & Settings")]
@@ -16,8 +16,6 @@ public class RsPointCloudRenderer : MonoBehaviour
     [SerializeField] public float maxPlaneDistance = 0.1f;
     public Color pointCloudColor = new Color(241f / 255f, 187f / 255f, 147f / 255f, 1f);
     [SerializeField, HideInInspector] private string exportFileName = "currentGlobalVertices.txt";
-    [Tooltip("ComputeBufferから直接描画する（true）か、従来のMesh.vertices経由で描画する（false）か")]
-    public bool useProceduralDraw = true;
 
     [Header("Performance Logging Settings")]
     public string logFilePrefix = "PointCloudPerfLog";
@@ -29,7 +27,6 @@ public class RsPointCloudRenderer : MonoBehaviour
     public bool appendLog = false;
 
     private RealSenseDataProvider _dataProvider;
-    private PointCloudMesher _mesher;
     private PointCloudCompute _compute;
     private PerformanceLogger _logger;
     private readonly Stopwatch _stopwatch = new Stopwatch();
@@ -37,7 +34,6 @@ public class RsPointCloudRenderer : MonoBehaviour
     private Vector3[] _rawVertices;
     private Vector3[] _globalVertices;
     private ComputeBuffer _rawVerticesBuffer;
-    private Texture2D _uvmap;
     private int _frameCounter = 0;
     private int _finalVertexCount = 0;
 
@@ -52,7 +48,6 @@ public class RsPointCloudRenderer : MonoBehaviour
     void Start()
     {
         _dataProvider = new RealSenseDataProvider(processingPipe);
-        _mesher = new PointCloudMesher(GetComponent<MeshFilter>(), GetComponent<MeshRenderer>());
         _logger = new PerformanceLogger();
         _dataProvider.Start();
 
@@ -76,14 +71,6 @@ public class RsPointCloudRenderer : MonoBehaviour
         _globalVertices = new Vector3[rsLength];
 
         _rawVerticesBuffer = new ComputeBuffer(rsLength, sizeof(float) * 3);
-
-        _uvmap = new Texture2D(width, height, TextureFormat.RGFloat, false, true)
-        {
-            wrapMode = TextureWrapMode.Clamp,
-            filterMode = FilterMode.Point,
-        };
-
-        _mesher.ResetMesh(width, height, _uvmap);
 
         transform.position = Vector3.zero;
         transform.rotation = Quaternion.identity;
@@ -111,25 +98,11 @@ public class RsPointCloudRenderer : MonoBehaviour
             return;
         }
 
-        if (useProceduralDraw)
-        {
-            UpdateProceduralMesh(_finalVertexCount);
-        }
-        else
-        {
-            _compute.GetFilteredVerticesData(_globalVertices, _finalVertexCount);
-            _mesher.UpdateMesh(_globalVertices, _finalVertexCount, pointCloudColor);
-        }
+        UpdateProceduralMesh(_finalVertexCount);
     }
 
     private void ProcessFrame(Points points)
     {
-        if (points.TextureData != IntPtr.Zero)
-        {
-            _uvmap.LoadRawTextureData(points.TextureData, points.Count * sizeof(float) * 2);
-            _uvmap.Apply();
-        }
-
         if (points.VertexData != IntPtr.Zero)
         {
             points.CopyVertices(_rawVertices);
