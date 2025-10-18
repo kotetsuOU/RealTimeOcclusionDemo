@@ -3,6 +3,7 @@ Shader "Custom/PointCloudCube"
     Properties
     {
         _CubeSize("Cube Size", Float) = 0.002
+        _Color("Point Color", Color) = (1,1,1,1)
     }
 
     SubShader
@@ -17,14 +18,10 @@ Shader "Custom/PointCloudCube"
 
             #include "UnityCG.cginc"
 
+            StructuredBuffer<float3> _Vertices;
+
             float _CubeSize;
             float4 _Color;
-
-            struct appdata
-            {
-                float4 vertex : POSITION;
-                float4 color  : COLOR;
-            };
 
             struct v2g
             {
@@ -39,11 +36,11 @@ Shader "Custom/PointCloudCube"
             };
 
             // Vertex Shader
-            v2g vert(appdata v)
+            v2g vert (uint id : SV_VertexID)
             {
                 v2g o;
-                o.pos = v.vertex;
-                o.color = v.color;
+                o.pos = float4(_Vertices[id], 1.0);
+                o.color = _Color;
                 return o;
             }
 

@@ -17,14 +17,10 @@ Shader "Custom/PointCloudSprite"
 
             #include "UnityCG.cginc"
 
+            StructuredBuffer<float3> _Vertices;
+
             float _PointSize;
             float4 _Color;
-
-            struct appdata
-            {
-                float4 vertex : POSITION;
-                float4 color  : COLOR;
-            };
 
             struct v2f
             {
@@ -33,11 +29,12 @@ Shader "Custom/PointCloudSprite"
                 float  psize : PSIZE;
             };
 
-            v2f vert (appdata v)
+            v2f vert (uint id : SV_VertexID)
             {
                 v2f o;
-                o.pos = mul(UNITY_MATRIX_VP, v.vertex);
-                o.color = v.color;
+                float3 worldPos = _Vertices[id];
+                o.pos = mul(UNITY_MATRIX_VP, float4(worldPos, 1.0));
+                o.color = float4(1,1,1,1);
                 o.psize = _PointSize;
                 return o;
             }

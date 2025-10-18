@@ -20,6 +20,11 @@ public class PointCloudCompute : IDisposable
     private int rsLength;
     private Matrix4x4 localToWorld;
 
+    public ComputeBuffer GetFilteredVerticesBuffer()
+    {
+        return filteredVerticesBuffer;
+    }
+
     public PointCloudCompute(ComputeShader filterShader, ComputeShader transformShader, Vector3 rsScanRange, float frameWidth, float maxPlaneDistance)
     {
         this.filterShader = filterShader;
@@ -45,7 +50,7 @@ public class PointCloudCompute : IDisposable
         distanceDiscardBuffer = new ComputeBuffer(rsLength, sizeof(float) * 3, ComputeBufferType.Append);
     }
 
-    public (int finalCount, Vector3 point, Vector3 dir, int discardedCount, int sampledCount, float discardPercentage) FilterAndEstimateLine(ComputeBuffer rawVerticesBuffer, Vector3[] globalVertices, Vector3 previousLinePoint, Vector3 previousLineDir)
+    public (int finalCount, Vector3 point, Vector3 dir, int discardedCount, int sampledCount, float discardPercentage) FilterAndEstimateLine(ComputeBuffer rawVerticesBuffer, Vector3 previousLinePoint, Vector3 previousLineDir)
     {
         filteredVerticesBuffer.SetCounterValue(0);
         samplingBuffer.SetCounterValue(0);
@@ -101,19 +106,10 @@ public class PointCloudCompute : IDisposable
         countBuffer.GetData(finalCountArr);
         int finalCount = finalCountArr[0];
 
-        if (finalCount > 0)
-        {
-            filteredVerticesBuffer.GetData(globalVertices, 0, 0, finalCount);
-        }
-        else
-        {
-            Array.Clear(globalVertices, 0, globalVertices.Length);
-        }
-
         return (finalCount, point, dir, discardedCount, sampledCount, discardPercentage);
     }
 
-    public int Transform(ComputeBuffer rawVerticesBuffer, Vector3[] globalVertices)
+    public int Transform(ComputeBuffer rawVerticesBuffer)
     {
         filteredVerticesBuffer.SetCounterValue(0);
 
@@ -131,12 +127,21 @@ public class PointCloudCompute : IDisposable
         int[] countArr = new int[1];
         countBuffer.GetData(countArr);
         int newCount = countArr[0];
-
-        if (newCount > 0)
-            filteredVerticesBuffer.GetData(globalVertices, 0, 0, newCount);
-
         return newCount;
     }
+
+    public void GetFilteredVerticesData(Vector3[] outVertices, int count)
+    {
+        if (count > 0 && count <= outVertices.Length)
+        {
+            filteredVerticesBuffer.GetData(outVertices, 0, 0, count);
+        }
+        else if (count > outVertices.Length)
+        {
+            UnityEngine.Debug.LogWarning($"Buffer count ({count}) exceeds array length ({outVertices.Length}). GetData skipped.");
+        }
+    }
+
 
     private (Vector3 point, Vector3 dir) EstimateLineCPU(Vector3[] vertices, int count)
     {

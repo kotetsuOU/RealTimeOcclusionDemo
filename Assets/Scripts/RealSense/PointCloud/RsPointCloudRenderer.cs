@@ -16,6 +16,8 @@ public class RsPointCloudRenderer : MonoBehaviour
     [SerializeField] public float maxPlaneDistance = 0.1f;
     public Color pointCloudColor = new Color(241f / 255f, 187f / 255f, 147f / 255f, 1f);
     [SerializeField, HideInInspector] private string exportFileName = "currentGlobalVertices.txt";
+    [Tooltip("ComputeBufferから直接描画する（true）か、従来のMesh.vertices経由で描画する（false）か")]
+    public bool useProceduralDraw = true;
 
     [Header("Performance Logging Settings")]
     public string logFilePrefix = "PointCloudPerfLog";
@@ -39,6 +41,9 @@ public class RsPointCloudRenderer : MonoBehaviour
     private int _frameCounter = 0;
     private int _finalVertexCount = 0;
 
+    private MaterialPropertyBlock _props;
+    private MeshRenderer _renderer;
+
     public bool IsGlobalRangeFilterEnabled { get; set; } = true;
     public Vector3 EstimatedPoint { get; private set; } = Vector3.zero;
     public Vector3 EstimatedDir { get; private set; } = Vector3.forward;
@@ -51,6 +56,9 @@ public class RsPointCloudRenderer : MonoBehaviour
         _logger = new PerformanceLogger();
         _dataProvider.Start();
 
+        _renderer = GetComponent<MeshRenderer>();
+        _props = new MaterialPropertyBlock();
+
         processingPipe.OnStart += OnStartStreaming;
     }
 
@@ -61,12 +69,12 @@ public class RsPointCloudRenderer : MonoBehaviour
         int rsLength = width * height;
 
         _compute = new PointCloudCompute(pointCloudFilterShader, pointCloudTransformerShader, rsDeviceController.RealSenseScanRange, rsDeviceController.FrameWidth, maxPlaneDistance);
-        
-        _compute.InitializeBuffers(rsLength, transform.localToWorldMatrix); 
+
+        _compute.InitializeBuffers(rsLength, transform.localToWorldMatrix);
 
         _rawVertices = new Vector3[rsLength];
         _globalVertices = new Vector3[rsLength];
-        
+
         _rawVerticesBuffer = new ComputeBuffer(rsLength, sizeof(float) * 3);
 
         _uvmap = new Texture2D(width, height, TextureFormat.RGFloat, false, true)
@@ -97,6 +105,21 @@ public class RsPointCloudRenderer : MonoBehaviour
         }
 
         if (_stopwatch.IsRunning) _stopwatch.Stop();
+
+        if (_finalVertexCount <= 0 || _compute == null)
+        {
+            return;
+        }
+
+        if (useProceduralDraw)
+        {
+            UpdateProceduralMesh(_finalVertexCount);
+        }
+        else
+        {
+            _compute.GetFilteredVerticesData(_globalVertices, _finalVertexCount);
+            _mesher.UpdateMesh(_globalVertices, _finalVertexCount, pointCloudColor);
+        }
     }
 
     private void ProcessFrame(Points points)
@@ -122,7 +145,7 @@ public class RsPointCloudRenderer : MonoBehaviour
 
             if (IsGlobalRangeFilterEnabled)
             {
-                var result = _compute.FilterAndEstimateLine(_rawVerticesBuffer, _globalVertices, EstimatedPoint, EstimatedDir);
+                var result = _compute.FilterAndEstimateLine(_rawVerticesBuffer, EstimatedPoint, EstimatedDir);
                 finalVertexCount = result.finalCount;
                 EstimatedPoint = result.point;
                 EstimatedDir = result.dir;
@@ -131,13 +154,12 @@ public class RsPointCloudRenderer : MonoBehaviour
             }
             else
             {
-                finalVertexCount = _compute.Transform(_rawVerticesBuffer, _globalVertices);
+                finalVertexCount = _compute.Transform(_rawVerticesBuffer);
                 discardedCount = 0;
                 totalCount = _rawVertices.Length;
             }
 
             _finalVertexCount = finalVertexCount;
-            _mesher.UpdateMesh(_globalVertices, finalVertexCount, pointCloudColor);
 
             if (_logger.IsLogging)
             {
@@ -145,6 +167,39 @@ public class RsPointCloudRenderer : MonoBehaviour
                 _logger.LogFrame(_frameCounter, _stopwatch.Elapsed.TotalMilliseconds, discardedCount, totalCount, IsGlobalRangeFilterEnabled);
             }
         }
+    }
+
+    private void UpdateProceduralMesh(int vertexCount)
+    {
+        if (vertexCount == 0 || _compute == null || _renderer == null || _renderer.sharedMaterial == null)
+        {
+            return;
+        }
+
+        ComputeBuffer verticesBuffer = _compute.GetFilteredVerticesBuffer();
+        if (verticesBuffer == null)
+        {
+            UnityEngine.Debug.LogWarning("Filtered vertices buffer is null.");
+            return;
+        }
+
+        _props.SetBuffer("_Vertices", verticesBuffer);
+        _props.SetColor("_Color", pointCloudColor);
+
+        Bounds bounds = new Bounds(transform.position, Vector3.one * 30f);
+
+        Graphics.DrawProcedural(
+            _renderer.material,
+            bounds,
+            MeshTopology.Points,
+            vertexCount,
+            1,
+            null,
+            _props,
+            UnityEngine.Rendering.ShadowCastingMode.Off,
+            true,
+            gameObject.layer
+        );
     }
 
     private void OnDestroy()
@@ -171,6 +226,11 @@ public class RsPointCloudRenderer : MonoBehaviour
 
     public Vector3[] GetFilteredVertices()
     {
+        if (_finalVertexCount > 0 && _compute != null)
+        {
+            _compute.GetFilteredVerticesData(_globalVertices, _finalVertexCount);
+        }
+
         Vector3[] result = new Vector3[_finalVertexCount];
         Array.Copy(_globalVertices, result, _finalVertexCount);
         return result;
