@@ -3,6 +3,8 @@ using System.Diagnostics;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
+using UnityEngine.Rendering.RenderGraphModule;
+using UnityEngine.Experimental.Rendering;
 
 public class PCDRenderPass : ScriptableRenderPass
 {
@@ -17,28 +19,18 @@ public class PCDRenderPass : ScriptableRenderPass
     private ComputeShader pointCloudCompute;
     private float densityThreshold_e;
     private float neighborhoodParam_p_prime;
-    private Material m_BlendMaterial; // MODIFIED: ブレンド用マテリアルを保持する変数
+    private Material m_BlendMaterial;
 
     private ComputeBuffer _pointBuffer;
     private int _pointCount = 0;
     private Point[] _pointsCache;
     private bool _isDataDirty = false;
 
-    private RenderTexture _colorMap;
-    private RenderTexture _depthMap;
-    private RenderTexture _gridZMinMap;
-    private RenderTexture _densityMap;
-    private RenderTexture _neighborhoodSizeMap;
-    private RenderTexture _filteredNeighborhoodSizeMap;
-    private RenderTexture _occlusionResultMap;
-    private RenderTexture _finalImage;
-
     private int _kernelClear, _kernelProject, _kernelCalcGridZMin, _kernelCalcDensity,
                 _kernelCalcNeighborhoodSize, _kernelMedianFilter, _kernelOcclusion, _kernelInterpolate;
 
     private bool _isInitialized = false;
 
-    // MODIFIED: コンストラクタでブレンド用マテリアルを受け取るように変更
     public PCDRenderPass(PCDRendererFeature settings, Material blendMaterial)
     {
         this.pointCloudCompute = settings.pointCloudCompute;
@@ -118,31 +110,35 @@ public class PCDRenderPass : ScriptableRenderPass
         _isDataDirty = false;
     }
 
-    private void SetupTextures(int width, int height)
+    private class ComputePassData
     {
-        ReleaseTextures();
-        int gridWidth = Mathf.CeilToInt(width / 16.0f);
-        int gridHeight = Mathf.CeilToInt(height / 16.0f);
-
-        _colorMap = CreateRT(width, height, RenderTextureFormat.ARGBFloat);
-        _depthMap = CreateRT(width, height, RenderTextureFormat.RInt); // RIntはuintとして扱われる
-        _gridZMinMap = CreateRT(gridWidth, gridHeight, RenderTextureFormat.RInt);
-        _densityMap = CreateRT(gridWidth, gridHeight, RenderTextureFormat.RFloat);
-        _neighborhoodSizeMap = CreateRT(width, height, RenderTextureFormat.RInt);
-        _filteredNeighborhoodSizeMap = CreateRT(width, height, RenderTextureFormat.RInt);
-        _occlusionResultMap = CreateRT(width, height, RenderTextureFormat.ARGBFloat);
-        _finalImage = CreateRT(width, height, RenderTextureFormat.ARGBFloat);
+        internal int pointCount;
+        internal Vector4 screenParams;
+        internal Matrix4x4 viewMatrix;
+        internal Matrix4x4 projectionMatrix;
+        internal float densityThreshold_e;
+        internal float neighborhoodParam_p_prime;
+        internal int kernelClear, kernelProject, kernelCalcGridZMin, kernelCalcDensity,
+                     kernelCalcNeighborhoodSize, kernelMedianFilter, kernelOcclusion, kernelInterpolate;
+        internal ComputeBuffer pointBuffer;
+        internal TextureHandle colorMap;
+        internal TextureHandle depthMap;
+        internal TextureHandle gridZMinMap;
+        internal TextureHandle densityMap;
+        internal TextureHandle neighborhoodSizeMap;
+        internal TextureHandle filteredNeighborhoodSizeMap;
+        internal TextureHandle occlusionResultMap;
+        internal TextureHandle finalImage;
     }
 
-    private RenderTexture CreateRT(int width, int height, RenderTextureFormat format)
+    private class BlitPassData
     {
-        var rt = new RenderTexture(width, height, 0, format);
-        rt.enableRandomWrite = true;
-        rt.Create();
-        return rt;
+        internal Material blendMaterial;
+        internal TextureHandle sourceImage;
+        internal TextureHandle cameraTarget;
     }
 
-    public override void Execute(ScriptableRenderContext context, ref RenderingData renderingData)
+    public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData)
     {
         if (!_isInitialized) Initialize();
         if (!_isInitialized)
@@ -165,102 +161,146 @@ public class PCDRenderPass : ScriptableRenderPass
             return;
         }
 
-        Camera camera = renderingData.cameraData.camera;
+        var cameraData = frameData.Get<UniversalCameraData>();
+        var resourceData = frameData.Get<UniversalResourceData>();
+        Camera camera = cameraData.camera;
         int screenWidth = camera.pixelWidth;
         int screenHeight = camera.pixelHeight;
+        int gridWidth = Mathf.CeilToInt(screenWidth / 16.0f);
+        int gridHeight = Mathf.CeilToInt(screenHeight / 16.0f);
 
-        if (_colorMap == null || _colorMap.width != screenWidth || _colorMap.height != screenHeight)
+        TextureHandle finalImageHandle;
+        using (var builder = renderGraph.AddComputePass<ComputePassData>(PROFILER_TAG, out var data))
         {
-            SetupTextures(screenWidth, screenHeight);
+            data.pointCount = _pointCount;
+            data.screenParams = new Vector4(screenWidth, screenHeight, 0, 0);
+            data.viewMatrix = camera.worldToCameraMatrix;
+            data.projectionMatrix = camera.projectionMatrix;
+            data.densityThreshold_e = densityThreshold_e;
+            data.neighborhoodParam_p_prime = neighborhoodParam_p_prime;
+            data.kernelClear = _kernelClear;
+            data.kernelProject = _kernelProject;
+            data.kernelCalcGridZMin = _kernelCalcGridZMin;
+            data.kernelCalcDensity = _kernelCalcDensity;
+            data.kernelCalcNeighborhoodSize = _kernelCalcNeighborhoodSize;
+            data.kernelMedianFilter = _kernelMedianFilter;
+            data.kernelOcclusion = _kernelOcclusion;
+            data.kernelInterpolate = _kernelInterpolate;
+
+            data.pointBuffer = _pointBuffer;
+
+            var desc = new TextureDesc(screenWidth, screenHeight) { enableRandomWrite = true };
+            desc.colorFormat = GraphicsFormatUtility.GetGraphicsFormat(RenderTextureFormat.ARGBFloat, false);
+            data.colorMap = renderGraph.CreateTexture(desc);
+
+            desc.colorFormat = GraphicsFormatUtility.GetGraphicsFormat(RenderTextureFormat.RInt, false);
+            data.depthMap = renderGraph.CreateTexture(desc);
+
+            var gridDesc = new TextureDesc(gridWidth, gridHeight) { enableRandomWrite = true };
+            gridDesc.colorFormat = GraphicsFormatUtility.GetGraphicsFormat(RenderTextureFormat.RInt, false);
+            data.gridZMinMap = renderGraph.CreateTexture(gridDesc);
+
+            gridDesc.colorFormat = GraphicsFormatUtility.GetGraphicsFormat(RenderTextureFormat.RFloat, false);
+            data.densityMap = renderGraph.CreateTexture(gridDesc);
+
+            desc.colorFormat = GraphicsFormatUtility.GetGraphicsFormat(RenderTextureFormat.RInt, false);
+            data.neighborhoodSizeMap = renderGraph.CreateTexture(desc);
+            data.filteredNeighborhoodSizeMap = renderGraph.CreateTexture(desc);
+
+            desc.colorFormat = GraphicsFormatUtility.GetGraphicsFormat(RenderTextureFormat.ARGBFloat, false);
+            data.occlusionResultMap = renderGraph.CreateTexture(desc);
+            data.finalImage = renderGraph.CreateTexture(desc);
+
+            builder.UseTexture(data.colorMap, AccessFlags.ReadWrite);
+            builder.UseTexture(data.depthMap, AccessFlags.ReadWrite);
+            builder.UseTexture(data.gridZMinMap, AccessFlags.ReadWrite);
+            builder.UseTexture(data.densityMap, AccessFlags.ReadWrite);
+            builder.UseTexture(data.neighborhoodSizeMap, AccessFlags.ReadWrite);
+            builder.UseTexture(data.filteredNeighborhoodSizeMap, AccessFlags.ReadWrite);
+            builder.UseTexture(data.occlusionResultMap, AccessFlags.ReadWrite);
+            builder.UseTexture(data.finalImage, AccessFlags.ReadWrite);
+
+            finalImageHandle = data.finalImage;
+
+            builder.SetRenderFunc((ComputePassData passData, ComputeGraphContext context) =>
+            {
+                var cmd = context.cmd;
+                var cs = pointCloudCompute;
+
+                cmd.SetComputeIntParam(cs, "_PointCount", passData.pointCount);
+                cmd.SetComputeVectorParam(cs, "_ScreenParams", passData.screenParams);
+                cmd.SetComputeMatrixParam(cs, "_ViewMatrix", passData.viewMatrix);
+                cmd.SetComputeMatrixParam(cs, "_ProjectionMatrix", passData.projectionMatrix);
+                cmd.SetComputeFloatParam(cs, "_DensityThreshold_e", passData.densityThreshold_e);
+                cmd.SetComputeFloatParam(cs, "_NeighborhoodParam_p_prime", passData.neighborhoodParam_p_prime);
+
+                int sw = (int)passData.screenParams.x;
+                int sh = (int)passData.screenParams.y;
+                int threadGroupsX = Mathf.CeilToInt(sw / 8.0f);
+                int threadGroupsY = Mathf.CeilToInt(sh / 8.0f);
+                int gridGroupsX = Mathf.CeilToInt(sw / 16.0f);
+                int gridGroupsY = Mathf.CeilToInt(sh / 16.0f);
+
+                cmd.SetComputeTextureParam(cs, passData.kernelClear, "_DepthMap_RW", passData.depthMap);
+                cmd.SetComputeTextureParam(cs, passData.kernelClear, "_OcclusionResultMap_RW", passData.occlusionResultMap);
+                cmd.SetComputeTextureParam(cs, passData.kernelClear, "_FinalImage_RW", passData.finalImage);
+                cmd.DispatchCompute(cs, passData.kernelClear, threadGroupsX, threadGroupsY, 1);
+
+                cmd.SetComputeBufferParam(cs, passData.kernelProject, "_PointBuffer", passData.pointBuffer);
+                cmd.SetComputeTextureParam(cs, passData.kernelProject, "_ColorMap_RW", passData.colorMap);
+                cmd.SetComputeTextureParam(cs, passData.kernelProject, "_DepthMap_RW", passData.depthMap);
+                cmd.DispatchCompute(cs, passData.kernelProject, Mathf.CeilToInt(passData.pointCount / 256.0f), 1, 1);
+
+                cmd.SetComputeTextureParam(cs, passData.kernelCalcGridZMin, "_DepthMap", passData.depthMap);
+                cmd.SetComputeTextureParam(cs, passData.kernelCalcGridZMin, "_GridZMinMap_RW", passData.gridZMinMap);
+                cmd.DispatchCompute(cs, passData.kernelCalcGridZMin, gridGroupsX, gridGroupsY, 1);
+
+                cmd.SetComputeTextureParam(cs, passData.kernelCalcDensity, "_DepthMap", passData.depthMap);
+                cmd.SetComputeTextureParam(cs, passData.kernelCalcDensity, "_GridZMinMap", passData.gridZMinMap);
+                cmd.SetComputeTextureParam(cs, passData.kernelCalcDensity, "_DensityMap_RW", passData.densityMap);
+                cmd.DispatchCompute(cs, passData.kernelCalcDensity, gridGroupsX, gridGroupsY, 1);
+
+                cmd.SetComputeTextureParam(cs, passData.kernelCalcNeighborhoodSize, "_DensityMap", passData.densityMap);
+                cmd.SetComputeTextureParam(cs, passData.kernelCalcNeighborhoodSize, "_NeighborhoodSizeMap_RW", passData.neighborhoodSizeMap);
+                cmd.DispatchCompute(cs, passData.kernelCalcNeighborhoodSize, threadGroupsX, threadGroupsY, 1);
+
+                cmd.SetComputeTextureParam(cs, passData.kernelMedianFilter, "_NeighborhoodSizeMap", passData.neighborhoodSizeMap);
+                cmd.SetComputeTextureParam(cs, passData.kernelMedianFilter, "_FilteredNeighborhoodSizeMap_RW", passData.filteredNeighborhoodSizeMap);
+                cmd.DispatchCompute(cs, passData.kernelMedianFilter, threadGroupsX, threadGroupsY, 1);
+
+                cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, "_ColorMap", passData.colorMap);
+                cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, "_DepthMap", passData.depthMap);
+                cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, "_FilteredNeighborhoodSizeMap", passData.filteredNeighborhoodSizeMap);
+                cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, "_OcclusionResultMap_RW", passData.occlusionResultMap);
+                cmd.DispatchCompute(cs, passData.kernelOcclusion, threadGroupsX, threadGroupsY, 1);
+
+                cmd.SetComputeTextureParam(cs, passData.kernelInterpolate, "_OcclusionResultMap", passData.occlusionResultMap);
+                cmd.SetComputeTextureParam(cs, passData.kernelInterpolate, "_FinalImage_RW", passData.finalImage);
+                cmd.DispatchCompute(cs, passData.kernelInterpolate, threadGroupsX, threadGroupsY, 1);
+            });
         }
 
-        CommandBuffer cmd = CommandBufferPool.Get(PROFILER_TAG);
-
-        cmd.SetComputeIntParam(pointCloudCompute, "_PointCount", _pointCount);
-        cmd.SetComputeVectorParam(pointCloudCompute, "_ScreenParams", new Vector4(screenWidth, screenHeight, 0, 0));
-        cmd.SetComputeMatrixParam(pointCloudCompute, "_ViewMatrix", camera.worldToCameraMatrix);
-        cmd.SetComputeMatrixParam(pointCloudCompute, "_ProjectionMatrix", camera.projectionMatrix);
-        cmd.SetComputeFloatParam(pointCloudCompute, "_DensityThreshold_e", densityThreshold_e);
-        cmd.SetComputeFloatParam(pointCloudCompute, "_NeighborhoodParam_p_prime", neighborhoodParam_p_prime);
-
-        cmd.SetComputeBufferParam(pointCloudCompute, _kernelProject, "_PointBuffer", _pointBuffer);
-
-        int threadGroupsX = Mathf.CeilToInt(screenWidth / 8.0f);
-        int threadGroupsY = Mathf.CeilToInt(screenHeight / 8.0f);
-        int gridGroupsX = Mathf.CeilToInt(screenWidth / 16.0f);
-        int gridGroupsY = Mathf.CeilToInt(screenHeight / 16.0f);
-
-        // MODIFIED: ClearMapsカーネルに必要なテクスチャをすべて設定する
-        cmd.SetComputeTextureParam(pointCloudCompute, _kernelClear, "_DepthMap_RW", _depthMap);
-        cmd.SetComputeTextureParam(pointCloudCompute, _kernelClear, "_OcclusionResultMap_RW", _occlusionResultMap);
-        cmd.SetComputeTextureParam(pointCloudCompute, _kernelClear, "_FinalImage_RW", _finalImage);
-        cmd.DispatchCompute(pointCloudCompute, _kernelClear, threadGroupsX, threadGroupsY, 1);
-
-        cmd.SetComputeTextureParam(pointCloudCompute, _kernelProject, "_ColorMap_RW", _colorMap);
-        cmd.SetComputeTextureParam(pointCloudCompute, _kernelProject, "_DepthMap_RW", _depthMap);
-        cmd.DispatchCompute(pointCloudCompute, _kernelProject, Mathf.CeilToInt(_pointCount / 256.0f), 1, 1);
-
-        cmd.SetComputeTextureParam(pointCloudCompute, _kernelCalcGridZMin, "_DepthMap", _depthMap);
-        cmd.SetComputeTextureParam(pointCloudCompute, _kernelCalcGridZMin, "_GridZMinMap_RW", _gridZMinMap);
-        cmd.DispatchCompute(pointCloudCompute, _kernelCalcGridZMin, gridGroupsX, gridGroupsY, 1);
-
-        cmd.SetComputeTextureParam(pointCloudCompute, _kernelCalcDensity, "_DepthMap", _depthMap);
-        cmd.SetComputeTextureParam(pointCloudCompute, _kernelCalcDensity, "_GridZMinMap", _gridZMinMap);
-        cmd.SetComputeTextureParam(pointCloudCompute, _kernelCalcDensity, "_DensityMap_RW", _densityMap);
-        cmd.DispatchCompute(pointCloudCompute, _kernelCalcDensity, gridGroupsX, gridGroupsY, 1);
-
-        cmd.SetComputeTextureParam(pointCloudCompute, _kernelCalcNeighborhoodSize, "_DensityMap", _densityMap);
-        cmd.SetComputeTextureParam(pointCloudCompute, _kernelCalcNeighborhoodSize, "_NeighborhoodSizeMap_RW", _neighborhoodSizeMap);
-        cmd.DispatchCompute(pointCloudCompute, _kernelCalcNeighborhoodSize, threadGroupsX, threadGroupsY, 1);
-
-        cmd.SetComputeTextureParam(pointCloudCompute, _kernelMedianFilter, "_NeighborhoodSizeMap", _neighborhoodSizeMap);
-        cmd.SetComputeTextureParam(pointCloudCompute, _kernelMedianFilter, "_FilteredNeighborhoodSizeMap_RW", _filteredNeighborhoodSizeMap);
-        cmd.DispatchCompute(pointCloudCompute, _kernelMedianFilter, threadGroupsX, threadGroupsY, 1);
-
-        cmd.SetComputeTextureParam(pointCloudCompute, _kernelOcclusion, "_ColorMap", _colorMap);
-        cmd.SetComputeTextureParam(pointCloudCompute, _kernelOcclusion, "_DepthMap", _depthMap);
-        cmd.SetComputeTextureParam(pointCloudCompute, _kernelOcclusion, "_FilteredNeighborhoodSizeMap", _filteredNeighborhoodSizeMap);
-        cmd.SetComputeTextureParam(pointCloudCompute, _kernelOcclusion, "_OcclusionResultMap_RW", _occlusionResultMap);
-        cmd.DispatchCompute(pointCloudCompute, _kernelOcclusion, threadGroupsX, threadGroupsY, 1);
-
-        cmd.SetComputeTextureParam(pointCloudCompute, _kernelInterpolate, "_OcclusionResultMap", _occlusionResultMap);
-        cmd.SetComputeTextureParam(pointCloudCompute, _kernelInterpolate, "_FinalImage_RW", _finalImage);
-        cmd.DispatchCompute(pointCloudCompute, _kernelInterpolate, threadGroupsX, threadGroupsY, 1);
-
-        // MODIFIED: ブレンド用マテリアルを使ってBlitを実行する
-        if (m_BlendMaterial != null)
+        using (var builder = renderGraph.AddRasterRenderPass<BlitPassData>("PCD Blit Pass", out var data))
         {
-            cmd.Blit(_finalImage, renderingData.cameraData.renderer.cameraColorTargetHandle, m_BlendMaterial);
-        }
-        else
-        {
-            // マテリアルがなければ、以前と同じく上書きする
-            cmd.Blit(_finalImage, renderingData.cameraData.renderer.cameraColorTargetHandle);
-            UnityEngine.Debug.LogWarning("Blend Material is not set in PCDRendererFeature. Point cloud will overwrite the screen.");
-        }
+            data.blendMaterial = m_BlendMaterial;
+            data.sourceImage = finalImageHandle;
+            data.cameraTarget = resourceData.activeColorTexture;
 
-        context.ExecuteCommandBuffer(cmd);
-        CommandBufferPool.Release(cmd);
+            builder.UseTexture(data.sourceImage, AccessFlags.Read);
+            builder.SetRenderAttachment(data.cameraTarget, 0);
+
+            builder.SetRenderFunc((BlitPassData passData, RasterGraphContext context) =>
+            {
+                Blitter.BlitTexture(context.cmd, passData.sourceImage, new Vector4(1, 1, 0, 0), passData.blendMaterial, 0);
+            });
+        }
     }
 
     public void Cleanup()
     {
-        ReleaseTextures();
         _pointBuffer?.Release();
         _pointBuffer = null;
         _isInitialized = false;
         _pointsCache = null;
-    }
-
-    private void ReleaseTextures()
-    {
-        _colorMap?.Release();
-        _depthMap?.Release();
-        _gridZMinMap?.Release();
-        _densityMap?.Release();
-        _neighborhoodSizeMap?.Release();
-        _filteredNeighborhoodSizeMap?.Release();
-        _occlusionResultMap?.Release();
-        _finalImage?.Release();
     }
 }

@@ -41,8 +41,8 @@ float4x4 _ProjectionMatrix;
 float _DensityThreshold_e;
 float _NeighborhoodParam_p_prime;
 
-#define GRID_SIZE 16
-#define DEPTH_MAX_UINT 0x7FFFFFFF
+#define GRID_SIZE 16u
+#define DEPTH_MAX_UINT 0x7FFFFFFFu
 
 groupshared uint shared_z_min;
 groupshared uint shared_point_count;
@@ -53,7 +53,7 @@ groupshared uint shared_point_count;
 [numthreads(8, 8, 1)]
 void ClearMaps(uint3 id : SV_DispatchThreadID)
 {
-    if (id.x >= _ScreenParams.x || id.y >= _ScreenParams.y)
+    if (id.x >= (uint) _ScreenParams.x || id.y >= (uint) _ScreenParams.y)
         return;
 
     _DepthMap_RW[id.xy] = DEPTH_MAX_UINT;
@@ -124,7 +124,7 @@ void CalculateDensity(uint3 id : SV_DispatchThreadID, uint3 groupID : SV_GroupID
 {
     if (groupIndex == 0u)
     {
-        shared_point_count = 0;
+        shared_point_count = 0u;
     }
     GroupMemoryBarrierWithGroupSync();
     
@@ -138,14 +138,14 @@ void CalculateDensity(uint3 id : SV_DispatchThreadID, uint3 groupID : SV_GroupID
 
         if (depth_uint < DEPTH_MAX_UINT && (depth - z_min) < _DensityThreshold_e)
         {
-            InterlockedAdd(shared_point_count, 1);
+            InterlockedAdd(shared_point_count, 1u);
         }
     }
     GroupMemoryBarrierWithGroupSync();
 
     if (groupIndex == 0u)
     {
-        float density = float(shared_point_count) / (GRID_SIZE * GRID_SIZE);
+        float density = float(shared_point_count) / float(GRID_SIZE * GRID_SIZE);
         _DensityMap_RW[groupID.xy] = density;
     }
 }
@@ -154,7 +154,7 @@ void CalculateDensity(uint3 id : SV_DispatchThreadID, uint3 groupID : SV_GroupID
 [numthreads(8, 8, 1)]
 void CalculateNeighborhoodSize(uint3 id : SV_DispatchThreadID)
 {
-    if (id.x >= _ScreenParams.x || id.y >= _ScreenParams.y)
+    if (id.x >= (uint) _ScreenParams.x || id.y >= (uint) _ScreenParams.y)
         return;
 
     uint2 gridID = id.xy / GRID_SIZE;
@@ -164,7 +164,7 @@ void CalculateNeighborhoodSize(uint3 id : SV_DispatchThreadID)
     if (density > 0)
     {
         float L = _NeighborhoodParam_p_prime / sqrt(density);
-        level = floor(log2(L));
+        level = (int) floor(log2(L));
     }
     _NeighborhoodSizeMap_RW[id.xy] = level;
 }
@@ -173,7 +173,7 @@ void CalculateNeighborhoodSize(uint3 id : SV_DispatchThreadID)
 [numthreads(8, 8, 1)]
 void MedianFilter(uint3 id : SV_DispatchThreadID)
 {
-    if (id.x >= _ScreenParams.x || id.y >= _ScreenParams.y)
+    if (id.x >= (uint) _ScreenParams.x || id.y >= (uint) _ScreenParams.y)
         return;
 
     int values[9];
@@ -207,7 +207,7 @@ void MedianFilter(uint3 id : SV_DispatchThreadID)
 [numthreads(8, 8, 1)]
 void OcclusionAndFilter(uint3 id : SV_DispatchThreadID)
 {
-    if (id.x >= _ScreenParams.x || id.y >= _ScreenParams.y)
+    if (id.x >= (uint) _ScreenParams.x || id.y >= (uint) _ScreenParams.y)
         return;
 
     uint currentDepth_uint = _DepthMap[id.xy];
@@ -219,14 +219,15 @@ void OcclusionAndFilter(uint3 id : SV_DispatchThreadID)
     float currentDepth = (float) currentDepth_uint / (float) DEPTH_MAX_UINT;
 
     int level = _FilteredNeighborhoodSizeMap[id.xy];
-    int radius = (int) pow(2, level) / 2;
+    uint radius = (uint) pow(2.0, (float) level) / 2u;
 
     bool isOccluded = false;
-    for (int y = -radius; y <= radius; y++)
+    for (uint y = 0u; y <= radius * 2u; y++)
     {
-        for (int x = -radius; x <= radius; x++)
+        for (uint x = 0u; x <= radius * 2u; x++)
         {
-            uint neighborDepth_uint = _DepthMap[id.xy + int2(x, y)];
+            int2 offset = int2((int) x - (int) radius, (int) y - (int) radius);
+            uint neighborDepth_uint = _DepthMap[id.xy + offset];
             if (neighborDepth_uint < DEPTH_MAX_UINT)
             {
                 float neighborDepth = (float) neighborDepth_uint / (float) DEPTH_MAX_UINT;
@@ -255,7 +256,7 @@ void OcclusionAndFilter(uint3 id : SV_DispatchThreadID)
 [numthreads(8, 8, 1)]
 void Interpolate(uint3 id : SV_DispatchThreadID)
 {
-    if (id.x >= _ScreenParams.x || id.y >= _ScreenParams.y)
+    if (id.x >= (uint) _ScreenParams.x || id.y >= (uint) _ScreenParams.y)
         return;
 
     float4 centerColor = _OcclusionResultMap[id.xy];
@@ -267,7 +268,7 @@ void Interpolate(uint3 id : SV_DispatchThreadID)
     }
 
     float4 accumulatedColor = float4(0, 0, 0, 0);
-    int count = 0;
+    uint count = 0u;
     for (int y = -1; y <= 1; y++)
     {
         for (int x = -1; x <= 1; x++)
@@ -284,9 +285,9 @@ void Interpolate(uint3 id : SV_DispatchThreadID)
         }
     }
 
-    if (count > 0)
+    if (count > 0u)
     {
-        _FinalImage_RW[id.xy] = accumulatedColor / count;
+        _FinalImage_RW[id.xy] = accumulatedColor / (float) count;
     }
     else
     {

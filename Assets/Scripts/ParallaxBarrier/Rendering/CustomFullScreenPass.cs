@@ -1,87 +1,51 @@
-using System.Collections;
-using System.Collections.Generic;
+using System;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
-using static System.Net.Mime.MediaTypeNames;
+using UnityEngine.Rendering.RenderGraphModule;
 
 public class CustomFullScreenPass : ScriptableRenderPass
 {
-    Material material;
-    RTHandle cameraColorTarget;
+    private const string PROFILER_TAG = "CustomFullScreenPass";
 
-    public Color color1;
-    public Color color2;
+    private Material material;
+    public Color color1 = Color.white;
+    public Color color2 = Color.black;
+
+    private class PassData
+    {
+        internal Material material;
+        internal Color colorToUse;
+        internal TextureHandle cameraTarget;
+    }
 
     public CustomFullScreenPass(Material material)
     {
         this.material = material;
-        renderPassEvent = RenderPassEvent.AfterRenderingPostProcessing;
-        profilingSampler = new ProfilingSampler("CustomFullScreenPass");
+        renderPassEvent = RenderPassEvent.BeforeRenderingPostProcessing;
     }
 
-    public void SetTarget(RTHandle cameraColorTarget)
+    public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData)
     {
-        this.cameraColorTarget = cameraColorTarget;
-    }
+        if (material == null) return;
 
-    public override void OnCameraSetup(CommandBuffer cmd, ref RenderingData renderingData)
-    {
-        ConfigureTarget(cameraColorTarget);
-    }
+        var resourceData = frameData.Get<UniversalResourceData>();
 
-    public override void Execute(ScriptableRenderContext context, ref RenderingData renderingData)
-    {
-        var cameraData = renderingData.cameraData;
-        if (cameraData.cameraType != CameraType.Game)
+        using (var builder = renderGraph.AddRasterRenderPass<PassData>(PROFILER_TAG, out var data))
         {
-            return;
+            data.material = material;
+            data.colorToUse = UnityEngine.Application.isPlaying
+                ? (Time.frameCount % 2 == 0 ? color1 : color2)
+                : color1;
+            data.cameraTarget = resourceData.activeColorTexture;
+
+            builder.SetRenderAttachment(data.cameraTarget, 0, AccessFlags.Write);
+
+            builder.SetRenderFunc((PassData passData, RasterGraphContext context) =>
+            {
+                passData.material.SetColor("_Color", passData.colorToUse);
+                context.cmd.DrawProcedural(Matrix4x4.identity, passData.material, 0, MeshTopology.Quads, 4, 1);
+            });
         }
-
-        if (material == null)
-        {
-            return;
-        }
-
-        CommandBuffer cmd = CommandBufferPool.Get();
-        using (new ProfilingScope(cmd, profilingSampler))
-        {
-            if (UnityEngine.Application.isPlaying)
-            {
-                if (Time.frameCount % 2 == 0)
-                {
-                    material.SetColor("_Color", color1);
-                }
-                else
-                {
-                    material.SetColor("_Color", color2);
-                }
-            }
-            else
-            {
-                material.SetColor("_Color", color1);
-            }
-            /*if (UnityEngine.Application.isPlaying)
-            {
-                if (Time.frameCount % 2 == 0)
-                {
-                    material.SetInt("_FrameCount", 0);
-                }
-                else
-                {
-                    material.SetInt("_FrameCount",1);
-                }
-            }
-            else
-            {
-                material.SetInt("_FrameCount", 0);
-            }*/
-
-            cmd.DrawProcedural(Matrix4x4.identity, material, 0, MeshTopology.Quads, 4, 1);
-        }
-        context.ExecuteCommandBuffer(cmd);
-        cmd.Clear();
-
-        CommandBufferPool.Release(cmd);
     }
 }

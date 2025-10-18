@@ -1,5 +1,3 @@
-using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
@@ -7,37 +5,35 @@ using UnityEngine.Rendering.Universal;
 public class CustomFullcreenRendererFeature : ScriptableRendererFeature
 {
     public Shader shader;
+    [SerializeField] private Color color1 = Color.white;
+    [SerializeField] private Color color2 = Color.black;
 
-    [SerializeField] Color color1 = Color.white;
-    [SerializeField] Color color2 = Color.black;
-    //[SerializeField] Material material;
+    private Material material;
+    private CustomFullScreenPass renderPass = null;
 
-    Material material;
-
-    CustomFullScreenPass renderPass = null;
+    public override void Create()
+    {
+        if (shader != null)
+        {
+            material = CoreUtils.CreateEngineMaterial(shader);
+            renderPass = new CustomFullScreenPass(material);
+        }
+    }
 
     public override void AddRenderPasses(ScriptableRenderer renderer, ref RenderingData renderingData)
     {
-        if (renderingData.cameraData.cameraType == CameraType.Game)
+        if (renderingData.cameraData.cameraType == CameraType.Game && renderPass != null)
         {
+            renderPass.color1 = color1;
+            renderPass.color2 = color2;
+
             renderer.EnqueuePass(renderPass);
         }
     }
 
-    public override void SetupRenderPasses(ScriptableRenderer renderer, in RenderingData renderingData)
+    protected override void Dispose(bool disposing)
     {
-        if (renderingData.cameraData.cameraType == CameraType.Game)
-        {
-            renderPass.ConfigureInput(ScriptableRenderPassInput.Color);
-            renderPass.SetTarget(renderer.cameraColorTargetHandle);
-            renderPass.color1 = color1;
-            renderPass.color2 = color2;
-        }
-    }
-
-    public override void Create()
-    {
-        material = CoreUtils.CreateEngineMaterial(shader);
-        renderPass = new CustomFullScreenPass(material);
+        CoreUtils.Destroy(material);
+        base.Dispose(disposing);
     }
 }
