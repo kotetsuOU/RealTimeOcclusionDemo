@@ -4,6 +4,11 @@
 #pragma kernel CalculateDensity
 #pragma kernel CalculateNeighborhoodSize
 #pragma kernel MedianFilter
+#pragma kernel BuildDepthPyramidL1
+#pragma kernel BuildDepthPyramidL2
+#pragma kernel BuildDepthPyramidL3
+#pragma kernel BuildDepthPyramidL4
+#pragma kernel ApplyAdaptiveGradientCorrection
 #pragma kernel OcclusionAndFilter
 #pragma kernel Interpolate
 
@@ -23,6 +28,11 @@ RWTexture2D<uint> _GridZMinMap_RW;
 RWTexture2D<float> _DensityMap_RW;
 RWTexture2D<int> _NeighborhoodSizeMap_RW;
 RWTexture2D<int> _FilteredNeighborhoodSizeMap_RW;
+RWTexture2D<uint> _DepthPyramidL1_RW;
+RWTexture2D<uint> _DepthPyramidL2_RW;
+RWTexture2D<uint> _DepthPyramidL3_RW;
+RWTexture2D<uint> _DepthPyramidL4_RW;
+RWTexture2D<int> _CorrectedNeighborhoodSizeMap_RW;
 RWTexture2D<float4> _OcclusionResultMap_RW;
 RWTexture2D<float4> _FinalImage_RW;
 
@@ -33,6 +43,11 @@ Texture2D<uint> _GridZMinMap;
 Texture2D<float> _DensityMap;
 Texture2D<int> _NeighborhoodSizeMap;
 Texture2D<int> _FilteredNeighborhoodSizeMap;
+Texture2D<uint> _DepthPyramidL1;
+Texture2D<uint> _DepthPyramidL2;
+Texture2D<uint> _DepthPyramidL3;
+Texture2D<uint> _DepthPyramidL4;
+Texture2D<int> _FinalNeighborhoodSizeMap;
 Texture2D<float4> _OcclusionResultMap;
 
 // --- Uniforms ---
@@ -42,12 +57,53 @@ float4x4 _ViewMatrix;
 float4x4 _ProjectionMatrix;
 float _DensityThreshold_e;
 float _NeighborhoodParam_p_prime;
+float _GradientThreshold_g_th;
+float _OcclusionThreshold;
 
 #define GRID_SIZE 16u
 #define DEPTH_MAX_UINT 0x7FFFFFFFu
 
 groupshared uint shared_z_min;
 groupshared uint shared_point_count;
+
+// --- Helper Functions ---
+uint ZMinDownsample(Texture2D<uint> inputTex, uint2 uv)
+{
+    uint z0 = inputTex[uv + uint2(0, 0)];
+    uint z1 = inputTex[uv + uint2(1, 0)];
+    uint z2 = inputTex[uv + uint2(0, 1)];
+    uint z3 = inputTex[uv + uint2(1, 1)];
+    return min(min(z0, z1), min(z2, z3));
+}
+
+float SobelOnPyramid(Texture2D<uint> pyramidTex, uint2 uv)
+{
+    uint2 dim;
+    pyramidTex.GetDimensions(dim.x, dim.y);
+
+    float tl = (float) pyramidTex[clamp(uv + int2(-1, -1), 0, dim - 1)] / (float) DEPTH_MAX_UINT;
+    float t = (float) pyramidTex[clamp(uv + int2(0, -1), 0, dim - 1)] / (float) DEPTH_MAX_UINT;
+    float tr = (float) pyramidTex[clamp(uv + int2(1, -1), 0, dim - 1)] / (float) DEPTH_MAX_UINT;
+    float l = (float) pyramidTex[clamp(uv + int2(-1, 0), 0, dim - 1)] / (float) DEPTH_MAX_UINT;
+    float r = (float) pyramidTex[clamp(uv + int2(1, 0), 0, dim - 1)] / (float) DEPTH_MAX_UINT;
+    float bl = (float) pyramidTex[clamp(uv + int2(-1, 1), 0, dim - 1)] / (float) DEPTH_MAX_UINT;
+    float b = (float) pyramidTex[clamp(uv + int2(0, 1), 0, dim - 1)] / (float) DEPTH_MAX_UINT;
+    float br = (float) pyramidTex[clamp(uv + int2(1, 1), 0, dim - 1)] / (float) DEPTH_MAX_UINT;
+
+    const float MAX_DEPTH_NORMALIZED = 1.0 + 0.1;
+    if (tl > MAX_DEPTH_NORMALIZED || t > MAX_DEPTH_NORMALIZED || tr > MAX_DEPTH_NORMALIZED ||
+        l > MAX_DEPTH_NORMALIZED || r > MAX_DEPTH_NORMALIZED ||
+        bl > MAX_DEPTH_NORMALIZED || b > MAX_DEPTH_NORMALIZED || br > MAX_DEPTH_NORMALIZED)
+    {
+        return 0.0;
+    }
+
+    float Gx = (tr + 2.0 * r + br) - (tl + 2.0 * l + bl);
+    float Gy = (bl + 2.0 * b + br) - (tl + 2.0 * t + tr);
+    
+    return sqrt(Gx * Gx + Gy * Gy);
+}
+
 
 // --- Kernels ---
 
@@ -57,7 +113,6 @@ void ClearMaps(uint3 id : SV_DispatchThreadID)
 {
     if (id.x >= (uint) _ScreenParams.x || id.y >= (uint) _ScreenParams.y)
         return;
-
     _DepthMap_RW[id.xy] = DEPTH_MAX_UINT;
     _ViewPositionMap_RW[id.xy] = float4(0, 0, 0, 1e9);
     _OcclusionResultMap_RW[id.xy] = float4(0, 0, 0, 0);
@@ -70,28 +125,18 @@ void ProjectPoints(uint3 id : SV_DispatchThreadID)
 {
     if (id.x >= _PointCount)
         return;
-
     Point p = _PointBuffer[id.x];
-
     float4 worldPos = float4(p.position, 1.0);
     float4 viewPos = mul(_ViewMatrix, worldPos);
     float4 clipPos = mul(_ProjectionMatrix, viewPos);
-
-    // Perspective divide
     float3 ndc = clipPos.xyz / clipPos.w;
-
     if (ndc.x < -1 || ndc.x > 1 || ndc.y < -1 || ndc.y > 1 || ndc.z < 0 || ndc.z > 1)
-    {
-        return; // Cull
-    }
-
+        return;
     uint2 screenUV = uint2((ndc.x * 0.5 + 0.5) * _ScreenParams.x, (ndc.y * 0.5 + 0.5) * _ScreenParams.y);
     float depth = ndc.z;
-
     uint depth_uint = (uint) (depth * (float) DEPTH_MAX_UINT);
     uint oldDepth;
     InterlockedMin(_DepthMap_RW[screenUV], depth_uint, oldDepth);
-
     if (depth_uint < oldDepth)
     {
         _ColorMap_RW[screenUV] = float4(p.color, 1.0);
@@ -108,14 +153,12 @@ void CalculateGridZMin(uint3 id : SV_DispatchThreadID, uint3 groupID : SV_GroupI
         shared_z_min = DEPTH_MAX_UINT;
     }
     GroupMemoryBarrierWithGroupSync();
-
     uint depth_uint = _DepthMap[id.xy];
     if (depth_uint < DEPTH_MAX_UINT)
     {
         InterlockedMin(shared_z_min, depth_uint);
     }
     GroupMemoryBarrierWithGroupSync();
-
     if (groupIndex == 0u)
     {
         _GridZMinMap_RW[groupID.xy] = shared_z_min;
@@ -131,22 +174,18 @@ void CalculateDensity(uint3 id : SV_DispatchThreadID, uint3 groupID : SV_GroupID
         shared_point_count = 0u;
     }
     GroupMemoryBarrierWithGroupSync();
-    
     uint z_min_uint = _GridZMinMap[groupID.xy];
     float z_min = (float) z_min_uint / (float) DEPTH_MAX_UINT;
-
     if (z_min_uint < DEPTH_MAX_UINT)
     {
         uint depth_uint = _DepthMap[id.xy];
         float depth = (float) depth_uint / (float) DEPTH_MAX_UINT;
-
         if (depth_uint < DEPTH_MAX_UINT && (depth - z_min) < _DensityThreshold_e)
         {
             InterlockedAdd(shared_point_count, 1u);
         }
     }
     GroupMemoryBarrierWithGroupSync();
-
     if (groupIndex == 0u)
     {
         float density = float(shared_point_count) / float(GRID_SIZE * GRID_SIZE);
@@ -160,17 +199,15 @@ void CalculateNeighborhoodSize(uint3 id : SV_DispatchThreadID)
 {
     if (id.x >= (uint) _ScreenParams.x || id.y >= (uint) _ScreenParams.y)
         return;
-
     uint2 gridID = id.xy / GRID_SIZE;
     float density = _DensityMap[gridID];
-
     int level = 0;
-    if (density > 0)
+    if (density > 0.001)
     {
         float L = _NeighborhoodParam_p_prime / sqrt(density);
         level = (int) floor(log2(L));
     }
-    _NeighborhoodSizeMap_RW[id.xy] = level;
+    _NeighborhoodSizeMap_RW[id.xy] = max(0, level);
 }
 
 // 6. Median Filter
@@ -179,18 +216,17 @@ void MedianFilter(uint3 id : SV_DispatchThreadID)
 {
     if (id.x >= (uint) _ScreenParams.x || id.y >= (uint) _ScreenParams.y)
         return;
-
+    
     int values[9];
     int index = 0;
     for (int y = -1; y <= 1; y++)
     {
         for (int x = -1; x <= 1; x++)
         {
-            values[index++] = _NeighborhoodSizeMap[id.xy + int2(x, y)];
+            uint2 uv = clamp(id.xy + int2(x, y), 0, _ScreenParams.xy - 1);
+            values[index++] = _NeighborhoodSizeMap[uv];
         }
     }
-
-    // Simple sorting network for median of 9
     for (int i = 0; i < 5; ++i)
     {
         for (int j = i + 1; j < 9; ++j)
@@ -203,11 +239,105 @@ void MedianFilter(uint3 id : SV_DispatchThreadID)
             }
         }
     }
-
     _FilteredNeighborhoodSizeMap_RW[id.xy] = values[4];
 }
 
-// 7. Occlusion and Filtering
+// 7a-1. Build Depth Pyramid L1
+[numthreads(8, 8, 1)]
+void BuildDepthPyramidL1(uint3 id : SV_DispatchThreadID)
+{
+    uint2 dim;
+    _DepthPyramidL1_RW.GetDimensions(dim.x, dim.y);
+    if (id.x >= dim.x || id.y >= dim.y)
+        return;
+    
+    _DepthPyramidL1_RW[id.xy] = ZMinDownsample(_DepthMap, id.xy * 2u);
+}
+
+// 7a-2. Build Depth Pyramid L2
+[numthreads(8, 8, 1)]
+void BuildDepthPyramidL2(uint3 id : SV_DispatchThreadID)
+{
+    uint2 dim;
+    _DepthPyramidL2_RW.GetDimensions(dim.x, dim.y);
+    if (id.x >= dim.x || id.y >= dim.y)
+        return;
+    
+    _DepthPyramidL2_RW[id.xy] = ZMinDownsample(_DepthPyramidL1, id.xy * 2u);
+}
+
+// 7a-3. Build Depth Pyramid L3
+[numthreads(8, 8, 1)]
+void BuildDepthPyramidL3(uint3 id : SV_DispatchThreadID)
+{
+    uint2 dim;
+    _DepthPyramidL3_RW.GetDimensions(dim.x, dim.y);
+    if (id.x >= dim.x || id.y >= dim.y)
+        return;
+    
+    _DepthPyramidL3_RW[id.xy] = ZMinDownsample(_DepthPyramidL2, id.xy * 2u);
+}
+
+// 7a-4. Build Depth Pyramid L4
+[numthreads(8, 8, 1)]
+void BuildDepthPyramidL4(uint3 id : SV_DispatchThreadID)
+{
+    uint2 dim;
+    _DepthPyramidL4_RW.GetDimensions(dim.x, dim.y);
+    if (id.x >= dim.x || id.y >= dim.y)
+        return;
+    
+    _DepthPyramidL4_RW[id.xy] = ZMinDownsample(_DepthPyramidL3, id.xy * 2u);
+}
+
+// 7b. Apply Adaptive Gradient Correction
+[numthreads(8, 8, 1)]
+void ApplyAdaptiveGradientCorrection(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint) _ScreenParams.x || id.y >= (uint) _ScreenParams.y)
+        return;
+
+    uint2 fullResUV = id.xy;
+    
+    int level = _FilteredNeighborhoodSizeMap[fullResUV];
+    int correctedLevel = level;
+
+    if (level > 0)
+    {
+        float gradient = 0.0;
+        uint2 uv_lowres;
+        
+        if (level == 1)
+        {
+            uv_lowres = fullResUV / 2u; // (x/2)
+            gradient = SobelOnPyramid(_DepthPyramidL1, uv_lowres);
+        }
+        else if (level == 2)
+        {
+            uv_lowres = fullResUV / 4u; // (x/4)
+            gradient = SobelOnPyramid(_DepthPyramidL2, uv_lowres);
+        }
+        else if (level == 3)
+        {
+            uv_lowres = fullResUV / 8u; // (x/8)
+            gradient = SobelOnPyramid(_DepthPyramidL3, uv_lowres);
+        }
+        else
+        {
+            uv_lowres = fullResUV / 16u; // (x/16)
+            gradient = SobelOnPyramid(_DepthPyramidL4, uv_lowres);
+        }
+
+        if (gradient > _GradientThreshold_g_th)
+        {
+            correctedLevel = max(0, level - 1);
+        }
+    }
+    
+    _CorrectedNeighborhoodSizeMap_RW[fullResUV] = correctedLevel;
+}
+
+// 8. Occlusion and Filtering
 [numthreads(8, 8, 1)]
 void OcclusionAndFilter(uint3 id : SV_DispatchThreadID)
 {
@@ -220,13 +350,14 @@ void OcclusionAndFilter(uint3 id : SV_DispatchThreadID)
         _OcclusionResultMap_RW[id.xy] = float4(0, 0, 0, 0);
         return;
     }
+
     float3 currentPos = _ViewPositionMap[id.xy].xyz;
     float currentDepth = _ViewPositionMap[id.xy].w;
 
-    int level = _FilteredNeighborhoodSizeMap[id.xy];
+    int level = _FinalNeighborhoodSizeMap[id.xy];
     uint radius = (uint) pow(2.0, (float) level) / 2u;
     radius = max(radius, 1u);
-    
+
     float occlusionSum = 0.0;
     uint neighborCount = 0u;
 
@@ -238,13 +369,15 @@ void OcclusionAndFilter(uint3 id : SV_DispatchThreadID)
                 continue;
 
             int2 offset = int2((int) x - (int) radius, (int) y - (int) radius);
-            uint neighborDepth_uint = _DepthMap[id.xy + offset];
+            uint2 uv = clamp(id.xy + offset, 0, _ScreenParams.xy - 1);
+            
+            uint neighborDepth_uint = _DepthMap[uv];
 
             if (neighborDepth_uint < DEPTH_MAX_UINT)
             {
-                float3 neighborPos = _ViewPositionMap[id.xy + offset].xyz;
-
-                float neighborDepth = _ViewPositionMap[id.xy + offset].w;
+                float3 neighborPos = _ViewPositionMap[uv].xyz;
+                float neighborDepth = _ViewPositionMap[uv].w;
+                
                 if (currentDepth - neighborDepth > 0.01)
                 {
                     float3 y_minus_x = neighborPos - currentPos;
@@ -265,9 +398,8 @@ void OcclusionAndFilter(uint3 id : SV_DispatchThreadID)
     if (neighborCount > 0)
     {
         float occlusionAverage = occlusionSum / (float) neighborCount;
-        const float OCCLUSION_THRESHOLD = 0.8;
-
-        if (occlusionAverage < OCCLUSION_THRESHOLD)
+        
+        if (occlusionAverage < _OcclusionThreshold)
         {
             isOccluded = true;
         }
@@ -283,7 +415,7 @@ void OcclusionAndFilter(uint3 id : SV_DispatchThreadID)
     }
 }
 
-// 8. Interpolate (Simple Dilation)
+// 9. Interpolate (Simple Dilation)
 [numthreads(8, 8, 1)]
 void Interpolate(uint3 id : SV_DispatchThreadID)
 {
@@ -307,7 +439,8 @@ void Interpolate(uint3 id : SV_DispatchThreadID)
             if (x == 0 && y == 0)
                 continue;
 
-            float4 neighborColor = _OcclusionResultMap[id.xy + int2(x, y)];
+            uint2 uv = clamp(id.xy + int2(x, y), 0, _ScreenParams.xy - 1);
+            float4 neighborColor = _OcclusionResultMap[uv];
             if (neighborColor.a > 0)
             {
                 accumulatedColor += neighborColor;

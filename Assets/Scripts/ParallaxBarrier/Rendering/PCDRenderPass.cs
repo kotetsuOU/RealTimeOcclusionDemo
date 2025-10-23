@@ -28,6 +28,9 @@ public class PCDRenderPass : ScriptableRenderPass
     private float neighborhoodParam_p_prime;
     private Material m_BlendMaterial;
     private bool _enableAlphaBlend;
+    private bool _enableGradientCorrection;
+    private float _gradientThreshold_g_th;
+    private float _occlusionThreshold;
 
     private ComputeBuffer _pointBuffer;
     private int _pointCount = 0;
@@ -35,7 +38,11 @@ public class PCDRenderPass : ScriptableRenderPass
     private bool _isDataDirty = false;
 
     private int _kernelClear, _kernelProject, _kernelCalcGridZMin, _kernelCalcDensity,
-                _kernelCalcNeighborhoodSize, _kernelMedianFilter, _kernelOcclusion, _kernelInterpolate;
+                _kernelCalcNeighborhoodSize, _kernelMedianFilter,
+                _kernelBuildDepthPyramidL1, _kernelBuildDepthPyramidL2, // 7a
+                _kernelBuildDepthPyramidL3, _kernelBuildDepthPyramidL4, // 7a
+                _kernelApplyGradient, // 7b+7c
+                _kernelOcclusion, _kernelInterpolate;
 
     private bool _isInitialized = false;
 
@@ -48,6 +55,11 @@ public class PCDRenderPass : ScriptableRenderPass
         this.pointCloudCompute = settings.pointCloudCompute;
         this.densityThreshold_e = settings.densityThreshold_e;
         this.neighborhoodParam_p_prime = settings.neighborhoodParam_p_prime;
+
+        this._enableGradientCorrection = settings.enableGradientCorrection;
+        this._gradientThreshold_g_th = settings.gradientThreshold_g_th;
+        this._occlusionThreshold = settings.occlusionThreshold;
+
         this.m_BlendMaterial = blendMaterial;
         this._enableAlphaBlend = enableAlphaBlend;
     }
@@ -157,7 +169,6 @@ public class PCDRenderPass : ScriptableRenderPass
             for (int i = 0; i < meshPointCount; i++)
             {
                 Vector3 color = hasMeshColors ? new Vector3(meshColors[i].r, meshColors[i].g, meshColors[i].b) : defaultColor;
-
                 Vector3 worldPos = localToWorld.MultiplyPoint3x4(meshVertices[i]);
 
                 _pointsCache[cacheIndex] = new Point
@@ -169,7 +180,10 @@ public class PCDRenderPass : ScriptableRenderPass
             }
         }
 
-        UnityEngine.Debug.Log($"[PCDRenderPass] Merged points - Dynamic: {dataPointCount}, Static Meshes: {totalMeshPointCount}, Total: {_pointCount}");
+        if (_isDataDirty)
+        {
+            UnityEngine.Debug.Log($"[PCDRenderPass] Merged points - Dynamic: {dataPointCount}, Static Meshes: {totalMeshPointCount}, Total: {_pointCount}");
+        }
     }
 
     private void Initialize()
@@ -187,6 +201,16 @@ public class PCDRenderPass : ScriptableRenderPass
         _kernelCalcDensity = pointCloudCompute.FindKernel("CalculateDensity");
         _kernelCalcNeighborhoodSize = pointCloudCompute.FindKernel("CalculateNeighborhoodSize");
         _kernelMedianFilter = pointCloudCompute.FindKernel("MedianFilter");
+
+        if (_enableGradientCorrection)
+        {
+            _kernelBuildDepthPyramidL1 = pointCloudCompute.FindKernel("BuildDepthPyramidL1");
+            _kernelBuildDepthPyramidL2 = pointCloudCompute.FindKernel("BuildDepthPyramidL2");
+            _kernelBuildDepthPyramidL3 = pointCloudCompute.FindKernel("BuildDepthPyramidL3");
+            _kernelBuildDepthPyramidL4 = pointCloudCompute.FindKernel("BuildDepthPyramidL4");
+            _kernelApplyGradient = pointCloudCompute.FindKernel("ApplyAdaptiveGradientCorrection");
+        }
+
         _kernelOcclusion = pointCloudCompute.FindKernel("OcclusionAndFilter");
         _kernelInterpolate = pointCloudCompute.FindKernel("Interpolate");
 
@@ -210,7 +234,7 @@ public class PCDRenderPass : ScriptableRenderPass
         }
 
         _pointBuffer.SetData(_pointsCache);
-        if (_pointCount > 0)
+        if (_pointCount > 0 && _isDataDirty)
         {
             UnityEngine.Debug.Log($"[PCDRenderPass] ComputeBuffer updated with {_pointCount} points.");
         }
@@ -225,9 +249,20 @@ public class PCDRenderPass : ScriptableRenderPass
         internal Matrix4x4 projectionMatrix;
         internal float densityThreshold_e;
         internal float neighborhoodParam_p_prime;
+
+        internal bool enableGradientCorrection;
+        internal float gradientThreshold_g_th;
+        internal float occlusionThreshold;
+
         internal int kernelClear, kernelProject, kernelCalcGridZMin, kernelCalcDensity,
-                     kernelCalcNeighborhoodSize, kernelMedianFilter, kernelOcclusion, kernelInterpolate;
+                     kernelCalcNeighborhoodSize, kernelMedianFilter,
+                     kernelBuildDepthPyramidL1, kernelBuildDepthPyramidL2,
+                     kernelBuildDepthPyramidL3, kernelBuildDepthPyramidL4,
+                     kernelApplyGradient,
+                     kernelOcclusion, kernelInterpolate;
+
         internal ComputeBuffer pointBuffer;
+
         internal TextureHandle colorMap;
         internal TextureHandle depthMap;
         internal TextureHandle viewPositionMap;
@@ -235,6 +270,11 @@ public class PCDRenderPass : ScriptableRenderPass
         internal TextureHandle densityMap;
         internal TextureHandle neighborhoodSizeMap;
         internal TextureHandle filteredNeighborhoodSizeMap;
+        internal TextureHandle depthPyramidL1;
+        internal TextureHandle depthPyramidL2;
+        internal TextureHandle depthPyramidL3;
+        internal TextureHandle depthPyramidL4;
+        internal TextureHandle correctedNeighborhoodSizeMap;
         internal TextureHandle occlusionResultMap;
         internal TextureHandle finalImage;
     }
@@ -280,7 +320,23 @@ public class PCDRenderPass : ScriptableRenderPass
         int gridWidth = Mathf.CeilToInt(screenWidth / 16.0f);
         int gridHeight = Mathf.CeilToInt(screenHeight / 16.0f);
 
+        int l1_Width = 1, l1_Height = 1, l2_Width = 1, l2_Height = 1,
+            l3_Width = 1, l3_Height = 1, l4_Width = 1, l4_Height = 1;
+
+        if (_enableGradientCorrection)
+        {
+            l1_Width = Mathf.Max(1, Mathf.CeilToInt(screenWidth / 2.0f));
+            l1_Height = Mathf.Max(1, Mathf.CeilToInt(screenHeight / 2.0f));
+            l2_Width = Mathf.Max(1, Mathf.CeilToInt(l1_Width / 2.0f));
+            l2_Height = Mathf.Max(1, Mathf.CeilToInt(l1_Height / 2.0f));
+            l3_Width = Mathf.Max(1, Mathf.CeilToInt(l2_Width / 2.0f));
+            l3_Height = Mathf.Max(1, Mathf.CeilToInt(l2_Height / 2.0f));
+            l4_Width = Mathf.Max(1, Mathf.CeilToInt(l3_Width / 2.0f));
+            l4_Height = Mathf.Max(1, Mathf.CeilToInt(l3_Height / 2.0f));
+        }
+
         TextureHandle finalImageHandle;
+
         using (var builder = renderGraph.AddComputePass<ComputePassData>(PROFILER_TAG, out var data))
         {
             data.pointCount = _pointCount;
@@ -289,45 +345,56 @@ public class PCDRenderPass : ScriptableRenderPass
             data.projectionMatrix = camera.projectionMatrix;
             data.densityThreshold_e = densityThreshold_e;
             data.neighborhoodParam_p_prime = neighborhoodParam_p_prime;
+
+            data.enableGradientCorrection = _enableGradientCorrection;
+            data.gradientThreshold_g_th = _gradientThreshold_g_th;
+            data.occlusionThreshold = _occlusionThreshold;
+
             data.kernelClear = _kernelClear;
             data.kernelProject = _kernelProject;
             data.kernelCalcGridZMin = _kernelCalcGridZMin;
             data.kernelCalcDensity = _kernelCalcDensity;
             data.kernelCalcNeighborhoodSize = _kernelCalcNeighborhoodSize;
             data.kernelMedianFilter = _kernelMedianFilter;
+            data.kernelBuildDepthPyramidL1 = _kernelBuildDepthPyramidL1;
+            data.kernelBuildDepthPyramidL2 = _kernelBuildDepthPyramidL2;
+            data.kernelBuildDepthPyramidL3 = _kernelBuildDepthPyramidL3;
+            data.kernelBuildDepthPyramidL4 = _kernelBuildDepthPyramidL4;
+            data.kernelApplyGradient = _kernelApplyGradient;
             data.kernelOcclusion = _kernelOcclusion;
             data.kernelInterpolate = _kernelInterpolate;
+
             data.pointBuffer = _pointBuffer;
 
             var desc = new TextureDesc(screenWidth, screenHeight) { enableRandomWrite = true };
-
-            // ColorMap (ARGBFloat)
             desc.colorFormat = GraphicsFormatUtility.GetGraphicsFormat(RenderTextureFormat.ARGBFloat, false);
             data.colorMap = renderGraph.CreateTexture(desc);
-
-            // DepthMap (RInt)
-            desc.colorFormat = GraphicsFormatUtility.GetGraphicsFormat(RenderTextureFormat.RInt, false);
-            data.depthMap = renderGraph.CreateTexture(desc);
-
-            // ViewPositionMap (ARGBFloat for XYZW)
-            desc.colorFormat = GraphicsFormatUtility.GetGraphicsFormat(RenderTextureFormat.ARGBFloat, false);
             data.viewPositionMap = renderGraph.CreateTexture(desc);
 
-            // GridZMinMap (RInt)
+            desc.colorFormat = GraphicsFormatUtility.GetGraphicsFormat(RenderTextureFormat.RInt, false);
+            data.depthMap = renderGraph.CreateTexture(desc);
+            data.neighborhoodSizeMap = renderGraph.CreateTexture(desc);
+            data.filteredNeighborhoodSizeMap = renderGraph.CreateTexture(desc);
+            data.correctedNeighborhoodSizeMap = renderGraph.CreateTexture(desc);
+
             var gridDesc = new TextureDesc(gridWidth, gridHeight) { enableRandomWrite = true };
             gridDesc.colorFormat = GraphicsFormatUtility.GetGraphicsFormat(RenderTextureFormat.RInt, false);
             data.gridZMinMap = renderGraph.CreateTexture(gridDesc);
-
-            // DensityMap (RFloat)
             gridDesc.colorFormat = GraphicsFormatUtility.GetGraphicsFormat(RenderTextureFormat.RFloat, false);
             data.densityMap = renderGraph.CreateTexture(gridDesc);
 
-            // NeighborhoodSizeMaps (RInt)
-            desc.colorFormat = GraphicsFormatUtility.GetGraphicsFormat(RenderTextureFormat.RInt, false);
-            data.neighborhoodSizeMap = renderGraph.CreateTexture(desc);
-            data.filteredNeighborhoodSizeMap = renderGraph.CreateTexture(desc);
+            if (data.enableGradientCorrection)
+            {
+                var descL1 = new TextureDesc(l1_Width, l1_Height) { enableRandomWrite = true, colorFormat = GraphicsFormatUtility.GetGraphicsFormat(RenderTextureFormat.RInt, false) };
+                data.depthPyramidL1 = renderGraph.CreateTexture(descL1);
+                var descL2 = new TextureDesc(l2_Width, l2_Height) { enableRandomWrite = true, colorFormat = GraphicsFormatUtility.GetGraphicsFormat(RenderTextureFormat.RInt, false) };
+                data.depthPyramidL2 = renderGraph.CreateTexture(descL2);
+                var descL3 = new TextureDesc(l3_Width, l3_Height) { enableRandomWrite = true, colorFormat = GraphicsFormatUtility.GetGraphicsFormat(RenderTextureFormat.RInt, false) };
+                data.depthPyramidL3 = renderGraph.CreateTexture(descL3);
+                var descL4 = new TextureDesc(l4_Width, l4_Height) { enableRandomWrite = true, colorFormat = GraphicsFormatUtility.GetGraphicsFormat(RenderTextureFormat.RInt, false) };
+                data.depthPyramidL4 = renderGraph.CreateTexture(descL4);
+            }
 
-            // Result Maps (ARGBFloat)
             desc.colorFormat = GraphicsFormatUtility.GetGraphicsFormat(RenderTextureFormat.ARGBFloat, false);
             data.occlusionResultMap = renderGraph.CreateTexture(desc);
             data.finalImage = renderGraph.CreateTexture(desc);
@@ -339,10 +406,19 @@ public class PCDRenderPass : ScriptableRenderPass
             builder.UseTexture(data.densityMap, AccessFlags.ReadWrite);
             builder.UseTexture(data.neighborhoodSizeMap, AccessFlags.ReadWrite);
             builder.UseTexture(data.filteredNeighborhoodSizeMap, AccessFlags.ReadWrite);
+            if (data.enableGradientCorrection)
+            {
+                builder.UseTexture(data.depthPyramidL1, AccessFlags.ReadWrite);
+                builder.UseTexture(data.depthPyramidL2, AccessFlags.ReadWrite);
+                builder.UseTexture(data.depthPyramidL3, AccessFlags.ReadWrite);
+                builder.UseTexture(data.depthPyramidL4, AccessFlags.ReadWrite);
+            }
+            builder.UseTexture(data.correctedNeighborhoodSizeMap, AccessFlags.ReadWrite);
             builder.UseTexture(data.occlusionResultMap, AccessFlags.ReadWrite);
             builder.UseTexture(data.finalImage, AccessFlags.ReadWrite);
             finalImageHandle = data.finalImage;
 
+            // --- RenderFunc ---
             builder.SetRenderFunc((ComputePassData passData, ComputeGraphContext context) =>
             {
                 var cmd = context.cmd;
@@ -354,6 +430,8 @@ public class PCDRenderPass : ScriptableRenderPass
                 cmd.SetComputeMatrixParam(cs, "_ProjectionMatrix", passData.projectionMatrix);
                 cmd.SetComputeFloatParam(cs, "_DensityThreshold_e", passData.densityThreshold_e);
                 cmd.SetComputeFloatParam(cs, "_NeighborhoodParam_p_prime", passData.neighborhoodParam_p_prime);
+                cmd.SetComputeFloatParam(cs, "_GradientThreshold_g_th", passData.gradientThreshold_g_th);
+                cmd.SetComputeFloatParam(cs, "_OcclusionThreshold", passData.occlusionThreshold);
 
                 int sw = (int)passData.screenParams.x;
                 int sh = (int)passData.screenParams.y;
@@ -362,57 +440,103 @@ public class PCDRenderPass : ScriptableRenderPass
                 int gridGroupsX = Mathf.CeilToInt(sw / 16.0f);
                 int gridGroupsY = Mathf.CeilToInt(sh / 16.0f);
 
-                // --- 1. ClearMaps ---
+                // 1. ClearMaps
                 cmd.SetComputeTextureParam(cs, passData.kernelClear, "_DepthMap_RW", passData.depthMap);
-                cmd.SetComputeTextureParam(cs, passData.kernelClear, "_ViewPositionMap_RW", passData.viewPositionMap); // ÅyïœçXì_Åz í«â¡
+                cmd.SetComputeTextureParam(cs, passData.kernelClear, "_ViewPositionMap_RW", passData.viewPositionMap);
                 cmd.SetComputeTextureParam(cs, passData.kernelClear, "_OcclusionResultMap_RW", passData.occlusionResultMap);
                 cmd.SetComputeTextureParam(cs, passData.kernelClear, "_FinalImage_RW", passData.finalImage);
                 cmd.DispatchCompute(cs, passData.kernelClear, threadGroupsX, threadGroupsY, 1);
 
-                // --- 2. ProjectPoints ---
+                // 2. ProjectPoints
                 cmd.SetComputeBufferParam(cs, passData.kernelProject, "_PointBuffer", passData.pointBuffer);
                 cmd.SetComputeTextureParam(cs, passData.kernelProject, "_ColorMap_RW", passData.colorMap);
                 cmd.SetComputeTextureParam(cs, passData.kernelProject, "_DepthMap_RW", passData.depthMap);
-                cmd.SetComputeTextureParam(cs, passData.kernelProject, "_ViewPositionMap_RW", passData.viewPositionMap); // ÅyïœçXì_Åz í«â¡
+                cmd.SetComputeTextureParam(cs, passData.kernelProject, "_ViewPositionMap_RW", passData.viewPositionMap);
                 cmd.DispatchCompute(cs, passData.kernelProject, Mathf.CeilToInt(passData.pointCount / 256.0f), 1, 1);
 
-                // --- 3. CalculateGridZMin ---
+                // 3. CalculateGridZMin
                 cmd.SetComputeTextureParam(cs, passData.kernelCalcGridZMin, "_DepthMap", passData.depthMap);
                 cmd.SetComputeTextureParam(cs, passData.kernelCalcGridZMin, "_GridZMinMap_RW", passData.gridZMinMap);
                 cmd.DispatchCompute(cs, passData.kernelCalcGridZMin, gridGroupsX, gridGroupsY, 1);
 
-                // --- 4. CalculateDensity ---
+                // 4. CalculateDensity
                 cmd.SetComputeTextureParam(cs, passData.kernelCalcDensity, "_DepthMap", passData.depthMap);
                 cmd.SetComputeTextureParam(cs, passData.kernelCalcDensity, "_GridZMinMap", passData.gridZMinMap);
                 cmd.SetComputeTextureParam(cs, passData.kernelCalcDensity, "_DensityMap_RW", passData.densityMap);
                 cmd.DispatchCompute(cs, passData.kernelCalcDensity, gridGroupsX, gridGroupsY, 1);
 
-                // --- 5. CalculateNeighborhoodSize ---
+                // 5. CalculateNeighborhoodSize
                 cmd.SetComputeTextureParam(cs, passData.kernelCalcNeighborhoodSize, "_DensityMap", passData.densityMap);
                 cmd.SetComputeTextureParam(cs, passData.kernelCalcNeighborhoodSize, "_NeighborhoodSizeMap_RW", passData.neighborhoodSizeMap);
                 cmd.DispatchCompute(cs, passData.kernelCalcNeighborhoodSize, threadGroupsX, threadGroupsY, 1);
 
-                // --- 6. MedianFilter ---
+                // 6. MedianFilter
                 cmd.SetComputeTextureParam(cs, passData.kernelMedianFilter, "_NeighborhoodSizeMap", passData.neighborhoodSizeMap);
                 cmd.SetComputeTextureParam(cs, passData.kernelMedianFilter, "_FilteredNeighborhoodSizeMap_RW", passData.filteredNeighborhoodSizeMap);
                 cmd.DispatchCompute(cs, passData.kernelMedianFilter, threadGroupsX, threadGroupsY, 1);
 
-                // --- 7. OcclusionAndFilter ---
+                // 7. Gradient Correction Path
+                if (passData.enableGradientCorrection)
+                {
+                    // 7a. Build Z-Min Depth Pyramid
+                    int l1_tgX = Mathf.CeilToInt(l1_Width / 8.0f);
+                    int l1_tgY = Mathf.CeilToInt(l1_Height / 8.0f);
+                    cmd.SetComputeTextureParam(cs, passData.kernelBuildDepthPyramidL1, "_DepthMap", passData.depthMap);
+                    cmd.SetComputeTextureParam(cs, passData.kernelBuildDepthPyramidL1, "_DepthPyramidL1_RW", passData.depthPyramidL1);
+                    cmd.DispatchCompute(cs, passData.kernelBuildDepthPyramidL1, l1_tgX, l1_tgY, 1);
+
+                    int l2_tgX = Mathf.CeilToInt(l2_Width / 8.0f);
+                    int l2_tgY = Mathf.CeilToInt(l2_Height / 8.0f);
+                    cmd.SetComputeTextureParam(cs, passData.kernelBuildDepthPyramidL2, "_DepthPyramidL1", passData.depthPyramidL1);
+                    cmd.SetComputeTextureParam(cs, passData.kernelBuildDepthPyramidL2, "_DepthPyramidL2_RW", passData.depthPyramidL2);
+                    cmd.DispatchCompute(cs, passData.kernelBuildDepthPyramidL2, l2_tgX, l2_tgY, 1);
+
+                    int l3_tgX = Mathf.CeilToInt(l3_Width / 8.0f);
+                    int l3_tgY = Mathf.CeilToInt(l3_Height / 8.0f);
+                    cmd.SetComputeTextureParam(cs, passData.kernelBuildDepthPyramidL3, "_DepthPyramidL2", passData.depthPyramidL2);
+                    cmd.SetComputeTextureParam(cs, passData.kernelBuildDepthPyramidL3, "_DepthPyramidL3_RW", passData.depthPyramidL3);
+                    cmd.DispatchCompute(cs, passData.kernelBuildDepthPyramidL3, l3_tgX, l3_tgY, 1);
+
+                    int l4_tgX = Mathf.CeilToInt(l4_Width / 8.0f);
+                    int l4_tgY = Mathf.CeilToInt(l4_Height / 8.0f);
+                    cmd.SetComputeTextureParam(cs, passData.kernelBuildDepthPyramidL4, "_DepthPyramidL3", passData.depthPyramidL3);
+                    cmd.SetComputeTextureParam(cs, passData.kernelBuildDepthPyramidL4, "_DepthPyramidL4_RW", passData.depthPyramidL4);
+                    cmd.DispatchCompute(cs, passData.kernelBuildDepthPyramidL4, l4_tgX, l4_tgY, 1);
+
+                    // 7b+7c. ApplyAdaptiveGradientCorrection
+                    cmd.SetComputeTextureParam(cs, passData.kernelApplyGradient, "_FilteredNeighborhoodSizeMap", passData.filteredNeighborhoodSizeMap);
+                    cmd.SetComputeTextureParam(cs, passData.kernelApplyGradient, "_DepthPyramidL1", passData.depthPyramidL1);
+                    cmd.SetComputeTextureParam(cs, passData.kernelApplyGradient, "_DepthPyramidL2", passData.depthPyramidL2);
+                    cmd.SetComputeTextureParam(cs, passData.kernelApplyGradient, "_DepthPyramidL3", passData.depthPyramidL3);
+                    cmd.SetComputeTextureParam(cs, passData.kernelApplyGradient, "_DepthPyramidL4", passData.depthPyramidL4);
+                    cmd.SetComputeTextureParam(cs, passData.kernelApplyGradient, "_CorrectedNeighborhoodSizeMap_RW", passData.correctedNeighborhoodSizeMap);
+                    cmd.DispatchCompute(cs, passData.kernelApplyGradient, threadGroupsX, threadGroupsY, 1);
+                }
+
+                // 8. OcclusionAndFilter
                 cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, "_ColorMap", passData.colorMap);
                 cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, "_DepthMap", passData.depthMap);
                 cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, "_ViewPositionMap", passData.viewPositionMap);
-                cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, "_FilteredNeighborhoodSizeMap", passData.filteredNeighborhoodSizeMap);
+
+                if (passData.enableGradientCorrection)
+                {
+                    cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, "_FinalNeighborhoodSizeMap", passData.correctedNeighborhoodSizeMap);
+                }
+                else
+                {
+                    cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, "_FinalNeighborhoodSizeMap", passData.filteredNeighborhoodSizeMap);
+                }
+
                 cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, "_OcclusionResultMap_RW", passData.occlusionResultMap);
                 cmd.DispatchCompute(cs, passData.kernelOcclusion, threadGroupsX, threadGroupsY, 1);
 
-                // --- 8. Interpolate ---
+                // 9. Interpolate
                 cmd.SetComputeTextureParam(cs, passData.kernelInterpolate, "_OcclusionResultMap", passData.occlusionResultMap);
                 cmd.SetComputeTextureParam(cs, passData.kernelInterpolate, "_FinalImage_RW", passData.finalImage);
                 cmd.DispatchCompute(cs, passData.kernelInterpolate, threadGroupsX, threadGroupsY, 1);
             });
         }
 
-        // --- 9. Blit Pass ---
         using (var builder = renderGraph.AddRasterRenderPass<BlitPassData>("PCD Blit Pass", out var data))
         {
             data.blendMaterial = m_BlendMaterial;

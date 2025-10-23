@@ -9,12 +9,24 @@ public class PCDRendererFeature : ScriptableRendererFeature
     [Header("Required Assets")]
     public ComputeShader pointCloudCompute;
 
-    [Header("Algorithm Parameters (from Paper)")]
-    [Tooltip("密度計算に用いる深度のしきい値")]
+    [Header("Algorithm Parameters")]
+    [Tooltip("密度計算に用いる深度のしきい値 e")]
     public float densityThreshold_e = 0.04f;
 
-    [Tooltip("近傍領域サイズを決定するための調整パラメータ")]
+    [Tooltip("近傍領域サイズを決定するための調整パラメータ p' ")]
     public float neighborhoodParam_p_prime = 4.8f;
+
+    [Header("Gradient Correction")]
+    [Tooltip("勾配を用いた補正を有効にする")]
+    public bool enableGradientCorrection = true;
+
+    [Tooltip("勾配しきい値 g_th")]
+    public float gradientThreshold_g_th = 0.05f;
+
+    [Header("Occlusion Filtering")]
+    [Tooltip("オクルージョン判定のしきい値 (論文 2.4.2節)")]
+    [Range(0f, 1f)]
+    public float occlusionThreshold = 0.8f;
 
     [Header("Blending Assets")]
     [Tooltip("最終結果のアルファブレンドを有効にするか")]
