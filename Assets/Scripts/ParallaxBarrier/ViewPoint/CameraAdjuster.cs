@@ -7,6 +7,8 @@ public class CameraAdjuster : MonoBehaviour
     [Header ("Debug")]
     public bool isHalfMirrorEnabled = true;
 
+    public Vector3 defaultPosition = new Vector3(0.3f, 0.85f, 0.15f);
+
     private void LateUpdate()
     {
         if (displayTransform == null)
@@ -49,5 +51,12 @@ public class CameraAdjuster : MonoBehaviour
             p = Matrix4x4.Frustum(left, right, bottom, top, nearPlane, 1);
         }
         cam.projectionMatrix = p;
+    }
+
+    public void MoveToDefaultPosition()
+    {
+        this.transform.position = defaultPosition;
+
+        UnityEngine.Debug.Log($"Moved to default position: {defaultPosition}");
     }
 }

@@ -47,7 +47,6 @@ public class PointCloudViewer : MonoBehaviour
         if (!UnityEngine.Application.isPlaying) return;
         pointCloudRenderer.InitializeOutline(settings.outline, settings.outlineColor);
         pointCloudRenderer.UpdatePointSize(settings.pointSize);
-
         StartCoroutine(RebuildPointCloudAfterFrame());
     }
 

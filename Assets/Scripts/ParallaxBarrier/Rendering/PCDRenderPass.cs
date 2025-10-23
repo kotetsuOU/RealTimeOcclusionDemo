@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -16,10 +17,17 @@ public class PCDRenderPass : ScriptableRenderPass
         public Vector3 color;
     }
 
+    private class MeshTransformPair
+    {
+        public Mesh mesh;
+        public Transform transform;
+    }
+
     private ComputeShader pointCloudCompute;
     private float densityThreshold_e;
     private float neighborhoodParam_p_prime;
     private Material m_BlendMaterial;
+    private bool _enableAlphaBlend;
 
     private ComputeBuffer _pointBuffer;
     private int _pointCount = 0;
@@ -31,39 +39,137 @@ public class PCDRenderPass : ScriptableRenderPass
 
     private bool _isInitialized = false;
 
-    public PCDRenderPass(PCDRendererFeature settings, Material blendMaterial)
+    private PCV_Data _dynamicData;
+    private List<MeshTransformPair> _staticMeshes = new List<MeshTransformPair>();
+
+
+    public PCDRenderPass(PCDRendererFeature settings, Material blendMaterial, bool enableAlphaBlend)
     {
         this.pointCloudCompute = settings.pointCloudCompute;
         this.densityThreshold_e = settings.densityThreshold_e;
         this.neighborhoodParam_p_prime = settings.neighborhoodParam_p_prime;
         this.m_BlendMaterial = blendMaterial;
+        this._enableAlphaBlend = enableAlphaBlend;
     }
 
     public void SetPointCloudData(PCV_Data data)
     {
-        if (data == null || data.PointCount == 0)
+        if (_dynamicData != data || (data != null && _dynamicData != null && _dynamicData.PointCount != data.PointCount))
         {
-            _pointCount = 0;
-            _pointsCache = null;
+            _dynamicData = data;
+            _isDataDirty = true;
         }
-        else
+        else if (data == null && _dynamicData != null)
         {
-            _pointCount = data.PointCount;
-            if (_pointsCache == null || _pointsCache.Length != _pointCount)
-            {
-                _pointsCache = new Point[_pointCount];
-            }
+            _dynamicData = null;
+            _isDataDirty = true;
+        }
+    }
 
-            for (int i = 0; i < _pointCount; i++)
+    public void AddStaticMesh(Mesh mesh, Transform transform)
+    {
+        if (mesh != null && transform != null)
+        {
+            var existing = _staticMeshes.Find(p => p.mesh == mesh && p.transform == transform);
+            if (existing == null)
             {
-                _pointsCache[i] = new Point
-                {
-                    position = data.Vertices[i],
-                    color = new Vector3(data.Colors[i].r, data.Colors[i].g, data.Colors[i].b)
-                };
+                _staticMeshes.Add(new MeshTransformPair { mesh = mesh, transform = transform });
+                _isDataDirty = true;
+                UnityEngine.Debug.Log($"[PCDRenderPass] Static mesh '{mesh.name}' added from Transform '{transform.name}'.");
             }
         }
-        _isDataDirty = true;
+    }
+
+    public void RemoveStaticMesh(Mesh mesh, Transform transform)
+    {
+        var pair = _staticMeshes.Find(p => p.mesh == mesh && p.transform == transform);
+        if (pair != null)
+        {
+            _staticMeshes.Remove(pair);
+            _isDataDirty = true;
+            UnityEngine.Debug.Log($"[PCDRenderPass] Static mesh '{mesh.name}' removed from Transform '{transform.name}'.");
+        }
+    }
+
+    private void MergeAndCachePoints()
+    {
+        int dataPointCount = 0;
+        if (_dynamicData != null && _dynamicData.PointCount > 0)
+        {
+            dataPointCount = _dynamicData.PointCount;
+        }
+
+        int totalMeshPointCount = 0;
+        foreach (var pair in _staticMeshes)
+        {
+            if (pair.mesh == null || pair.transform == null) continue;
+
+            if (!pair.mesh.isReadable)
+            {
+                UnityEngine.Debug.LogError($"[PCDRenderPass] Additional Mesh '{pair.mesh.name}' is not marked as Read/Write Enabled in Import Settings. Static mesh will be ignored.");
+                continue;
+            }
+            totalMeshPointCount += pair.mesh.vertexCount;
+        }
+
+        _pointCount = dataPointCount + totalMeshPointCount;
+
+        if (_pointCount == 0)
+        {
+            _pointsCache = null;
+            return;
+        }
+
+        if (_pointsCache == null || _pointsCache.Length != _pointCount)
+        {
+            _pointsCache = new Point[_pointCount];
+        }
+
+        int cacheIndex = 0;
+
+        if (dataPointCount > 0)
+        {
+            for (int i = 0; i < dataPointCount; i++)
+            {
+                _pointsCache[cacheIndex] = new Point
+                {
+                    position = _dynamicData.Vertices[i],
+                    color = new Vector3(_dynamicData.Colors[i].r, _dynamicData.Colors[i].g, _dynamicData.Colors[i].b)
+                };
+                cacheIndex++;
+            }
+        }
+
+        Vector3 defaultColor = new Vector3(1.0f, 1.0f, 1.0f);
+        foreach (var pair in _staticMeshes)
+        {
+            if (pair.mesh == null || !pair.mesh.isReadable || pair.transform == null) continue;
+
+            int meshPointCount = pair.mesh.vertexCount;
+            if (meshPointCount == 0) continue;
+
+            Vector3[] meshVertices = pair.mesh.vertices;
+            Color[] meshColors = pair.mesh.colors;
+            bool hasMeshColors = meshColors != null && meshColors.Length == meshPointCount;
+
+            Matrix4x4 localToWorld = pair.transform.localToWorldMatrix;
+
+            for (int i = 0; i < meshPointCount; i++)
+            {
+                Vector3 color = hasMeshColors ? new Vector3(meshColors[i].r, meshColors[i].g, meshColors[i].b) : defaultColor;
+
+                Vector3 worldPos = localToWorld.MultiplyPoint3x4(meshVertices[i]);
+
+                _pointsCache[cacheIndex] = new Point
+                {
+                    position = worldPos,
+                    color = color
+                };
+                cacheIndex++;
+            }
+        }
+
+        UnityEngine.Debug.Log($"[PCDRenderPass] Merged points - Dynamic: {dataPointCount}, Static Meshes: {totalMeshPointCount}, Total: {_pointCount}");
     }
 
     private void Initialize()
@@ -89,10 +195,11 @@ public class PCDRenderPass : ScriptableRenderPass
 
     private void UpdateComputeBuffer()
     {
-        if (_pointCount == 0)
+        if (_pointCount == 0 || _pointsCache == null)
         {
             _pointBuffer?.Release();
             _pointBuffer = null;
+            _isDataDirty = false;
             return;
         }
 
@@ -123,6 +230,7 @@ public class PCDRenderPass : ScriptableRenderPass
         internal ComputeBuffer pointBuffer;
         internal TextureHandle colorMap;
         internal TextureHandle depthMap;
+        internal TextureHandle viewPositionMap;
         internal TextureHandle gridZMinMap;
         internal TextureHandle densityMap;
         internal TextureHandle neighborhoodSizeMap;
@@ -136,6 +244,7 @@ public class PCDRenderPass : ScriptableRenderPass
         internal Material blendMaterial;
         internal TextureHandle sourceImage;
         internal TextureHandle cameraTarget;
+        internal bool enableAlphaBlend;
     }
 
     public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData)
@@ -154,8 +263,10 @@ public class PCDRenderPass : ScriptableRenderPass
 
         if (_isDataDirty)
         {
+            MergeAndCachePoints();
             UpdateComputeBuffer();
         }
+
         if (_pointBuffer == null || _pointCount == 0)
         {
             return;
@@ -186,40 +297,50 @@ public class PCDRenderPass : ScriptableRenderPass
             data.kernelMedianFilter = _kernelMedianFilter;
             data.kernelOcclusion = _kernelOcclusion;
             data.kernelInterpolate = _kernelInterpolate;
-
             data.pointBuffer = _pointBuffer;
 
             var desc = new TextureDesc(screenWidth, screenHeight) { enableRandomWrite = true };
+
+            // ColorMap (ARGBFloat)
             desc.colorFormat = GraphicsFormatUtility.GetGraphicsFormat(RenderTextureFormat.ARGBFloat, false);
             data.colorMap = renderGraph.CreateTexture(desc);
 
+            // DepthMap (RInt)
             desc.colorFormat = GraphicsFormatUtility.GetGraphicsFormat(RenderTextureFormat.RInt, false);
             data.depthMap = renderGraph.CreateTexture(desc);
 
+            // ViewPositionMap (ARGBFloat for XYZW)
+            desc.colorFormat = GraphicsFormatUtility.GetGraphicsFormat(RenderTextureFormat.ARGBFloat, false);
+            data.viewPositionMap = renderGraph.CreateTexture(desc);
+
+            // GridZMinMap (RInt)
             var gridDesc = new TextureDesc(gridWidth, gridHeight) { enableRandomWrite = true };
             gridDesc.colorFormat = GraphicsFormatUtility.GetGraphicsFormat(RenderTextureFormat.RInt, false);
             data.gridZMinMap = renderGraph.CreateTexture(gridDesc);
 
+            // DensityMap (RFloat)
             gridDesc.colorFormat = GraphicsFormatUtility.GetGraphicsFormat(RenderTextureFormat.RFloat, false);
             data.densityMap = renderGraph.CreateTexture(gridDesc);
 
+            // NeighborhoodSizeMaps (RInt)
             desc.colorFormat = GraphicsFormatUtility.GetGraphicsFormat(RenderTextureFormat.RInt, false);
             data.neighborhoodSizeMap = renderGraph.CreateTexture(desc);
             data.filteredNeighborhoodSizeMap = renderGraph.CreateTexture(desc);
 
+            // Result Maps (ARGBFloat)
             desc.colorFormat = GraphicsFormatUtility.GetGraphicsFormat(RenderTextureFormat.ARGBFloat, false);
             data.occlusionResultMap = renderGraph.CreateTexture(desc);
             data.finalImage = renderGraph.CreateTexture(desc);
 
             builder.UseTexture(data.colorMap, AccessFlags.ReadWrite);
             builder.UseTexture(data.depthMap, AccessFlags.ReadWrite);
+            builder.UseTexture(data.viewPositionMap, AccessFlags.ReadWrite);
             builder.UseTexture(data.gridZMinMap, AccessFlags.ReadWrite);
             builder.UseTexture(data.densityMap, AccessFlags.ReadWrite);
             builder.UseTexture(data.neighborhoodSizeMap, AccessFlags.ReadWrite);
             builder.UseTexture(data.filteredNeighborhoodSizeMap, AccessFlags.ReadWrite);
             builder.UseTexture(data.occlusionResultMap, AccessFlags.ReadWrite);
             builder.UseTexture(data.finalImage, AccessFlags.ReadWrite);
-
             finalImageHandle = data.finalImage;
 
             builder.SetRenderFunc((ComputePassData passData, ComputeGraphContext context) =>
@@ -241,48 +362,61 @@ public class PCDRenderPass : ScriptableRenderPass
                 int gridGroupsX = Mathf.CeilToInt(sw / 16.0f);
                 int gridGroupsY = Mathf.CeilToInt(sh / 16.0f);
 
+                // --- 1. ClearMaps ---
                 cmd.SetComputeTextureParam(cs, passData.kernelClear, "_DepthMap_RW", passData.depthMap);
+                cmd.SetComputeTextureParam(cs, passData.kernelClear, "_ViewPositionMap_RW", passData.viewPositionMap); // ÅyïœçXì_Åz í«â¡
                 cmd.SetComputeTextureParam(cs, passData.kernelClear, "_OcclusionResultMap_RW", passData.occlusionResultMap);
                 cmd.SetComputeTextureParam(cs, passData.kernelClear, "_FinalImage_RW", passData.finalImage);
                 cmd.DispatchCompute(cs, passData.kernelClear, threadGroupsX, threadGroupsY, 1);
 
+                // --- 2. ProjectPoints ---
                 cmd.SetComputeBufferParam(cs, passData.kernelProject, "_PointBuffer", passData.pointBuffer);
                 cmd.SetComputeTextureParam(cs, passData.kernelProject, "_ColorMap_RW", passData.colorMap);
                 cmd.SetComputeTextureParam(cs, passData.kernelProject, "_DepthMap_RW", passData.depthMap);
+                cmd.SetComputeTextureParam(cs, passData.kernelProject, "_ViewPositionMap_RW", passData.viewPositionMap); // ÅyïœçXì_Åz í«â¡
                 cmd.DispatchCompute(cs, passData.kernelProject, Mathf.CeilToInt(passData.pointCount / 256.0f), 1, 1);
 
+                // --- 3. CalculateGridZMin ---
                 cmd.SetComputeTextureParam(cs, passData.kernelCalcGridZMin, "_DepthMap", passData.depthMap);
                 cmd.SetComputeTextureParam(cs, passData.kernelCalcGridZMin, "_GridZMinMap_RW", passData.gridZMinMap);
                 cmd.DispatchCompute(cs, passData.kernelCalcGridZMin, gridGroupsX, gridGroupsY, 1);
 
+                // --- 4. CalculateDensity ---
                 cmd.SetComputeTextureParam(cs, passData.kernelCalcDensity, "_DepthMap", passData.depthMap);
                 cmd.SetComputeTextureParam(cs, passData.kernelCalcDensity, "_GridZMinMap", passData.gridZMinMap);
                 cmd.SetComputeTextureParam(cs, passData.kernelCalcDensity, "_DensityMap_RW", passData.densityMap);
                 cmd.DispatchCompute(cs, passData.kernelCalcDensity, gridGroupsX, gridGroupsY, 1);
 
+                // --- 5. CalculateNeighborhoodSize ---
                 cmd.SetComputeTextureParam(cs, passData.kernelCalcNeighborhoodSize, "_DensityMap", passData.densityMap);
                 cmd.SetComputeTextureParam(cs, passData.kernelCalcNeighborhoodSize, "_NeighborhoodSizeMap_RW", passData.neighborhoodSizeMap);
                 cmd.DispatchCompute(cs, passData.kernelCalcNeighborhoodSize, threadGroupsX, threadGroupsY, 1);
 
+                // --- 6. MedianFilter ---
                 cmd.SetComputeTextureParam(cs, passData.kernelMedianFilter, "_NeighborhoodSizeMap", passData.neighborhoodSizeMap);
                 cmd.SetComputeTextureParam(cs, passData.kernelMedianFilter, "_FilteredNeighborhoodSizeMap_RW", passData.filteredNeighborhoodSizeMap);
                 cmd.DispatchCompute(cs, passData.kernelMedianFilter, threadGroupsX, threadGroupsY, 1);
 
+                // --- 7. OcclusionAndFilter ---
                 cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, "_ColorMap", passData.colorMap);
                 cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, "_DepthMap", passData.depthMap);
+                cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, "_ViewPositionMap", passData.viewPositionMap);
                 cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, "_FilteredNeighborhoodSizeMap", passData.filteredNeighborhoodSizeMap);
                 cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, "_OcclusionResultMap_RW", passData.occlusionResultMap);
                 cmd.DispatchCompute(cs, passData.kernelOcclusion, threadGroupsX, threadGroupsY, 1);
 
+                // --- 8. Interpolate ---
                 cmd.SetComputeTextureParam(cs, passData.kernelInterpolate, "_OcclusionResultMap", passData.occlusionResultMap);
                 cmd.SetComputeTextureParam(cs, passData.kernelInterpolate, "_FinalImage_RW", passData.finalImage);
                 cmd.DispatchCompute(cs, passData.kernelInterpolate, threadGroupsX, threadGroupsY, 1);
             });
         }
 
+        // --- 9. Blit Pass ---
         using (var builder = renderGraph.AddRasterRenderPass<BlitPassData>("PCD Blit Pass", out var data))
         {
             data.blendMaterial = m_BlendMaterial;
+            data.enableAlphaBlend = _enableAlphaBlend;
             data.sourceImage = finalImageHandle;
             data.cameraTarget = resourceData.activeColorTexture;
 
@@ -291,7 +425,14 @@ public class PCDRenderPass : ScriptableRenderPass
 
             builder.SetRenderFunc((BlitPassData passData, RasterGraphContext context) =>
             {
-                Blitter.BlitTexture(context.cmd, passData.sourceImage, new Vector4(1, 1, 0, 0), passData.blendMaterial, 0);
+                if (passData.enableAlphaBlend && passData.blendMaterial != null)
+                {
+                    Blitter.BlitTexture(context.cmd, passData.sourceImage, new Vector4(1, 1, 0, 0), passData.blendMaterial, 0);
+                }
+                else
+                {
+                    Blitter.BlitTexture(context.cmd, passData.sourceImage, new Vector4(1, 1, 0, 0), 0.0f, false);
+                }
             });
         }
     }
@@ -302,5 +443,7 @@ public class PCDRenderPass : ScriptableRenderPass
         _pointBuffer = null;
         _isInitialized = false;
         _pointsCache = null;
+        _dynamicData = null;
+        _staticMeshes.Clear();
     }
 }

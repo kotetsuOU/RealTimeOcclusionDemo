@@ -18,6 +18,7 @@ struct Point
 StructuredBuffer<Point> _PointBuffer;
 RWTexture2D<float4> _ColorMap_RW;
 RWTexture2D<uint> _DepthMap_RW;
+RWTexture2D<float4> _ViewPositionMap_RW;
 RWTexture2D<uint> _GridZMinMap_RW;
 RWTexture2D<float> _DensityMap_RW;
 RWTexture2D<int> _NeighborhoodSizeMap_RW;
@@ -27,6 +28,7 @@ RWTexture2D<float4> _FinalImage_RW;
 
 Texture2D<float4> _ColorMap;
 Texture2D<uint> _DepthMap;
+Texture2D<float4> _ViewPositionMap;
 Texture2D<uint> _GridZMinMap;
 Texture2D<float> _DensityMap;
 Texture2D<int> _NeighborhoodSizeMap;
@@ -57,6 +59,7 @@ void ClearMaps(uint3 id : SV_DispatchThreadID)
         return;
 
     _DepthMap_RW[id.xy] = DEPTH_MAX_UINT;
+    _ViewPositionMap_RW[id.xy] = float4(0, 0, 0, 1e9);
     _OcclusionResultMap_RW[id.xy] = float4(0, 0, 0, 0);
     _FinalImage_RW[id.xy] = float4(0, 0, 0, 0);
 }
@@ -92,6 +95,7 @@ void ProjectPoints(uint3 id : SV_DispatchThreadID)
     if (depth_uint < oldDepth)
     {
         _ColorMap_RW[screenUV] = float4(p.color, 1.0);
+        _ViewPositionMap_RW[screenUV] = float4(viewPos.xyz, depth);
     }
 }
 
@@ -216,30 +220,57 @@ void OcclusionAndFilter(uint3 id : SV_DispatchThreadID)
         _OcclusionResultMap_RW[id.xy] = float4(0, 0, 0, 0);
         return;
     }
-    float currentDepth = (float) currentDepth_uint / (float) DEPTH_MAX_UINT;
+    float3 currentPos = _ViewPositionMap[id.xy].xyz;
+    float currentDepth = _ViewPositionMap[id.xy].w;
 
     int level = _FilteredNeighborhoodSizeMap[id.xy];
     uint radius = (uint) pow(2.0, (float) level) / 2u;
+    radius = max(radius, 1u);
+    
+    float occlusionSum = 0.0;
+    uint neighborCount = 0u;
 
-    bool isOccluded = false;
     for (uint y = 0u; y <= radius * 2u; y++)
     {
         for (uint x = 0u; x <= radius * 2u; x++)
         {
+            if (x == radius && y == radius)
+                continue;
+
             int2 offset = int2((int) x - (int) radius, (int) y - (int) radius);
             uint neighborDepth_uint = _DepthMap[id.xy + offset];
+
             if (neighborDepth_uint < DEPTH_MAX_UINT)
             {
-                float neighborDepth = (float) neighborDepth_uint / (float) DEPTH_MAX_UINT;
+                float3 neighborPos = _ViewPositionMap[id.xy + offset].xyz;
+
+                float neighborDepth = _ViewPositionMap[id.xy + offset].w;
                 if (currentDepth - neighborDepth > 0.01)
                 {
-                    isOccluded = true;
-                    break;
+                    float3 y_minus_x = neighborPos - currentPos;
+                    float3 minus_y = -neighborPos;
+
+                    if (length(y_minus_x) > 1e-6 && length(minus_y) > 1e-6)
+                    {
+                        float occlusionValue = 1.0 - dot(normalize(y_minus_x), normalize(minus_y));
+                        occlusionSum += occlusionValue;
+                        neighborCount++;
+                    }
                 }
             }
         }
-        if (isOccluded)
-            break;
+    }
+
+    bool isOccluded = false;
+    if (neighborCount > 0)
+    {
+        float occlusionAverage = occlusionSum / (float) neighborCount;
+        const float OCCLUSION_THRESHOLD = 0.8;
+
+        if (occlusionAverage < OCCLUSION_THRESHOLD)
+        {
+            isOccluded = true;
+        }
     }
 
     if (isOccluded)
