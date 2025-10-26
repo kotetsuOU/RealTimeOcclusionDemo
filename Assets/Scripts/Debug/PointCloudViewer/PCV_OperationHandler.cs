@@ -78,6 +78,64 @@ public class PCV_OperationHandler : MonoBehaviour
         dataManager.SetData(filteredData, settings.voxelSize);
     }
 
+    public void ExecuteDensityComplementation()
+    {
+        if (dataManager.CurrentData == null || dataManager.SpatialSearch == null || dataManager.SpatialSearch.VoxelGrid == null)
+        {
+            UnityEngine.Debug.LogWarning("点群データまたはVoxelGridが初期化されていません。処理は実行不可能です。");
+            return;
+        }
+
+        var stopwatch = Stopwatch.StartNew();
+        UnityEngine.Debug.Log($"密度補完処理を開始します。(閾値: {settings.complementationDensityThreshold})");
+
+        var voxelGrid = dataManager.SpatialSearch.VoxelGrid;
+        float voxelSize = settings.voxelSize;
+        float offset = voxelSize / 4.0f;
+        Color pointColor = settings.complementationPointColor;
+
+        var additionalVertices = new List<Vector3>();
+        var additionalColors = new List<Color>();
+
+        foreach (var kvp in voxelGrid.Grid)
+        {
+            if (kvp.Value.Count >= settings.complementationDensityThreshold)
+            {
+                Vector3Int voxelIndex = kvp.Key;
+
+                float centerX = (voxelIndex.x * voxelSize) + (voxelSize / 2.0f);
+                float centerY = (voxelIndex.y * voxelSize) + (voxelSize / 2.0f);
+                float centerZ = (voxelIndex.z * voxelSize) + (voxelSize / 2.0f);
+
+                additionalVertices.Add(new Vector3(centerX, centerY + offset, centerZ + offset));
+                additionalVertices.Add(new Vector3(centerX, centerY + offset, centerZ - offset));
+                additionalVertices.Add(new Vector3(centerX, centerY - offset, centerZ + offset));
+                additionalVertices.Add(new Vector3(centerX, centerY - offset, centerZ - offset));
+
+                additionalColors.Add(pointColor);
+                additionalColors.Add(pointColor);
+                additionalColors.Add(pointColor);
+                additionalColors.Add(pointColor);
+            }
+        }
+
+        if (additionalVertices.Count == 0)
+        {
+            UnityEngine.Debug.LogWarning("閾値を超える有効なボクセルが見つかりませんでした。点は追加されません。");
+            return;
+        }
+
+        Vector3[] combinedVertices = dataManager.CurrentData.Vertices.Concat(additionalVertices).ToArray();
+        Color[] combinedColors = dataManager.CurrentData.Colors.Concat(additionalColors).ToArray();
+
+        PCV_Data combinedData = new PCV_Data(combinedVertices, combinedColors);
+
+        stopwatch.Stop();
+        UnityEngine.Debug.Log($"密度補完処理が完了しました。{additionalVertices.Count} 点が追加されました。処理時間: {stopwatch.ElapsedMilliseconds} ms.");
+
+        dataManager.SetData(combinedData, settings.voxelSize);
+    }
+
     private PCV_Data FilterByVoxelDensity(PCV_Data inputData, VoxelGrid voxelGrid, int densityThreshold)
     {
         var passedPointIndices = new HashSet<int>();

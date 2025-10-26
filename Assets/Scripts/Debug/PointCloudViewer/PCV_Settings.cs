@@ -15,7 +15,6 @@ public struct FileSettings
 
 public class PCV_Settings : MonoBehaviour
 {
-    [Header("Data Files")]
     public FileSettings[] fileSettings = new FileSettings[4]
     {
         new FileSettings { useFile = true,  filePath = "Assets/HandTrakingData/PointCloudData/currentGlobalVerticesRight.txt",  color = Color.red },
@@ -24,14 +23,11 @@ public class PCV_Settings : MonoBehaviour
         new FileSettings { useFile = false, filePath = "Assets/HandTrakingData/PointCloudData/currentGlobalVerticesTop.txt",    color = Color.yellow }
     };
 
-    [Header("Rendering Settings")]
     public float pointSize = 0.01f;
 
-    [Header("Outline Settings")]
     public GameObject outline;
     public Color outlineColor = Color.white;
 
-    [Header("Neighbor Search & Filtering")]
     [Tooltip("空間分割グリッドの各セルのサイズ")]
     public float voxelSize = 0.05f;
     [Tooltip("点の周囲で近傍点を探索する半径")]
@@ -43,11 +39,12 @@ public class PCV_Settings : MonoBehaviour
     [Tooltip("ノイズと判断するボクセル内の最小点数")]
     public int voxelDensityThreshold = 5;
 
-    [Header("Morpology Operation")]
     public int erosionIterations = 1;
     public int dilationIterations = 1;
 
-    [Header("GPU Acceleration")]
+    public int complementationDensityThreshold = 5;
+    public Color complementationPointColor = Color.purple;
+
     public ComputeShader pointCloudFilterShader;
     public ComputeShader morpologyOperationShader;
 

@@ -13,8 +13,18 @@ public class PointCloudViewerEditor : Editor
     private SerializedProperty voxelSizeProp, searchRadiusProp, neighborColorProp, neighborThresholdProp;
     private SerializedProperty voxelDensityThresholdProp;
     private SerializedProperty erosionIterationsProp, dilationIterationsProp;
+    private SerializedProperty complementationDensityThresholdProp;
+    private SerializedProperty complementationPointColorProp;
     private SerializedProperty pointCloudFilterShaderProp;
     private SerializedProperty morpologyOperationShaderProp;
+
+    private bool showDataFiles = true;
+    private bool showRenderingSettings = true;
+    private bool showNeighborSearch = true;
+    private bool showMorpologyOperation = true;
+    private bool showDensityComplementation = true;
+    private bool showGpuAcceleration = true;
+    private bool showOutlineSettings = true;
 
     void OnEnable()
     {
@@ -34,6 +44,8 @@ public class PointCloudViewerEditor : Editor
             voxelDensityThresholdProp = settingsObject.FindProperty("voxelDensityThreshold");
             erosionIterationsProp = settingsObject.FindProperty("erosionIterations");
             dilationIterationsProp = settingsObject.FindProperty("dilationIterations");
+            complementationDensityThresholdProp = settingsObject.FindProperty("complementationDensityThreshold");
+            complementationPointColorProp = settingsObject.FindProperty("complementationPointColor");
             pointCloudFilterShaderProp = settingsObject.FindProperty("pointCloudFilterShader");
             morpologyOperationShaderProp = settingsObject.FindProperty("morpologyOperationShader");
         }
@@ -48,11 +60,7 @@ public class PointCloudViewerEditor : Editor
         }
         settingsObject.Update();
 
-        EditorGUILayout.PropertyField(pointSizeProp);
-        EditorGUILayout.Space();
-
-        EditorGUILayout.PropertyField(fileSettingsProp, true);
-        EditorGUILayout.Space();
+        showDataFiles = EditorGUILayout.Foldout(showDataFiles, "Data Files", true, EditorStyles.foldoutHeader);
 
         EditorGUILayout.BeginHorizontal();
         GUI.backgroundColor = new Color(0.6f, 1f, 0.6f);
@@ -65,7 +73,24 @@ public class PointCloudViewerEditor : Editor
         if (GUILayout.Button("点群を再構築")) viewer.RebuildPointCloud();
         GUI.backgroundColor = Color.white;
 
+        if (showDataFiles)
+        {
+            EditorGUI.indentLevel++;
+            EditorGUILayout.PropertyField(fileSettingsProp, true);
+            EditorGUI.indentLevel--;
+        }
         EditorGUILayout.Space();
+
+        showRenderingSettings = EditorGUILayout.Foldout(showRenderingSettings, "Rendering Settings", true, EditorStyles.foldoutHeader);
+        if (showRenderingSettings)
+        {
+            EditorGUI.indentLevel++;
+            EditorGUILayout.PropertyField(pointSizeProp);
+            EditorGUI.indentLevel--;
+        }
+        EditorGUILayout.Space();
+
+        showNeighborSearch = EditorGUILayout.Foldout(showNeighborSearch, "Neighbor Search & Filtering", true, EditorStyles.foldoutHeader);
 
         GUI.backgroundColor = new Color(0.7f, 0.9f, 0.7f);
         if (GUILayout.Button("Voxelごとの点群数をCSV出力"))
@@ -74,20 +99,6 @@ public class PointCloudViewerEditor : Editor
         }
         GUI.backgroundColor = Color.white;
         EditorGUILayout.Space();
-
-        EditorGUILayout.PropertyField(voxelSizeProp);
-        EditorGUILayout.PropertyField(searchRadiusProp);
-        EditorGUILayout.PropertyField(neighborColorProp);
-        EditorGUILayout.PropertyField(neighborThresholdProp);
-        EditorGUILayout.PropertyField(voxelDensityThresholdProp);
-        EditorGUILayout.Space();
-
-        EditorGUILayout.PropertyField(erosionIterationsProp);
-        EditorGUILayout.PropertyField(dilationIterationsProp);
-        EditorGUILayout.Space();
-
-        EditorGUILayout.PropertyField(pointCloudFilterShaderProp);
-        EditorGUILayout.PropertyField(morpologyOperationShaderProp);
 
         EditorGUILayout.BeginHorizontal();
         GUI.backgroundColor = new Color(0.8f, 1f, 0.8f);
@@ -100,21 +111,76 @@ public class PointCloudViewerEditor : Editor
         {
             viewer.StartNoiseFiltering();
         }
+        GUI.backgroundColor = Color.white;
         EditorGUILayout.EndHorizontal();
 
-        EditorGUILayout.BeginHorizontal();
+        if (showNeighborSearch)
+        {
+            EditorGUI.indentLevel++;
+            EditorGUILayout.PropertyField(voxelSizeProp);
+            EditorGUILayout.PropertyField(searchRadiusProp);
+            EditorGUILayout.PropertyField(neighborColorProp);
+            EditorGUILayout.PropertyField(neighborThresholdProp);
+            EditorGUILayout.PropertyField(voxelDensityThresholdProp);
+            EditorGUI.indentLevel--;
+        }
+        EditorGUILayout.Space();
+
+        showMorpologyOperation = EditorGUILayout.Foldout(showMorpologyOperation, "Morpology Operation", true, EditorStyles.foldoutHeader);
+
         GUI.backgroundColor = new Color(1f, 0.8f, 0.6f);
         if (GUILayout.Button("モルフォロジー演算を実行 (Morpology)"))
         {
             viewer.StartMorpologyOperation();
         }
         GUI.backgroundColor = Color.white;
-        EditorGUILayout.EndHorizontal();
 
+        if (showMorpologyOperation)
+        {
+            EditorGUI.indentLevel++;
+            EditorGUILayout.PropertyField(erosionIterationsProp);
+            EditorGUILayout.PropertyField(dilationIterationsProp);
+            EditorGUI.indentLevel--;
+        }
         EditorGUILayout.Space();
 
-        EditorGUILayout.PropertyField(outlineProp);
-        EditorGUILayout.PropertyField(outlineColorProp);
+        showDensityComplementation = EditorGUILayout.Foldout(showDensityComplementation, "Density Complementation", true, EditorStyles.foldoutHeader);
+
+        GUI.backgroundColor = new Color(1f, 0.7f, 1f);
+        if (GUILayout.Button("密度補完を実行"))
+        {
+            viewer.StartDensityComplementation();
+        }
+        GUI.backgroundColor = Color.white;
+
+        if (showDensityComplementation)
+        {
+            EditorGUI.indentLevel++;
+            EditorGUILayout.PropertyField(complementationDensityThresholdProp);
+            EditorGUILayout.PropertyField(complementationPointColorProp);
+            EditorGUI.indentLevel--;
+        }
+        EditorGUILayout.Space();
+
+        showGpuAcceleration = EditorGUILayout.Foldout(showGpuAcceleration, "GPU Acceleration", true, EditorStyles.foldoutHeader);
+        if (showGpuAcceleration)
+        {
+            EditorGUI.indentLevel++;
+            EditorGUILayout.PropertyField(pointCloudFilterShaderProp);
+            EditorGUILayout.PropertyField(morpologyOperationShaderProp);
+            EditorGUI.indentLevel--;
+        }
+        EditorGUILayout.Space();
+
+        showOutlineSettings = EditorGUILayout.Foldout(showOutlineSettings, "Outline Settings", true, EditorStyles.foldoutHeader);
+        if (showOutlineSettings)
+        {
+            EditorGUI.indentLevel++;
+            EditorGUILayout.PropertyField(outlineProp);
+            EditorGUILayout.PropertyField(outlineColorProp);
+            EditorGUI.indentLevel--;
+        }
+        EditorGUILayout.Space();
 
         settingsObject.ApplyModifiedProperties();
     }

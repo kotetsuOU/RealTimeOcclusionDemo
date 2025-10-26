@@ -168,6 +168,12 @@ public class PointCloudViewer : MonoBehaviour
         operationHandler.ExecuteMorphologyOperation();
     }
 
+    public void StartDensityComplementation()
+    {
+        if (operationHandler == null) InitializeComponentsAndSubscribe();
+        operationHandler.ExecuteDensityComplementation();
+    }
+
     public void HandleInteraction()
     {
         if (dataManager == null) InitializeComponentsAndSubscribe();
