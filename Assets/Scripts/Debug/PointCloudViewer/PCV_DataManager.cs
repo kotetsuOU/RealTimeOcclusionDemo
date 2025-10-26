@@ -1,6 +1,9 @@
 using System;
 using UnityEngine;
 using System.Collections.Generic;
+#if UNITY_EDITOR
+using UnityEditor; // EditorApplication ‚Æ AssemblyReloadEvents ‚Ì‚½‚ß‚É’Ç‰Á
+#endif
 
 public class PCV_DataManager : MonoBehaviour
 {
@@ -48,11 +51,19 @@ public class PCV_DataManager : MonoBehaviour
     private void OnDestroy()
     {
         ReleaseAllBuffers();
+#if UNITY_EDITOR
+        AssemblyReloadEvents.beforeAssemblyReload -= OnBeforeAssemblyReload;
+        EditorApplication.playModeStateChanged -= OnPlayModeStateChanged;
+#endif
     }
 
     private void OnDisable()
     {
         ReleaseAllBuffers();
+#if UNITY_EDITOR
+        AssemblyReloadEvents.beforeAssemblyReload -= OnBeforeAssemblyReload;
+        EditorApplication.playModeStateChanged -= OnPlayModeStateChanged;
+#endif
     }
 
     private void ReleaseAllBuffers()
@@ -63,4 +74,25 @@ public class PCV_DataManager : MonoBehaviour
             SpatialSearch = null;
         }
     }
+
+#if UNITY_EDITOR
+    private void OnEnable()
+    {
+        AssemblyReloadEvents.beforeAssemblyReload += OnBeforeAssemblyReload;
+        EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
+    }
+
+    private void OnBeforeAssemblyReload()
+    {
+        ReleaseAllBuffers();
+    }
+
+    private void OnPlayModeStateChanged(PlayModeStateChange state)
+    {
+        if (state == PlayModeStateChange.ExitingPlayMode || state == PlayModeStateChange.EnteredEditMode)
+        {
+            ReleaseAllBuffers();
+        }
+    }
+#endif
 }

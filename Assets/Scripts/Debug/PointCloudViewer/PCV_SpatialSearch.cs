@@ -6,6 +6,7 @@ public class PCV_SpatialSearch : IDisposable
 {
     private readonly PCV_Data data;
     public VoxelGrid VoxelGrid { get; private set; }
+    private bool disposedValue;
 
     public PCV_SpatialSearch(PCV_Data pointCloudData, float voxelSize)
     {
@@ -46,17 +47,26 @@ public class PCV_SpatialSearch : IDisposable
         return VoxelGrid.FindNeighbors(pointIndex, searchRadius);
     }
 
-    public void Dispose()
+    protected virtual void Dispose(bool disposing)
     {
-        if (VoxelGrid != null)
+        if (!disposedValue)
         {
-            VoxelGrid.ReleaseBuffers();
-            VoxelGrid = null;
+            if (disposing)
+            {
+            }
+
+            if (VoxelGrid != null)
+            {
+                VoxelGrid.ReleaseBuffers();
+                VoxelGrid = null;
+            }
+            disposedValue = true;
         }
     }
 
-    ~PCV_SpatialSearch()
+    public void Dispose()
     {
-        Dispose();
+        Dispose(disposing: true);
+        GC.SuppressFinalize(this);
     }
 }
