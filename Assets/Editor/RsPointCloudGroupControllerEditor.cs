@@ -4,7 +4,6 @@ using System.Linq;
 using System.Reflection;
 using UnityEditor;
 using UnityEngine;
-using static System.Net.Mime.MediaTypeNames;
 
 [CustomEditor(typeof(RsPointCloudGroupController))]
 public class RsPointCloudGroupControllerEditor : Editor
@@ -17,6 +16,7 @@ public class RsPointCloudGroupControllerEditor : Editor
         EditorGUILayout.Space();
         EditorGUILayout.LabelField("Batch Control for RsPointCloudRenderer Children", EditorStyles.boldLabel);
 
+        GUI.backgroundColor = Color.cyan;
         if (GUILayout.Button("Export All Current Vertices"))
         {
             ApplyToAllRenderers(renderer =>
@@ -31,10 +31,14 @@ public class RsPointCloudGroupControllerEditor : Editor
             isVerticesSaved = true;
         }
 
+        GUI.backgroundColor = Color.white;
+
         if (isVerticesSaved && GUILayout.Button("Reset Save Status"))
         {
             isVerticesSaved = false;
         }
+
+        GUI.backgroundColor = Color.yellow;
 
         if (GUILayout.Button("Toggle Range Filter on All"))
         {
@@ -45,6 +49,8 @@ public class RsPointCloudGroupControllerEditor : Editor
             SceneView.RepaintAll();
             UnityEngine.Debug.Log("Toggle Range Filter on All");
         }
+
+        GUI.backgroundColor = Color.white;
 
         EditorGUILayout.Space(20);
 
@@ -92,6 +98,53 @@ public class RsPointCloudGroupControllerEditor : Editor
         EditorGUI.EndDisabledGroup();
     }
 
+    private void OnSceneGUI()
+    {
+        if (UnityEngine.Application.isPlaying)
+        {
+            return;
+        }
+
+        RsDeviceController deviceController = FindObjectOfType<RsDeviceController>();
+        if (deviceController == null)
+        {
+            Handles.BeginGUI();
+            GUILayout.Window(0, new Rect(10, 10, 320, 50), (id) =>
+            {
+                EditorGUILayout.HelpBox("RsDeviceController がシーンに見つかりません。スキャン範囲を描画できません。", MessageType.Warning);
+            }, "スキャン範囲 警告");
+            Handles.EndGUI();
+            return;
+        }
+
+        RsPointCloudGroupController groupController = (RsPointCloudGroupController)target;
+        Transform groupTransform = groupController.transform;
+
+        Vector3 scanRange = deviceController.RealSenseScanRange;
+        float frameWidth = deviceController.FrameWidth;
+
+        Vector3 minPoint = new Vector3(frameWidth, frameWidth, frameWidth);
+        Vector3 maxPoint = new Vector3(
+            scanRange.x - frameWidth,
+            scanRange.y - frameWidth,
+            scanRange.z - frameWidth
+        );
+
+        Vector3 size = maxPoint - minPoint;
+        Vector3 center = minPoint + (size * 0.5f);
+
+        if (size.x < 0 || size.y < 0 || size.z < 0)
+        {
+            return;
+        }
+
+        Handles.matrix = groupTransform.localToWorldMatrix;
+
+        Handles.color = Color.yellow;
+
+        Handles.DrawWireCube(center, size);
+    }
+
     private void ApplyToAllRenderers(System.Action<RsPointCloudRenderer> action)
     {
         RsPointCloudGroupController group = (RsPointCloudGroupController)target;
@@ -128,7 +181,13 @@ public class RsPointCloudGroupControllerEditor : Editor
 
     private void SaveVerticesToFile(Vector3[] vertices, string fileName)
     {
-        string path = $"Assets/HandTrakingData/PointCloudData/{fileName}";
+        string directoryPath = "Assets/HandTrakingData/PointCloudData";
+        if (!System.IO.Directory.Exists(directoryPath))
+        {
+            System.IO.Directory.CreateDirectory(directoryPath);
+        }
+
+        string path = $"{directoryPath}/{fileName}";
 
         using (System.IO.StreamWriter writer = new System.IO.StreamWriter(path))
         {
