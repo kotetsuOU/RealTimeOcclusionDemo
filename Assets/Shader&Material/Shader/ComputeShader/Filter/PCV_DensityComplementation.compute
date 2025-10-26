@@ -1,0 +1,92 @@
+#pragma kernel CSDensityComplementation
+
+struct Point
+{
+    float4 position;
+    float4 color;
+};
+
+struct VoxelData
+{
+    int3 index;
+    int pointCount;
+    int dataOffset;
+    int padding;
+};
+
+int _DensityThreshold;
+float _VoxelSize;
+uint _PointsPerAxis;
+int _UseRandomPlacement;
+float4 _ComplementationColor;
+float _RandomSeed;
+
+StructuredBuffer<VoxelData> _VoxelData;
+AppendStructuredBuffer<Point> _ComplementedPointsOut;
+
+float rand(float2 co, float seed)
+{
+    return frac(sin(dot(co, float2(12.9898, 78.233)) + seed) * 43758.5453);
+}
+
+[numthreads(64, 1, 1)]
+void CSDensityComplementation(uint3 dispatch_id : SV_DispatchThreadID)
+{
+    uint voxel_idx = dispatch_id.x;
+    
+    uint voxelCount, stride;
+    _VoxelData.GetDimensions(voxelCount, stride);
+    if (voxel_idx >= voxelCount)
+    {
+        return;
+    }
+    
+    VoxelData vd = _VoxelData[voxel_idx];
+    
+    if (vd.pointCount >= _DensityThreshold)
+    {
+        float centerX = (vd.index.x * _VoxelSize) + (_VoxelSize / 2.0);
+        
+        float voxelMinY = vd.index.y * _VoxelSize;
+        float voxelMinZ = vd.index.z * _VoxelSize;
+        
+        uint totalPoints = (_PointsPerAxis == 1) ? 1u : (_PointsPerAxis * _PointsPerAxis);
+        
+        for (uint i = 0; i < totalPoints; i++)
+        {
+            Point newPoint;
+            newPoint.color = _ComplementationColor;
+            newPoint.position.x = centerX;
+            newPoint.position.w = 0.0;
+            
+            if (_UseRandomPlacement > 0)
+            {
+                float r1 = rand(float2(voxel_idx, i * 2.0), _RandomSeed);
+                float r2 = rand(float2(voxel_idx, i * 2.0 + 1.0), _RandomSeed);
+                
+                newPoint.position.y = voxelMinY + r1 * _VoxelSize;
+                newPoint.position.z = voxelMinZ + r2 * _VoxelSize;
+            }
+            else
+            {
+                if (_PointsPerAxis == 1u)
+                {
+                    newPoint.position.y = voxelMinY + (_VoxelSize / 2.0);
+                    newPoint.position.z = voxelMinZ + (_VoxelSize / 2.0);
+                }
+                else
+                {
+                    uint y_idx = i / _PointsPerAxis;
+                    uint z_idx = i % _PointsPerAxis;
+                    
+                    float step = _VoxelSize / (float) _PointsPerAxis;
+                    float initialOffset = step / 2.0;
+                    newPoint.position.y = voxelMinY + initialOffset + (step * y_idx);
+                    newPoint.position.z = voxelMinZ + initialOffset + (step * z_idx);
+                }
+            }
+            
+            _ComplementedPointsOut.Append(newPoint);
+        }
+    }
+}

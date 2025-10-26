@@ -39,14 +39,28 @@ public class PCV_Settings : MonoBehaviour
     [Tooltip("ノイズと判断するボクセル内の最小点数")]
     public int voxelDensityThreshold = 5;
 
+    [Tooltip("侵食処理の反復回数")]
     public int erosionIterations = 1;
+    [Tooltip("膨張処理の反復回数")]
     public int dilationIterations = 1;
 
+    [Tooltip("補完を行うボクセル内の最小点数")]
     public int complementationDensityThreshold = 5;
+    [Tooltip("補完時にボクセルごとに追加する点の1辺の数 (例: 2 = 4点, 3 = 9点)")]
+    public uint complementationPointsPerAxis = 2;
+    [Tooltip("補完時に追加する点の色")]
     public Color complementationPointColor = Color.purple;
+    [Tooltip("有効なボクセル内に点をランダムに配置します。")]
+    public bool complementationRandomPlacement = false;
 
+    [Tooltip("点群フィルタリングに使用するCompute Shader")]
     public ComputeShader pointCloudFilterShader;
+    [Tooltip("形態学的操作に使用するCompute Shader")]
     public ComputeShader morpologyOperationShader;
+    [Tooltip("ボクセル密度フィルタリングに使用するCompute Shader")]
+    public ComputeShader densityFilterShader;
+    [Tooltip("密度補完に使用するCompute Shader")]
+    public ComputeShader densityComplementationShader;
 
     private FileSettings[] lastFileSettings;
     private float lastPointSize;
@@ -60,6 +74,8 @@ public class PCV_Settings : MonoBehaviour
     private int lastErosionIterations;
     private int lastDilationIterations;
     private ComputeShader lastMorpologyOperationShader;
+    private ComputeShader lastDensityFilterShader;
+    private ComputeShader lastDensityComplementationShader;
 
 
     private void Awake()
@@ -85,6 +101,8 @@ public class PCV_Settings : MonoBehaviour
         lastErosionIterations = erosionIterations;
         lastDilationIterations = dilationIterations;
         lastMorpologyOperationShader = morpologyOperationShader;
+        lastDensityFilterShader = densityFilterShader;
+        lastDensityComplementationShader = densityComplementationShader;
     }
 
     public bool HasFileSettingsChanged()
@@ -113,6 +131,12 @@ public class PCV_Settings : MonoBehaviour
 
     public bool HasProcessingSettingsChanged()
     {
-        return voxelSize != lastVoxelSize || searchRadius != lastSearchRadius || neighborColor != lastNeighborColor || neighborThreshold != lastNeighborThreshold || voxelDensityThreshold != lastVoxelDensityThreshold || HasMorpologySettingsChanged();
+        bool densityShadersChanged = (densityFilterShader != lastDensityFilterShader) ||
+                                     (densityComplementationShader != lastDensityComplementationShader);
+
+        return voxelSize != lastVoxelSize || searchRadius != lastSearchRadius ||
+               neighborColor != lastNeighborColor || neighborThreshold != lastNeighborThreshold ||
+               voxelDensityThreshold != lastVoxelDensityThreshold ||
+               HasMorpologySettingsChanged() || densityShadersChanged;
     }
 }

@@ -14,9 +14,13 @@ public class PointCloudViewerEditor : Editor
     private SerializedProperty voxelDensityThresholdProp;
     private SerializedProperty erosionIterationsProp, dilationIterationsProp;
     private SerializedProperty complementationDensityThresholdProp;
+    private SerializedProperty complementationPointsPerAxisProp;
     private SerializedProperty complementationPointColorProp;
+    private SerializedProperty complementationRandomPlacementProp;
     private SerializedProperty pointCloudFilterShaderProp;
     private SerializedProperty morpologyOperationShaderProp;
+    private SerializedProperty densityFilterShaderProp;
+    private SerializedProperty densityComplementationShaderProp;
 
     private bool showDataFiles = true;
     private bool showRenderingSettings = true;
@@ -45,9 +49,13 @@ public class PointCloudViewerEditor : Editor
             erosionIterationsProp = settingsObject.FindProperty("erosionIterations");
             dilationIterationsProp = settingsObject.FindProperty("dilationIterations");
             complementationDensityThresholdProp = settingsObject.FindProperty("complementationDensityThreshold");
+            complementationPointsPerAxisProp = settingsObject.FindProperty("complementationPointsPerAxis");
             complementationPointColorProp = settingsObject.FindProperty("complementationPointColor");
+            complementationRandomPlacementProp = settingsObject.FindProperty("complementationRandomPlacement");
             pointCloudFilterShaderProp = settingsObject.FindProperty("pointCloudFilterShader");
             morpologyOperationShaderProp = settingsObject.FindProperty("morpologyOperationShader");
+            densityFilterShaderProp = settingsObject.FindProperty("densityFilterShader");
+            densityComplementationShaderProp = settingsObject.FindProperty("densityComplementationShader");
         }
     }
 
@@ -157,7 +165,9 @@ public class PointCloudViewerEditor : Editor
         {
             EditorGUI.indentLevel++;
             EditorGUILayout.PropertyField(complementationDensityThresholdProp);
+            EditorGUILayout.PropertyField(complementationPointsPerAxisProp);
             EditorGUILayout.PropertyField(complementationPointColorProp);
+            EditorGUILayout.PropertyField(complementationRandomPlacementProp);
             EditorGUI.indentLevel--;
         }
         EditorGUILayout.Space();
@@ -168,6 +178,8 @@ public class PointCloudViewerEditor : Editor
             EditorGUI.indentLevel++;
             EditorGUILayout.PropertyField(pointCloudFilterShaderProp);
             EditorGUILayout.PropertyField(morpologyOperationShaderProp);
+            EditorGUILayout.PropertyField(densityFilterShaderProp);
+            EditorGUILayout.PropertyField(densityComplementationShaderProp);
             EditorGUI.indentLevel--;
         }
         EditorGUILayout.Space();

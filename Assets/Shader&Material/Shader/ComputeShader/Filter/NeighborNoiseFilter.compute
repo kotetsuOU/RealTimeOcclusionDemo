@@ -2,7 +2,7 @@
 
 struct Point
 {
-    float3 position;
+    float4 position;
     float4 color;
 };
 
@@ -32,7 +32,8 @@ void CSMain(uint3 id : SV_DispatchThreadID)
             continue;
         }
         
-        float3 diff = currentPoint.position - _Points[i].position;
+        float3 diff = currentPoint.position.xyz - _Points[i].position.xyz;
+        
         float distSq = dot(diff, diff);
 
         if (distSq <= searchRadiusSq)

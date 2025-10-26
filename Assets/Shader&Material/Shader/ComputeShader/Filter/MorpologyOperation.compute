@@ -2,14 +2,12 @@
 
 struct Point
 {
-    float3 position;
+    float4 position;
     float4 color;
 };
 
 StructuredBuffer<Point> _PointsIn;
-
 RWStructuredBuffer<Point> _PointsOut;
-
 RWStructuredBuffer<uint> _PointCountOut;
 
 uint _PointCountIn;
@@ -38,7 +36,8 @@ void CSMorpology(uint3 id : SV_DispatchThreadID)
             continue;
         }
         
-        float3 diff = currentPoint.position - _PointsIn[i].position;
+        float3 diff = currentPoint.position.xyz - _PointsIn[i].position.xyz;
+
         float distSq = dot(diff, diff);
 
         if (distSq <= searchRadiusSq)
@@ -48,15 +47,14 @@ void CSMorpology(uint3 id : SV_DispatchThreadID)
     }
 
     bool shouldKeep = false;
-    
-    if (_CurrentIterationMode == 0)
+    if (_CurrentIterationMode == 0) // Erosion
     {
         if (neighborCount >= EROSION_THRESHOLD)
         {
             shouldKeep = true;
         }
     }
-    else if (_CurrentIterationMode == 1)
+    else if (_CurrentIterationMode == 1) // Dilation
     {
         if (neighborCount >= DILATION_THRESHOLD)
         {
