@@ -45,7 +45,7 @@ public class RsPointCloudRendererEditor : Editor
 
         EditorGUILayout.Space();
 
-        GUI.backgroundColor = new Color(0.8f, 0.8f, 0.6f);
+        GUI.backgroundColor = Color.cyan;
         if (GUILayout.Button("Export Current Frame Vertices"))
         {
             Vector3[] vertices = renderer.GetFilteredVertices();
