@@ -120,6 +120,9 @@ public class PointCloudCompute : IDisposable
         transformShader.SetMatrix("localToWorld", localToWorld);
         transformShader.SetInt("vertexCount", rsLength);
 
+        transformShader.SetVector("globalThreshold1", globalThreshold1);
+        transformShader.SetVector("globalThreshold2", globalThreshold2);
+
         int threadGroups = Mathf.CeilToInt(rsLength / 256.0f);
         transformShader.Dispatch(kernel, threadGroups, 1, 1);
 
