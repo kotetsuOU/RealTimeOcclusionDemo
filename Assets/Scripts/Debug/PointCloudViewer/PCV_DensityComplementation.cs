@@ -23,7 +23,7 @@ public static class PCV_DensityComplementation
         PCV_Data combinedData;
         var stopwatch = Stopwatch.StartNew();
 
-        if (settings.densityComplementationShader != null)
+        if (settings.useGpuDensityComplementation && settings.densityComplementationShader != null)
         {
             UnityEngine.Debug.Log($"GPUによる密度補完処理を開始します。");
 
@@ -48,7 +48,14 @@ public static class PCV_DensityComplementation
         }
         else
         {
-            UnityEngine.Debug.LogWarning("密度補完Compute Shaderが設定されていません。CPUで処理を実行します。");
+            if (!settings.useGpuDensityComplementation)
+            {
+                UnityEngine.Debug.Log("CPU実行が選択されています。CPUで密度補完を実行します。");
+            }
+            else if (settings.densityComplementationShader == null)
+            {
+                UnityEngine.Debug.LogWarning("GPU実行が選択されていますが、密度補完Compute Shaderが設定されていません。CPUで処理を実行します。");
+            }
             combinedData = ApplyCPU(dataManager.CurrentData, dataManager.SpatialSearch.VoxelGrid, settings, stopwatch);
             if (combinedData == null) return;
         }

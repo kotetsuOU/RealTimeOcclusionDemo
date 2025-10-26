@@ -14,13 +14,20 @@ public static class PCV_NoiseFilter
             return;
         }
 
-        if (settings.pointCloudFilterShader != null)
+        if (settings.useGpuNoiseFilter && settings.pointCloudFilterShader != null)
         {
             ExecuteGPU(dataManager, settings);
         }
         else
         {
-            UnityEngine.Debug.LogWarning("近傍探索ノイズフィルターCompute Shaderが設定されていません。CPUで処理を実行します。");
+            if (!settings.useGpuNoiseFilter)
+            {
+                UnityEngine.Debug.Log("CPU実行が選択されています。CPUでノイズ除去を実行します。");
+            }
+            else if (settings.pointCloudFilterShader == null)
+            {
+                UnityEngine.Debug.LogWarning("GPU実行が選択されていますが、近傍探索ノイズフィルターCompute Shaderが設定されていません。CPUで処理を実行します。");
+            }
             if (UnityEngine.Application.isPlaying)
             {
                 coroutineRunner.StartCoroutine(ExecuteCPUCoroutine(dataManager, settings));

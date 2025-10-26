@@ -24,7 +24,7 @@ public static class PCV_DensityFilter
         var stopwatch = Stopwatch.StartNew();
         int originalCount = dataManager.CurrentData.PointCount;
 
-        if (settings.densityFilterShader != null && dataManager.SpatialSearch.VoxelGrid != null)
+        if (settings.useGpuDensityFilter && settings.densityFilterShader != null)
         {
             UnityEngine.Debug.Log($"GPUによるボクセル密度フィルタリングを開始します。(閾値: {settings.voxelDensityThreshold})");
             filteredData = ApplyGPU(
@@ -38,6 +38,14 @@ public static class PCV_DensityFilter
         }
         else
         {
+            if (!settings.useGpuDensityFilter)
+            {
+                UnityEngine.Debug.Log("CPU実行が選択されています。CPUでボクセル密度フィルタリングを実行します。");
+            }
+            else if (settings.densityFilterShader == null)
+            {
+                UnityEngine.Debug.LogWarning("GPU実行が選択されていますが、密度フィルタリングCompute Shaderが設定されていません。CPUで処理を実行します。");
+            }
             UnityEngine.Debug.LogWarning("密度フィルタリングCompute Shaderが設定されていないか、VoxelGridがありません。CPUで処理を実行します。");
             filteredData = ApplyCPU(dataManager.CurrentData, dataManager.SpatialSearch.VoxelGrid, settings.voxelDensityThreshold);
             stopwatch.Stop();

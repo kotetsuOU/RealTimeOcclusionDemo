@@ -17,10 +17,15 @@ public class PointCloudViewerEditor : Editor
     private SerializedProperty complementationPointsPerAxisProp;
     private SerializedProperty complementationPointColorProp;
     private SerializedProperty complementationRandomPlacementProp;
+
     private SerializedProperty pointCloudFilterShaderProp;
     private SerializedProperty morpologyOperationShaderProp;
     private SerializedProperty densityFilterShaderProp;
     private SerializedProperty densityComplementationShaderProp;
+
+    private SerializedProperty useGpuNoiseFilterProp;
+    private SerializedProperty useGpuDensityFilterProp;
+    private SerializedProperty useGpuDensityComplementationProp;
 
     private bool showDataFiles = true;
     private bool showRenderingSettings = true;
@@ -52,10 +57,15 @@ public class PointCloudViewerEditor : Editor
             complementationPointsPerAxisProp = settingsObject.FindProperty("complementationPointsPerAxis");
             complementationPointColorProp = settingsObject.FindProperty("complementationPointColor");
             complementationRandomPlacementProp = settingsObject.FindProperty("complementationRandomPlacement");
+
             pointCloudFilterShaderProp = settingsObject.FindProperty("pointCloudFilterShader");
             morpologyOperationShaderProp = settingsObject.FindProperty("morpologyOperationShader");
             densityFilterShaderProp = settingsObject.FindProperty("densityFilterShader");
             densityComplementationShaderProp = settingsObject.FindProperty("densityComplementationShader");
+
+            useGpuNoiseFilterProp = settingsObject.FindProperty("useGpuNoiseFilter");
+            useGpuDensityFilterProp = settingsObject.FindProperty("useGpuDensityFilter");
+            useGpuDensityComplementationProp = settingsObject.FindProperty("useGpuDensityComplementation");
         }
     }
 
@@ -173,9 +183,25 @@ public class PointCloudViewerEditor : Editor
         EditorGUILayout.Space();
 
         showGpuAcceleration = EditorGUILayout.Foldout(showGpuAcceleration, "GPU Acceleration", true, EditorStyles.foldoutHeader);
+
+        EditorGUILayout.BeginHorizontal();
+        GUI.backgroundColor = new Color(0.6f, 1f, 0.6f);
+        if (GUILayout.Button("すべて GPU ON")) SetAllGpuUsage(true);
+        GUI.backgroundColor = new Color(1f, 0.6f, 0.6f);
+        if (GUILayout.Button("すべて GPU OFF (CPU)")) SetAllGpuUsage(false);
+        EditorGUILayout.EndHorizontal();
+        GUI.backgroundColor = Color.white;
+
         if (showGpuAcceleration)
         {
             EditorGUI.indentLevel++;
+            EditorGUILayout.PropertyField(useGpuNoiseFilterProp, new GUIContent("近傍探索ノイズ除去 (GPU)"));
+            EditorGUILayout.PropertyField(useGpuDensityFilterProp, new GUIContent("ボクセル密度フィルタ (GPU)"));
+            EditorGUILayout.PropertyField(useGpuDensityComplementationProp, new GUIContent("密度補完 (GPU)"));
+
+            EditorGUILayout.Space();
+            EditorGUILayout.LabelField("Compute Shader Assets", EditorStyles.boldLabel);
+
             EditorGUILayout.PropertyField(pointCloudFilterShaderProp);
             EditorGUILayout.PropertyField(morpologyOperationShaderProp);
             EditorGUILayout.PropertyField(densityFilterShaderProp);
@@ -205,5 +231,12 @@ public class PointCloudViewerEditor : Editor
             SerializedProperty useFile = element.FindPropertyRelative("useFile");
             useFile.boolValue = value;
         }
+    }
+
+    private void SetAllGpuUsage(bool value)
+    {
+        useGpuNoiseFilterProp.boolValue = value;
+        useGpuDensityFilterProp.boolValue = value;
+        useGpuDensityComplementationProp.boolValue = value;
     }
 }
