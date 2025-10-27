@@ -52,6 +52,9 @@ public class PCV_Settings : MonoBehaviour
     [Tooltip("有効なボクセル内に点をランダムに配置します。")]
     public bool complementationRandomPlacement = false;
 
+    [Tooltip("各処理をコルーチンで実行し、フレームレートの低下を防ぐ")]
+    public bool useCoroutine = false;
+
     [Header("GPU Acceleration")]
     [Tooltip("点群フィルタリングに使用するCompute Shader")]
     public ComputeShader pointCloudFilterShader;

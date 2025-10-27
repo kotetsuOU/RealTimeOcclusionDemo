@@ -5,8 +5,7 @@
 
 struct Point
 {
-    float3 position;
-    float padding1;
+    float4 position;
     float4 color;
 };
 
@@ -192,8 +191,8 @@ void CSDilation(uint3 id : SV_DispatchThreadID)
                 {
                     Point newPoint;
                     newPoint.color = baseColor;
-                    newPoint.padding1 = 0.0;
                     newPoint.position.x = centerX;
+                    newPoint.position.w = 0.0;
                     
                     if (_UseRandomPlacement > 0)
                     {

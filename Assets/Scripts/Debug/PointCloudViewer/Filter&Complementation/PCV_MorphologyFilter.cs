@@ -1,30 +1,15 @@
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Collections.Generic;
-using System.Diagnostics;
 using UnityEngine;
-// using System.Linq; // 不要
 
 public static class PCV_MorphologyFilter
 {
-    // ★ 修正: PCV_Point の定義
-    // (VoxelGridBuilder.compute の struct Point (float4+float4) と
-    // MorpologyOperation.compute の struct Point (float3+pad+float4)
-    // が一致しないという問題があるが、ここでは MorphologyFilter.cs の
-    // 元の実装 (float3+pad+float4) に合わせる)
-
     [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
     public struct PCV_Point
     {
-        public Vector3 position;
-        public float padding1; // 32 bytes (sizeof(float) * 8)
+        public Vector4 position;
         public Color color;
     }
-
-    // ★ 修正: VoxelGridBuilder の Compute Shader をインスペクターから設定
-    // public ComputeShader morpologyOperationShader;
-    // public ComputeShader voxelGridBuilderShader; // (PCV_Settings に追加が必要)
-
 
     public static void Execute(PCV_DataManager dataManager, PCV_Settings settings)
     {
@@ -39,7 +24,6 @@ public static class PCV_MorphologyFilter
             return;
         }
 
-        // ★ 修正: 動的環境では VoxelGridBuilder Shader も必須
         if (settings.voxelGridBuilderShader == null)
         {
             UnityEngine.Debug.LogWarning("VoxelGridBuilder Compute Shaderが設定されていません。");
@@ -52,7 +36,7 @@ public static class PCV_MorphologyFilter
 
         PCV_Data filteredData = ApplyGPU(dataManager.CurrentData,
             settings.morpologyOperationShader,
-            settings.voxelGridBuilderShader, // ★ ビルダーシェーダーを渡す
+            settings.voxelGridBuilderShader,
             settings.voxelSize,
             settings.erosionIterations, settings.dilationIterations, settings.complementationPointsPerAxis,
             settings.complementationRandomPlacement);
@@ -63,7 +47,7 @@ public static class PCV_MorphologyFilter
     }
 
     public static PCV_Data ApplyGPU(PCV_Data data, ComputeShader computeShader,
-        ComputeShader gridBuilderShader, // ★ ビルダーシェーダーを受け取る
+        ComputeShader gridBuilderShader,
         float voxelSize,
         int erosionIterations, int dilationIterations, uint pointsPerAxis, bool randomPlacement)
     {
@@ -72,18 +56,17 @@ public static class PCV_MorphologyFilter
             return new PCV_Data(new List<Vector3>(), new List<Color>());
         }
 
-        int pointStructSize = sizeof(float) * 8; // PCV_Point (32 bytes)
+        int pointStructSize = sizeof(float) * 8;
         int totalIterations = erosionIterations + dilationIterations;
 
-        // ★ 修正: バッファサイズは点群の変動を許容する
         int maxBufferSize = data.PointCount * 10;
         ComputeBuffer bufferA = new ComputeBuffer(maxBufferSize, pointStructSize);
         ComputeBuffer bufferB = new ComputeBuffer(maxBufferSize, pointStructSize);
         ComputeBuffer countBuffer = new ComputeBuffer(1, sizeof(uint));
         ComputeBuffer newPointsBuffer = new ComputeBuffer(maxBufferSize, pointStructSize);
 
-        // ★ 修正: GPU VoxelGrid マネージャーを作成
-        PCV_GpuVoxelGrid gpuVoxelGrid = new PCV_GpuVoxelGrid(gridBuilderShader, maxBufferSize, voxelSize);
+        PCV_GpuVoxelGrid gpuVoxelGrid = new PCV_GpuVoxelGrid(gridBuilderShader, voxelSize);
+        gpuVoxelGrid.AllocateBuffers(maxBufferSize);
 
         int erosionKernel = computeShader.FindKernel("CSErosion");
         int dilationKernel = computeShader.FindKernel("CSDilation");
@@ -93,15 +76,16 @@ public static class PCV_MorphologyFilter
         int currentBufferIndex = 0;
         int currentPointCount = data.PointCount;
 
-        PCV_Point[] currentPointData = new PCV_Point[maxBufferSize];
+        PCV_Point[] initialPointData = new PCV_Point[currentPointCount];
 
         try
         {
             for (int i = 0; i < data.PointCount; i++)
             {
-                currentPointData[i] = new PCV_Point { position = data.Vertices[i], padding1 = 0f, color = data.Colors[i] };
+                initialPointData[i] = new PCV_Point { position = data.Vertices[i], color = data.Colors[i] };
             }
-            bufferA.SetData(currentPointData, 0, 0, data.PointCount);
+            bufferA.SetData(initialPointData, 0, 0, data.PointCount);
+            initialPointData = null;
 
             for (int iter = 0; iter < totalIterations; iter++)
             {
@@ -116,22 +100,12 @@ public static class PCV_MorphologyFilter
                 ComputeBuffer pointsIn = (currentBufferIndex == 0) ? bufferA : bufferB;
                 ComputeBuffer pointsOut = (currentBufferIndex == 0) ? bufferB : bufferA;
 
-                // ▼▼▼ 最大のボトルネックだったCPU処理をGPU処理に置換 ▼▼▼
-                // pointsIn.GetData(...);
-                // BuildVoxelGridWithHash(...);
-                // voxelDataBuffer?.Release(); ...
-                // voxelDataBuffer.SetData(...);
-
-                // ★ 修正: GPU側で VoxelGrid を構築
                 gpuVoxelGrid.Build(pointsIn, currentPointCount);
-
-                // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
                 if (isErosion)
                 {
                     countBuffer.SetData(new uint[] { 0 });
 
-                    // ★ 修正: gpuVoxelGrid からバッファをセット
                     computeShader.SetBuffer(erosionKernel, "_VoxelData", gpuVoxelGrid.VoxelDataBuffer);
                     computeShader.SetBuffer(erosionKernel, "_VoxelPointIndices", gpuVoxelGrid.VoxelPointIndicesBuffer);
                     computeShader.SetBuffer(erosionKernel, "_VoxelHashTable", gpuVoxelGrid.VoxelHashTableBuffer);
@@ -161,7 +135,6 @@ public static class PCV_MorphologyFilter
                 {
                     countBuffer.SetData(new uint[] { 0 });
 
-                    // ★ 修正: gpuVoxelGrid からバッファをセット
                     computeShader.SetBuffer(dilationKernel, "_VoxelData", gpuVoxelGrid.VoxelDataBuffer);
                     computeShader.SetBuffer(dilationKernel, "_VoxelPointIndices", gpuVoxelGrid.VoxelPointIndicesBuffer);
                     computeShader.SetBuffer(dilationKernel, "_VoxelHashTable", gpuVoxelGrid.VoxelHashTableBuffer);
@@ -202,7 +175,6 @@ public static class PCV_MorphologyFilter
 
                     int newTotalPointCount = currentPointCount + newPointCount;
 
-                    // バッファリサイズ処理
                     if (newTotalPointCount > maxBufferSize)
                     {
                         UnityEngine.Debug.LogWarning($"バッファサイズを超えました。{maxBufferSize} -> {newTotalPointCount * 2}");
@@ -218,7 +190,6 @@ public static class PCV_MorphologyFilter
                         bufferB = new ComputeBuffer(maxBufferSize, pointStructSize);
                         newPointsBuffer = new ComputeBuffer(maxBufferSize, pointStructSize);
 
-                        // ★ 修正: GpuVoxelGrid もリサイズ
                         gpuVoxelGrid.AllocateBuffers(maxBufferSize);
 
                         ComputeBuffer nextPointsIn = (currentBufferIndex == 0) ? bufferB : bufferA;
@@ -253,7 +224,7 @@ public static class PCV_MorphologyFilter
                 finalBuffer.GetData(filteredPointData, 0, 0, currentPointCount);
                 for (int i = 0; i < currentPointCount; i++)
                 {
-                    filteredVertices.Add(filteredPointData[i].position);
+                    filteredVertices.Add((Vector3)filteredPointData[i].position);
                     filteredColors.Add(filteredPointData[i].color);
                 }
             }
@@ -267,25 +238,9 @@ public static class PCV_MorphologyFilter
             countBuffer.Release();
             newPointsBuffer.Release();
 
-            // ★ 修正: GpuVoxelGrid を解放
             gpuVoxelGrid.Dispose();
-
-            // ★ 削除: CPU側で確保していたバッファは不要
-            // voxelDataBuffer?.Release();
-            // voxelPointIndicesBuffer?.Release();
-            // voxelHashTableBuffer?.Release();
-            // voxelHashChainsBuffer?.Release();
         }
     }
-
-    // ★ 削除: CPU側 VoxelGrid 構築ロジックは GpuVoxelGrid に移行
-    // private static void BuildVoxelGridWithHash(...)
-    // private static uint HashVoxelIndex(...)
-    // private static Vector3Int GetVoxelIndex(...)
-    // private static int GetNextPrime(...)
-    // private static bool IsPrime(...)
-    // private struct VoxelData { ... }
-
 
     private static void LogFilteringResult(string filterName, int originalCount, int filteredCount, long elapsedMilliseconds)
     {

@@ -13,13 +13,14 @@ public class PCV_GpuVoxelGrid : IDisposable
     public float VoxelSize { get; private set; } = 0.1f;
 
     private ComputeShader builderShader;
-    private ComputeBuffer voxelCounterBuffer; // Size 1
+    private ComputeBuffer voxelCounterBuffer;
 
     private int kernelClearTable, kernelClearData, kernelBuildGrid, kernelScanOffsets, kernelBuildIndices;
 
     private int maxVoxelCount = 0;
+    private int maxPointCount = 0;
 
-    public PCV_GpuVoxelGrid(ComputeShader shader, int maxPoints, float voxelSize)
+    public PCV_GpuVoxelGrid(ComputeShader shader, float voxelSize)
     {
         if (shader == null)
         {
@@ -30,8 +31,6 @@ public class PCV_GpuVoxelGrid : IDisposable
         this.builderShader = shader;
         this.VoxelSize = voxelSize;
 
-        AllocateBuffers(maxPoints);
-
         kernelClearTable = builderShader.FindKernel("CSClearHashTable");
         kernelClearData = builderShader.FindKernel("CSClearVoxelData");
         kernelBuildGrid = builderShader.FindKernel("CSBuildGrid");
@@ -39,24 +38,26 @@ public class PCV_GpuVoxelGrid : IDisposable
         kernelBuildIndices = builderShader.FindKernel("CSBuildIndices");
     }
 
-    public void AllocateBuffers(int maxPoints)
+    public void AllocateBuffers(int newMaxPoints)
     {
-        if (maxPoints == 0) maxPoints = 1;
-        if (maxVoxelCount >= maxPoints && VoxelDataBuffer != null)
+        if (newMaxPoints <= 0) newMaxPoints = 1;
+
+        if (maxPointCount >= newMaxPoints && VoxelDataBuffer != null)
         {
             return;
         }
 
         ReleaseBuffers();
 
-        maxVoxelCount = maxPoints;
+        maxPointCount = newMaxPoints;
+        maxVoxelCount = newMaxPoints;
 
-        int voxelDataStructSize = sizeof(int) * (3 + 1 + 1 + 1);
+        int voxelDataStructSize = 24;
 
-        VoxelDataBuffer = new ComputeBuffer(maxVoxelCount, 24, ComputeBufferType.Structured);
-        VoxelPointIndicesBuffer = new ComputeBuffer(maxPoints, sizeof(int));
+        VoxelDataBuffer = new ComputeBuffer(maxVoxelCount, voxelDataStructSize, ComputeBufferType.Structured);
+        VoxelPointIndicesBuffer = new ComputeBuffer(maxPointCount, sizeof(int));
 
-        HashTableSize = GetNextPrime(maxPoints * 2);
+        HashTableSize = GetNextPrime(maxPointCount * 2);
         VoxelHashTableBuffer = new ComputeBuffer(HashTableSize, sizeof(int));
 
         VoxelHashChainsBuffer = new ComputeBuffer(maxVoxelCount, sizeof(int));
@@ -72,10 +73,7 @@ public class PCV_GpuVoxelGrid : IDisposable
             return;
         }
 
-        if (pointCount > maxVoxelCount)
-        {
-            AllocateBuffers(pointCount);
-        }
+        AllocateBuffers(pointCount);
 
         builderShader.SetBuffer(kernelClearTable, "_VoxelHashTable", VoxelHashTableBuffer);
         builderShader.SetBuffer(kernelClearTable, "_VoxelCounter", voxelCounterBuffer);
@@ -144,11 +142,13 @@ public class PCV_GpuVoxelGrid : IDisposable
         voxelCounterBuffer = null;
 
         maxVoxelCount = 0;
+        maxPointCount = 0;
         VoxelCount = 0;
     }
 
     private static int GetNextPrime(int min)
     {
+        if (min < 2) min = 2;
         for (int i = min | 1; i < int.MaxValue; i += 2)
         {
             if (IsPrime(i)) return i;
