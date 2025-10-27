@@ -243,7 +243,7 @@ public static class PCV_MorphologyFilter
                 finalBuffer.GetData(filteredPointData, 0, 0, currentPointCount);
                 for (int i = 0; i < currentPointCount; i++)
                 {
-                    filteredVertices.Add(filteredPointData[i].position);
+                    filteredVertices.Add((Vector3)filteredPointData[i].position);
                     filteredColors.Add(filteredPointData[i].color);
                 }
             }

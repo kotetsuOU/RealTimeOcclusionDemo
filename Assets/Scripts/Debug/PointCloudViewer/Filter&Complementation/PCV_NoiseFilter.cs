@@ -148,31 +148,75 @@ public static class PCV_NoiseFilter
             return new PCV_Data(new List<Vector3>(), new List<Color>());
         }
 
-        var pointData = new PCV_Point[data.PointCount];
-        for (int i = 0; i < data.PointCount; i++)
+        int pointCount = data.PointCount;
+        var pointData = new PCV_Point[pointCount];
+        var vertices = new Vector3[pointCount];
+        for (int i = 0; i < pointCount; i++)
         {
             pointData[i] = new PCV_Point { position = data.Vertices[i], color = data.Colors[i] };
+            vertices[i] = data.Vertices[i];
         }
+
+        float voxelSize = searchRadius;
+        BuildVoxelGridWithHash(vertices, pointCount, voxelSize,
+            out var voxelDataList, out var pointIndicesList,
+            out var hashTable, out var hashChains, out int hashTableSize);
 
         int pointStructSize = sizeof(float) * 8;
 
-        var pointsBuffer = new ComputeBuffer(data.PointCount, pointStructSize);
-        var filteredPointsBuffer = new ComputeBuffer(data.PointCount, pointStructSize, ComputeBufferType.Append);
-        var countBuffer = new ComputeBuffer(1, sizeof(int), ComputeBufferType.Raw);
+        ComputeBuffer pointsBuffer = new ComputeBuffer(pointCount, pointStructSize);
+        ComputeBuffer filteredPointsBuffer = new ComputeBuffer(pointCount, pointStructSize, ComputeBufferType.Append);
+        ComputeBuffer countBuffer = new ComputeBuffer(1, sizeof(int), ComputeBufferType.Raw);
+
+        ComputeBuffer voxelDataBuffer = null;
+        ComputeBuffer voxelPointIndicesBuffer = null;
+        ComputeBuffer voxelHashTableBuffer = null;
+        ComputeBuffer voxelHashChainsBuffer = null;
 
         try
         {
             pointsBuffer.SetData(pointData);
             filteredPointsBuffer.SetCounterValue(0);
 
+            int voxelCount = Mathf.Max(1, voxelDataList.Count);
+            int indicesCount = Mathf.Max(1, pointIndicesList.Count);
+
+            voxelDataBuffer = new ComputeBuffer(voxelCount, sizeof(int) * 6, ComputeBufferType.Structured); // VoxelData struct
+            voxelPointIndicesBuffer = new ComputeBuffer(indicesCount, sizeof(int));
+            voxelHashTableBuffer = new ComputeBuffer(hashTableSize, sizeof(int));
+            voxelHashChainsBuffer = new ComputeBuffer(voxelCount, sizeof(int));
+
+            if (voxelDataList.Count > 0)
+            {
+                voxelDataBuffer.SetData(voxelDataList);
+                voxelPointIndicesBuffer.SetData(pointIndicesList);
+                voxelHashTableBuffer.SetData(hashTable);
+                voxelHashChainsBuffer.SetData(hashChains);
+            }
+            else
+            {
+                voxelDataBuffer.SetData(new VoxelData[] { new VoxelData() });
+                voxelPointIndicesBuffer.SetData(new int[] { 0 });
+                voxelHashTableBuffer.SetData(new int[hashTableSize]);
+                voxelHashChainsBuffer.SetData(new int[] { -1 });
+            }
+
             int kernel = computeShader.FindKernel("CSMain");
-            computeShader.SetInt("_PointCount", data.PointCount);
+
+            computeShader.SetInt("_PointCount", pointCount);
             computeShader.SetFloat("_SearchRadius", searchRadius);
             computeShader.SetInt("_NeighborThreshold", threshold);
+            computeShader.SetFloat("_VoxelSize", voxelSize);
+            computeShader.SetInt("_HashTableSize", hashTableSize);
+
             computeShader.SetBuffer(kernel, "_Points", pointsBuffer);
             computeShader.SetBuffer(kernel, "_FilteredPoints", filteredPointsBuffer);
+            computeShader.SetBuffer(kernel, "_VoxelData", voxelDataBuffer);
+            computeShader.SetBuffer(kernel, "_VoxelPointIndices", voxelPointIndicesBuffer);
+            computeShader.SetBuffer(kernel, "_VoxelHashTable", voxelHashTableBuffer);
+            computeShader.SetBuffer(kernel, "_VoxelHashChains", voxelHashChainsBuffer);
 
-            int threadGroups = Mathf.CeilToInt(data.PointCount / 64.0f);
+            int threadGroups = Mathf.CeilToInt(pointCount / 64.0f);
             computeShader.Dispatch(kernel, threadGroups, 1, 1);
 
             ComputeBuffer.CopyCount(filteredPointsBuffer, countBuffer, 0);
@@ -189,7 +233,7 @@ public static class PCV_NoiseFilter
                 filteredPointsBuffer.GetData(filteredPointData, 0, 0, filteredPointCount);
                 for (int i = 0; i < filteredPointCount; i++)
                 {
-                    filteredVertices.Add(filteredPointData[i].position);
+                    filteredVertices.Add((Vector3)filteredPointData[i].position);
                     filteredColors.Add(filteredPointData[i].color);
                 }
             }
@@ -200,6 +244,121 @@ public static class PCV_NoiseFilter
             pointsBuffer.Release();
             filteredPointsBuffer.Release();
             countBuffer.Release();
+
+            voxelDataBuffer?.Release();
+            voxelPointIndicesBuffer?.Release();
+            voxelHashTableBuffer?.Release();
+            voxelHashChainsBuffer?.Release();
         }
+    }
+
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    public struct PCV_Point
+    {
+        public Vector4 position;
+        public Color color;
+    }
+
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    private struct VoxelData
+    {
+        public Vector3Int index;
+        public int pointCount;
+        public int dataOffset;
+        public int padding;
+    }
+
+    private static void BuildVoxelGridWithHash(
+        Vector3[] vertices, int pointCount, float voxelSize,
+        out List<VoxelData> voxelDataList,
+        out List<int> pointIndicesList,
+        out int[] hashTable,
+        out int[] hashChains,
+        out int hashTableSize)
+    {
+        var voxelGrid = new Dictionary<Vector3Int, List<int>>();
+        for (int i = 0; i < pointCount; i++)
+        {
+            Vector3Int voxelIndex = GetVoxelIndex(vertices[i], voxelSize);
+            if (!voxelGrid.ContainsKey(voxelIndex))
+            {
+                voxelGrid[voxelIndex] = new List<int>();
+            }
+            voxelGrid[voxelIndex].Add(i);
+        }
+
+        hashTableSize = GetNextPrime(voxelGrid.Count * 2);
+        hashTable = new int[hashTableSize];
+        for (int i = 0; i < hashTableSize; i++)
+        {
+            hashTable[i] = -1;
+        }
+
+        voxelDataList = new List<VoxelData>();
+        pointIndicesList = new List<int>();
+        hashChains = new int[voxelGrid.Count];
+
+        int currentOffset = 0;
+        int voxelIdx = 0;
+
+        foreach (var kvp in voxelGrid)
+        {
+            voxelDataList.Add(new VoxelData
+            {
+                index = kvp.Key,
+                pointCount = kvp.Value.Count,
+                dataOffset = currentOffset,
+                padding = 0
+            });
+
+            pointIndicesList.AddRange(kvp.Value);
+            currentOffset += kvp.Value.Count;
+
+            uint hash = HashVoxelIndex(kvp.Key, (uint)hashTableSize);
+            hashChains[voxelIdx] = hashTable[hash];
+            hashTable[hash] = voxelIdx;
+
+            voxelIdx++;
+        }
+    }
+
+    private static uint HashVoxelIndex(Vector3Int voxelIndex, uint hashTableSize)
+    {
+        const uint p1 = 73856093;
+        const uint p2 = 19349663;
+        const uint p3 = 83492791;
+        uint hash = ((uint)voxelIndex.x * p1) ^ ((uint)voxelIndex.y * p2) ^ ((uint)voxelIndex.z * p3);
+        return hash % hashTableSize;
+    }
+
+    private static Vector3Int GetVoxelIndex(Vector3 point, float voxelSize)
+    {
+        if (voxelSize <= 0) return Vector3Int.zero;
+        return new Vector3Int(
+            Mathf.FloorToInt(point.x / voxelSize),
+            Mathf.FloorToInt(point.y / voxelSize),
+            Mathf.FloorToInt(point.z / voxelSize)
+        );
+    }
+
+    private static int GetNextPrime(int min)
+    {
+        for (int i = min | 1; i < int.MaxValue; i += 2)
+        {
+            if (IsPrime(i)) return i;
+        }
+        return min;
+    }
+
+    private static bool IsPrime(int n)
+    {
+        if (n < 2) return false;
+        if (n == 2 || n == 3) return true;
+        if (n % 2 == 0 || n % 3 == 0) return false;
+        for (int i = 5; i * i <= n; i += 6)
+        {
+            if (n % i == 0 || n % (i + 2) == 0) return false;
+        }
+        return true;
     }
 }

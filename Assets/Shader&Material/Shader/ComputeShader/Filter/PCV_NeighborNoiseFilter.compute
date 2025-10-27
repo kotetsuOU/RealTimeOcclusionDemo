@@ -6,12 +6,60 @@ struct Point
     float4 color;
 };
 
+struct VoxelData
+{
+    int3 index;
+    int pointCount;
+    int dataOffset;
+    int padding;
+};
+
 StructuredBuffer<Point> _Points;
 AppendStructuredBuffer<Point> _FilteredPoints;
+
+StructuredBuffer<VoxelData> _VoxelData;
+StructuredBuffer<int> _VoxelPointIndices;
+StructuredBuffer<int> _VoxelHashTable;
+StructuredBuffer<int> _VoxelHashChains;
 
 uint _PointCount;
 float _SearchRadius;
 int _NeighborThreshold;
+float _VoxelSize;
+uint _HashTableSize;
+
+int3 GetVoxelIndex(float3 position)
+{
+    return int3(
+        floor(position.x / _VoxelSize),
+        floor(position.y / _VoxelSize),
+        floor(position.z / _VoxelSize)
+    );
+}
+
+uint HashVoxelIndex(int3 voxelIndex)
+{
+    const uint p1 = 73856093;
+    const uint p2 = 19349663;
+    const uint p3 = 83492791;
+    uint hash = ((uint) voxelIndex.x * p1) ^ ((uint) voxelIndex.y * p2) ^ ((uint) voxelIndex.z * p3);
+    return hash % _HashTableSize;
+}
+
+int FindVoxelDataFast(int3 voxelIndex)
+{
+    uint hash = HashVoxelIndex(voxelIndex);
+    int idx = _VoxelHashTable[hash];
+    while (idx >= 0)
+    {
+        if (all(_VoxelData[idx].index == voxelIndex))
+        {
+            return idx;
+        }
+        idx = _VoxelHashChains[idx];
+    }
+    return -1;
+}
 
 [numthreads(64, 1, 1)]
 void CSMain(uint3 id : SV_DispatchThreadID)
@@ -24,21 +72,46 @@ void CSMain(uint3 id : SV_DispatchThreadID)
     Point currentPoint = _Points[id.x];
     int neighborCount = 0;
     float searchRadiusSq = _SearchRadius * _SearchRadius;
+    
+    int3 centerVoxel = GetVoxelIndex(currentPoint.position.xyz);
+    
+    int searchRange = 1;
 
-    for (uint i = 0; i < _PointCount; i++)
+    [unroll]
+    for (int x = -searchRange; x <= searchRange; x++)
     {
-        if (id.x == i)
+        [unroll]
+        for (int y = -searchRange; y <= searchRange; y++)
         {
-            continue;
-        }
-        
-        float3 diff = currentPoint.position.xyz - _Points[i].position.xyz;
-        
-        float distSq = dot(diff, diff);
+            [unroll]
+            for (int z = -searchRange; z <= searchRange; z++)
+            {
+                int3 neighborVoxel = centerVoxel + int3(x, y, z);
+                
+                int voxelDataIndex = FindVoxelDataFast(neighborVoxel);
+                
+                if (voxelDataIndex >= 0)
+                {
+                    VoxelData vd = _VoxelData[voxelDataIndex];
+                    for (int i = 0; i < vd.pointCount; i++)
+                    {
+                        int pointIndex = _VoxelPointIndices[vd.dataOffset + i];
 
-        if (distSq <= searchRadiusSq)
-        {
-            neighborCount++;
+                        if (pointIndex == (int) id.x)
+                        {
+                            continue;
+                        }
+                        
+                        float3 diff = currentPoint.position.xyz - _Points[pointIndex].position.xyz;
+                        float distSq = dot(diff, diff);
+
+                        if (distSq <= searchRadiusSq)
+                        {
+                            neighborCount++;
+                        }
+                    }
+                }
+            }
         }
     }
 
