@@ -5,13 +5,6 @@ using UnityEngine;
 
 public static class PCV_DensityFilter
 {
-    private struct VoxelData
-    {
-        public Vector3Int index;
-        public int pointCount;
-        public int dataOffset;
-    }
-
     public static void Execute(PCV_DataManager dataManager, PCV_Settings settings)
     {
         if (dataManager.CurrentData == null || dataManager.SpatialSearch == null)
@@ -29,7 +22,7 @@ public static class PCV_DensityFilter
             UnityEngine.Debug.Log($"GPUによるボクセル密度フィルタリングを開始します。(閾値: {settings.voxelDensityThreshold})");
             filteredData = ApplyGPU(
                 dataManager.CurrentData,
-                dataManager.SpatialSearch.VoxelGrid,
+                dataManager.SpatialSearch.VoxelGrid, // VoxelGrid オブジェクトを渡す
                 settings.densityFilterShader,
                 settings.voxelDensityThreshold
             );
@@ -46,7 +39,7 @@ public static class PCV_DensityFilter
             {
                 UnityEngine.Debug.LogWarning("GPU実行が選択されていますが、密度フィルタリングCompute Shaderが設定されていません。CPUで処理を実行します。");
             }
-            UnityEngine.Debug.LogWarning("密度フィルタリングCompute Shaderが設定されていないか、VoxelGridがありません。CPUで処理を実行します。");
+            
             filteredData = ApplyCPU(dataManager.CurrentData, dataManager.SpatialSearch.VoxelGrid, settings.voxelDensityThreshold);
             stopwatch.Stop();
             LogFilteringResult("ボクセル密度フィルタリング (CPU)", originalCount, filteredData.PointCount, stopwatch.ElapsedMilliseconds);
@@ -102,17 +95,17 @@ public static class PCV_DensityFilter
             countBuffer.GetData(countArray);
             int filteredPointCount = countArray[0];
 
-            var filteredVertices = new List<Vector3>();
-            var filteredColors = new List<Color>();
+            var filteredVertices = new List<Vector3>(filteredPointCount);
+            var filteredColors = new List<Color>(filteredPointCount);
 
             if (filteredPointCount > 0)
             {
-                var filteredPointData = new PCV_Point[filteredPointCount];
+                var filteredPointData = new PCV_Point_GPU[filteredPointCount]; 
                 filteredPointsBuffer.GetData(filteredPointData, 0, 0, filteredPointCount);
 
                 for (int i = 0; i < filteredPointCount; i++)
                 {
-                    filteredVertices.Add(filteredPointData[i].position);
+                    filteredVertices.Add((Vector3)filteredPointData[i].position); 
                     filteredColors.Add(filteredPointData[i].color);
                 }
             }
@@ -135,7 +128,8 @@ public static class PCV_DensityFilter
 
     private static PCV_Data ApplyCPU(PCV_Data inputData, VoxelGrid voxelGrid, int densityThreshold)
     {
-        var passedPointIndices = new HashSet<int>();
+        var filteredVertices = new List<Vector3>(inputData.PointCount);
+        var filteredColors = new List<Color>(inputData.PointCount);
 
         foreach (var voxelContent in voxelGrid.Grid)
         {
@@ -143,22 +137,13 @@ public static class PCV_DensityFilter
             {
                 foreach (int pointIndex in voxelContent.Value)
                 {
-                    passedPointIndices.Add(pointIndex);
+                    if (pointIndex >= 0 && pointIndex < inputData.PointCount)
+                    {
+                        filteredVertices.Add(inputData.Vertices[pointIndex]);
+                        filteredColors.Add(inputData.Colors[pointIndex]);
+                    }
                 }
             }
-        }
-
-        var sortedIndices = passedPointIndices.ToList();
-        sortedIndices.Sort();
-
-        var filteredVertices = new Vector3[sortedIndices.Count];
-        var filteredColors = new Color[sortedIndices.Count];
-
-        for (int i = 0; i < sortedIndices.Count; i++)
-        {
-            int originalIndex = sortedIndices[i];
-            filteredVertices[i] = inputData.Vertices[originalIndex];
-            filteredColors[i] = inputData.Colors[originalIndex];
         }
 
         return new PCV_Data(filteredVertices, filteredColors);
@@ -171,5 +156,12 @@ public static class PCV_DensityFilter
         {
             UnityEngine.Debug.LogWarning("全ての点が除去されました。メッシュは空になります。");
         }
+    }
+
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    private struct PCV_Point_GPU
+    {
+        public Vector4 position;
+        public Color color;
     }
 }
