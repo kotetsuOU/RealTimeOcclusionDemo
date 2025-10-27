@@ -1,4 +1,6 @@
 #pragma kernel CSDensityComplementation
+#pragma kernel CSMerge
+#pragma kernel CSBlit
 
 struct Point
 {
@@ -24,6 +26,11 @@ float _RandomSeed;
 StructuredBuffer<VoxelData> _VoxelData;
 AppendStructuredBuffer<Point> _ComplementedPointsOut;
 
+StructuredBuffer<Point> _PointsIn;
+StructuredBuffer<Point> _NewPointsIn;
+
+RWStructuredBuffer<Point> _PointsOut;
+
 float rand(float2 co, float seed)
 {
     return frac(sin(dot(co, float2(12.9898, 78.233)) + seed) * 43758.5453);
@@ -46,7 +53,6 @@ void CSDensityComplementation(uint3 dispatch_id : SV_DispatchThreadID)
     if (vd.pointCount >= _DensityThreshold)
     {
         float centerX = (vd.index.x * _VoxelSize) + (_VoxelSize / 2.0);
-        
         float voxelMinY = vd.index.y * _VoxelSize;
         float voxelMinZ = vd.index.z * _VoxelSize;
         
@@ -89,4 +95,38 @@ void CSDensityComplementation(uint3 dispatch_id : SV_DispatchThreadID)
             _ComplementedPointsOut.Append(newPoint);
         }
     }
+}
+
+[numthreads(64, 1, 1)]
+void CSMerge(uint3 id : SV_DispatchThreadID)
+{    
+    uint originalPointCount = (uint) _DensityThreshold;
+    uint newPointCount = _PointsPerAxis;
+    
+    uint totalPointCount = originalPointCount + newPointCount;
+    if (id.x >= totalPointCount)
+    {
+        return;
+    }
+    
+    if (id.x < originalPointCount)
+    {
+        _PointsOut[id.x] = _PointsIn[id.x];
+    }
+    else
+    {
+        uint newIndex = id.x - originalPointCount;
+        _PointsOut[id.x] = _NewPointsIn[newIndex];
+    }
+}
+
+[numthreads(64, 1, 1)]
+void CSBlit(uint3 id : SV_DispatchThreadID)
+{
+    uint pointCount = (uint) _DensityThreshold;
+    if (id.x >= pointCount)
+    {
+        return;
+    }
+    _PointsOut[id.x] = _PointsIn[id.x];
 }

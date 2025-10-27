@@ -22,7 +22,7 @@ public static class PCV_DensityFilter
             UnityEngine.Debug.Log($"GPUによるボクセル密度フィルタリングを開始します。(閾値: {settings.voxelDensityThreshold})");
             filteredData = ApplyGPU(
                 dataManager.CurrentData,
-                dataManager.SpatialSearch.VoxelGrid, // VoxelGrid オブジェクトを渡す
+                dataManager.SpatialSearch.VoxelGrid,
                 settings.densityFilterShader,
                 settings.voxelDensityThreshold
             );
