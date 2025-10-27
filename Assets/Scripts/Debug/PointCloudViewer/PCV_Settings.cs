@@ -61,6 +61,8 @@ public class PCV_Settings : MonoBehaviour
     public ComputeShader densityFilterShader;
     [Tooltip("密度補完に使用するCompute Shader")]
     public ComputeShader densityComplementationShader;
+    [Tooltip("ボクセルグリッド構築に使用するCompute Shader")]
+    public ComputeShader voxelGridBuilderShader;
 
     [Tooltip("近傍探索ノイズ除去にGPUを使用する")]
     public bool useGpuNoiseFilter = true;
@@ -91,6 +93,7 @@ public class PCV_Settings : MonoBehaviour
     private ComputeShader lastMorpologyOperationShader;
     private ComputeShader lastDensityFilterShader;
     private ComputeShader lastDensityComplementationShader;
+    private ComputeShader lastVoxelGridBuilderShader;
 
     private bool lastUseGpuNoiseFilter;
     private bool lastUseGpuDensityFilter;
@@ -130,6 +133,7 @@ public class PCV_Settings : MonoBehaviour
         lastMorpologyOperationShader = morpologyOperationShader;
         lastDensityFilterShader = densityFilterShader;
         lastDensityComplementationShader = densityComplementationShader;
+        lastVoxelGridBuilderShader = voxelGridBuilderShader;
 
         lastUseGpuNoiseFilter = useGpuNoiseFilter;
         lastUseGpuDensityFilter = useGpuDensityFilter;
@@ -170,9 +174,11 @@ public class PCV_Settings : MonoBehaviour
 
     public bool HasProcessingSettingsChanged()
     {
-        bool densityShadersChanged = (densityFilterShader != lastDensityFilterShader) ||
+        bool densityShadersChanged = (morpologyOperationShader != lastMorpologyOperationShader) ||
+                                     (densityFilterShader != lastDensityFilterShader) ||
                                      (densityComplementationShader != lastDensityComplementationShader) ||
-                                     (pointCloudFilterShader != lastPointCloudFilterShader);
+                                     (pointCloudFilterShader != lastPointCloudFilterShader) ||
+                                     (voxelGridBuilderShader != lastVoxelGridBuilderShader);
 
         bool processingParamsChanged = voxelSize != lastVoxelSize ||
                                        searchRadius != lastSearchRadius ||

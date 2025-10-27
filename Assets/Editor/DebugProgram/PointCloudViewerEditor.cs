@@ -22,6 +22,7 @@ public class PointCloudViewerEditor : Editor
     private SerializedProperty morpologyOperationShaderProp;
     private SerializedProperty densityFilterShaderProp;
     private SerializedProperty densityComplementationShaderProp;
+    private SerializedProperty voxelGridBuilderShaderProp;
 
     private SerializedProperty useGpuNoiseFilterProp;
     private SerializedProperty useGpuDensityFilterProp;
@@ -62,6 +63,7 @@ public class PointCloudViewerEditor : Editor
             morpologyOperationShaderProp = settingsObject.FindProperty("morpologyOperationShader");
             densityFilterShaderProp = settingsObject.FindProperty("densityFilterShader");
             densityComplementationShaderProp = settingsObject.FindProperty("densityComplementationShader");
+            voxelGridBuilderShaderProp = settingsObject.FindProperty("voxelGridBuilderShader");
 
             useGpuNoiseFilterProp = settingsObject.FindProperty("useGpuNoiseFilter");
             useGpuDensityFilterProp = settingsObject.FindProperty("useGpuDensityFilter");
@@ -206,6 +208,7 @@ public class PointCloudViewerEditor : Editor
             EditorGUILayout.PropertyField(morpologyOperationShaderProp);
             EditorGUILayout.PropertyField(densityFilterShaderProp);
             EditorGUILayout.PropertyField(densityComplementationShaderProp);
+            EditorGUILayout.PropertyField(voxelGridBuilderShaderProp);
             EditorGUI.indentLevel--;
         }
         EditorGUILayout.Space();
