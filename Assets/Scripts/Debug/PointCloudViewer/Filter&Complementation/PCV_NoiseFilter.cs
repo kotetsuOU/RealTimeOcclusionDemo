@@ -3,9 +3,19 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using UnityEngine;
 using System;
+using System.Runtime.InteropServices;
 
 public static class PCV_NoiseFilter
 {
+    [StructLayout(LayoutKind.Sequential, Pack = 4)]
+    private struct Point
+    {
+        public Vector4 position;
+        public Color color;
+    }
+
+    private const int POINT_SIZE = 32;
+
     public static void Execute(PCV_DataManager dataManager, PCV_Settings settings, MonoBehaviour coroutineRunner)
     {
         if (dataManager.CurrentData == null || dataManager.SpatialSearch == null || dataManager.SpatialSearch.VoxelGrid == null)
@@ -16,7 +26,7 @@ public static class PCV_NoiseFilter
 
         bool isGpuReady = settings.useGpuNoiseFilter &&
                           settings.pointCloudFilterShader != null &&
-                          dataManager.SpatialSearch.VoxelGrid.IsGpuDataReady();
+                          settings.voxelGridBuilderShader != null;
 
         if (isGpuReady)
         {
@@ -32,9 +42,9 @@ public static class PCV_NoiseFilter
             {
                 UnityEngine.Debug.LogWarning("GPU実行が選択されていますが、近傍探索ノイズフィルターCompute Shaderが設定されていません。CPUで処理を実行します。");
             }
-            else if (!dataManager.SpatialSearch.VoxelGrid.IsGpuDataReady())
+            else if (settings.voxelGridBuilderShader == null)
             {
-                UnityEngine.Debug.LogWarning("VoxelGridのGPUバッファが準備できていません。CPUで処理を実行します。");
+                UnityEngine.Debug.LogWarning("GPU実行が選択されていますが、VoxelGridBuilder Compute Shaderが設定されていません。CPUで処理を実行します。");
             }
 
             if (UnityEngine.Application.isPlaying)
@@ -85,8 +95,9 @@ public static class PCV_NoiseFilter
 
         PCV_Data filteredData = FilterGPU(
             dataManager.CurrentData,
-            dataManager.SpatialSearch.VoxelGrid,
             settings.pointCloudFilterShader,
+            settings.voxelGridBuilderShader,
+            settings.voxelSize,
             settings.searchRadius,
             settings.neighborThreshold
         );
@@ -156,27 +167,37 @@ public static class PCV_NoiseFilter
         onComplete?.Invoke(new PCV_Data(filteredVertices, filteredColors));
     }
 
-    public static PCV_Data FilterGPU(PCV_Data data, VoxelGrid voxelGrid, ComputeShader computeShader, float searchRadius, int threshold)
+    public static PCV_Data FilterGPU(PCV_Data data, ComputeShader computeShader, ComputeShader gridBuilderShader, float voxelSize, float searchRadius, int threshold)
     {
-        if (data == null || data.PointCount == 0 || voxelGrid == null || computeShader == null)
+        if (data == null || data.PointCount == 0 || computeShader == null || gridBuilderShader == null)
         {
             return new PCV_Data(new List<Vector3>(), new List<Color>());
         }
 
-        if (!voxelGrid.IsGpuDataReady())
-        {
-            UnityEngine.Debug.LogError("[PCV_NoiseFilter] VoxelGridのGPUバッファが初期化されていません。");
-            return data;
-        }
-
         int pointCount = data.PointCount;
-        int pointStructSize = sizeof(float) * 8;
 
-        ComputeBuffer filteredPointsBuffer = new ComputeBuffer(pointCount, pointStructSize, ComputeBufferType.Append);
-        ComputeBuffer countBuffer = new ComputeBuffer(1, sizeof(int), ComputeBufferType.Raw);
+        ComputeBuffer pointsBuffer = null;
+        ComputeBuffer filteredPointsBuffer = null;
+        ComputeBuffer countBuffer = null;
+        PCV_GpuVoxelGrid gpuVoxelGrid = null;
 
         try
         {
+            var pointArray = new Point[pointCount];
+            for (int i = 0; i < pointCount; i++)
+            {
+                pointArray[i].position = new Vector4(data.Vertices[i].x, data.Vertices[i].y, data.Vertices[i].z, 0f);
+                pointArray[i].color = data.Colors[i];
+            }
+
+            pointsBuffer = new ComputeBuffer(pointCount, POINT_SIZE);
+            pointsBuffer.SetData(pointArray);
+
+            gpuVoxelGrid = new PCV_GpuVoxelGrid(gridBuilderShader, voxelSize);
+            gpuVoxelGrid.AllocateBuffers(pointCount);
+            gpuVoxelGrid.Build(pointsBuffer, pointCount);
+
+            filteredPointsBuffer = new ComputeBuffer(pointCount, POINT_SIZE, ComputeBufferType.Append);
             filteredPointsBuffer.SetCounterValue(0);
 
             int kernel = computeShader.FindKernel("CSMain");
@@ -184,21 +205,23 @@ public static class PCV_NoiseFilter
             computeShader.SetInt("_PointCount", pointCount);
             computeShader.SetFloat("_SearchRadius", searchRadius);
             computeShader.SetInt("_NeighborThreshold", threshold);
-            computeShader.SetFloat("_VoxelSize", voxelGrid.VoxelSize);
-            computeShader.SetInt("_HashTableSize", voxelGrid.HashTableSize);
+            computeShader.SetFloat("_VoxelSize", voxelSize);
+            computeShader.SetInt("_HashTableSize", gpuVoxelGrid.HashTableSize);
 
-            computeShader.SetBuffer(kernel, "_Points", voxelGrid.OriginalPointsBuffer);
+            computeShader.SetBuffer(kernel, "_Points", pointsBuffer);
             computeShader.SetBuffer(kernel, "_FilteredPoints", filteredPointsBuffer);
 
-            computeShader.SetBuffer(kernel, "_VoxelData", voxelGrid.VoxelDataBuffer);
-            computeShader.SetBuffer(kernel, "_VoxelPointIndices", voxelGrid.VoxelPointIndicesBuffer);
-            computeShader.SetBuffer(kernel, "_VoxelHashTable", voxelGrid.VoxelHashTableBuffer);
-            computeShader.SetBuffer(kernel, "_VoxelHashChains", voxelGrid.VoxelHashChainsBuffer);
+            computeShader.SetBuffer(kernel, "_VoxelData", gpuVoxelGrid.VoxelDataBuffer);
+            computeShader.SetBuffer(kernel, "_VoxelPointIndices", gpuVoxelGrid.VoxelPointIndicesBuffer);
+            computeShader.SetBuffer(kernel, "_VoxelHashTable", gpuVoxelGrid.VoxelHashTableBuffer);
+            computeShader.SetBuffer(kernel, "_VoxelHashChains", gpuVoxelGrid.VoxelHashChainsBuffer);
 
             int threadGroups = Mathf.CeilToInt(pointCount / 64.0f);
             computeShader.Dispatch(kernel, threadGroups, 1, 1);
 
+            countBuffer = new ComputeBuffer(1, sizeof(int), ComputeBufferType.Raw);
             ComputeBuffer.CopyCount(filteredPointsBuffer, countBuffer, 0);
+
             int[] countArray = { 0 };
             countBuffer.GetData(countArray);
             int filteredPointCount = countArray[0];
@@ -208,11 +231,15 @@ public static class PCV_NoiseFilter
 
             if (filteredPointCount > 0)
             {
-                var filteredPointData = new PCV_Point[filteredPointCount];
+                var filteredPointData = new Point[filteredPointCount];
                 filteredPointsBuffer.GetData(filteredPointData, 0, 0, filteredPointCount);
                 for (int i = 0; i < filteredPointCount; i++)
                 {
-                    filteredVertices.Add((Vector3)filteredPointData[i].position);
+                    filteredVertices.Add(new Vector3(
+                        filteredPointData[i].position.x,
+                        filteredPointData[i].position.y,
+                        filteredPointData[i].position.z
+                    ));
                     filteredColors.Add(filteredPointData[i].color);
                 }
             }
@@ -220,15 +247,10 @@ public static class PCV_NoiseFilter
         }
         finally
         {
-            filteredPointsBuffer.Release();
-            countBuffer.Release();
+            pointsBuffer?.Release();
+            filteredPointsBuffer?.Release();
+            countBuffer?.Release();
+            gpuVoxelGrid?.Dispose();
         }
-    }
-
-    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
-    public struct PCV_Point
-    {
-        public Vector4 position;
-        public Color color;
     }
 }

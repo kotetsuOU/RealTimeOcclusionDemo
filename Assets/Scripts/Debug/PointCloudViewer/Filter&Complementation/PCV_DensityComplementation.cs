@@ -2,15 +2,18 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using UnityEngine;
 using System.Linq;
+using System.Runtime.InteropServices;
 
 public static class PCV_DensityComplementation
 {
-    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
-    private struct PCV_Point
+    [StructLayout(LayoutKind.Sequential, Pack = 4)]
+    private struct Point
     {
         public Vector4 position;
         public Color color;
     }
+
+    private const int POINT_SIZE = 32;
 
     public static void Execute(PCV_DataManager dataManager, PCV_Settings settings)
     {
@@ -24,14 +27,14 @@ public static class PCV_DensityComplementation
         var stopwatch = Stopwatch.StartNew();
         int originalCount = dataManager.CurrentData.PointCount;
 
-        if (settings.useGpuDensityComplementation && settings.densityComplementationShader != null)
+        if (settings.useGpuDensityComplementation && settings.densityComplementationShader != null && settings.voxelGridBuilderShader != null)
         {
             UnityEngine.Debug.Log($"GPUによる密度補完処理を開始します。");
 
             combinedData = ApplyGPU(
-                dataManager.SpatialSearch.VoxelGrid,
-                originalCount,
+                dataManager.CurrentData,
                 settings.densityComplementationShader,
+                settings.voxelGridBuilderShader,
                 settings
             );
 
@@ -63,6 +66,10 @@ public static class PCV_DensityComplementation
             {
                 UnityEngine.Debug.LogWarning("GPU実行が選択されていますが、密度補完Compute Shaderが設定されていません。CPUで処理を実行します。");
             }
+            else if (settings.voxelGridBuilderShader == null)
+            {
+                UnityEngine.Debug.LogWarning("GPU実行が選択されていますが、VoxelGridBuilder Compute Shaderが設定されていません。CPUで処理を実行します。");
+            }
 
             combinedData = ApplyCPU(dataManager.CurrentData, dataManager.SpatialSearch.VoxelGrid, settings, stopwatch);
             if (combinedData == null)
@@ -75,41 +82,56 @@ public static class PCV_DensityComplementation
         dataManager.SetData(combinedData, settings.voxelSize);
     }
 
-    public static PCV_Data ApplyGPU(VoxelGrid voxelGrid, int originalPointCount, ComputeShader computeShader, PCV_Settings settings)
+    public static PCV_Data ApplyGPU(PCV_Data data, ComputeShader computeShader, ComputeShader gridBuilderShader, PCV_Settings settings)
     {
-        if (computeShader == null || voxelGrid == null)
+        if (computeShader == null || gridBuilderShader == null || data == null)
         {
             return new PCV_Data(new List<Vector3>(), new List<Color>());
         }
 
-        if (voxelGrid.VoxelDataBuffer == null || voxelGrid.OriginalPointsBuffer == null)
+        int originalPointCount = data.PointCount;
+        if (originalPointCount == 0 || settings.complementationPointsPerAxis == 0)
         {
-            UnityEngine.Debug.LogError("VoxelGridのGPUバッファ(VoxelData or OriginalPoints)が初期化されていません。");
-            return null;
-        }
-
-        int voxelCount = voxelGrid.VoxelDataBuffer.count;
-        if (voxelCount == 0 || settings.complementationPointsPerAxis == 0)
-        {
-            return ReadDataFromGpuBuffer(voxelGrid.OriginalPointsBuffer, originalPointCount, originalPointCount);
+            return data;
         }
 
         uint pointsPerAxis = settings.complementationPointsPerAxis;
         uint totalPointsPerVoxel = (pointsPerAxis == 1) ? 1u : (pointsPerAxis * pointsPerAxis);
 
-        int maxNewPoints = voxelCount * (int)totalPointsPerVoxel;
-        int maxCombinedPoints = originalPointCount + maxNewPoints;
-        int pointStructSize = sizeof(float) * 8;
-
+        ComputeBuffer pointsBuffer = null;
         ComputeBuffer newPointsBuffer = null;
         ComputeBuffer finalCombinedBuffer = null;
         ComputeBuffer countBuffer = null;
+        PCV_GpuVoxelGrid gpuVoxelGrid = null;
 
         try
         {
-            newPointsBuffer = new ComputeBuffer(maxNewPoints, pointStructSize, ComputeBufferType.Append);
+            var pointArray = new Point[originalPointCount];
+            for (int i = 0; i < originalPointCount; i++)
+            {
+                pointArray[i].position = new Vector4(data.Vertices[i].x, data.Vertices[i].y, data.Vertices[i].z, 0f);
+                pointArray[i].color = data.Colors[i];
+            }
+
+            pointsBuffer = new ComputeBuffer(originalPointCount, POINT_SIZE);
+            pointsBuffer.SetData(pointArray);
+
+            gpuVoxelGrid = new PCV_GpuVoxelGrid(gridBuilderShader, settings.voxelSize);
+            gpuVoxelGrid.AllocateBuffers(originalPointCount);
+            gpuVoxelGrid.Build(pointsBuffer, originalPointCount);
+
+            int voxelCount = gpuVoxelGrid.VoxelCount;
+            if (voxelCount == 0)
+            {
+                return data;
+            }
+
+            int maxNewPoints = voxelCount * (int)totalPointsPerVoxel;
+            int maxCombinedPoints = originalPointCount + maxNewPoints;
+
+            newPointsBuffer = new ComputeBuffer(maxNewPoints, POINT_SIZE, ComputeBufferType.Append);
             newPointsBuffer.SetCounterValue(0);
-            finalCombinedBuffer = new ComputeBuffer(maxCombinedPoints, pointStructSize);
+            finalCombinedBuffer = new ComputeBuffer(maxCombinedPoints, POINT_SIZE);
 
             int kernelComp = computeShader.FindKernel("CSDensityComplementation");
             int kernelMerge = computeShader.FindKernel("CSMerge");
@@ -122,7 +144,7 @@ public static class PCV_DensityComplementation
             computeShader.SetVector("_ComplementationColor", settings.complementationPointColor);
             computeShader.SetFloat("_RandomSeed", Time.time);
 
-            computeShader.SetBuffer(kernelComp, "_VoxelData", voxelGrid.VoxelDataBuffer);
+            computeShader.SetBuffer(kernelComp, "_VoxelData", gpuVoxelGrid.VoxelDataBuffer);
             computeShader.SetBuffer(kernelComp, "_ComplementedPointsOut", newPointsBuffer);
 
             int threadGroups = Mathf.CeilToInt(voxelCount / 64.0f);
@@ -148,9 +170,8 @@ public static class PCV_DensityComplementation
                 computeShader.SetInt("_DensityThreshold", originalPointCount);
                 computeShader.SetInt("_PointsPerAxis", newPointCount);
 
-                computeShader.SetBuffer(kernelMerge, "_PointsIn", voxelGrid.OriginalPointsBuffer);
+                computeShader.SetBuffer(kernelMerge, "_PointsIn", pointsBuffer);
                 computeShader.SetBuffer(kernelMerge, "_NewPointsIn", newPointsBuffer);
-
                 computeShader.SetBuffer(kernelMerge, "_PointsOut", finalCombinedBuffer);
 
                 int mergeThreadGroups = Mathf.CeilToInt(finalPointCount / 64.0f);
@@ -161,8 +182,7 @@ public static class PCV_DensityComplementation
                 if (originalPointCount > 0)
                 {
                     computeShader.SetInt("_DensityThreshold", originalPointCount);
-                    computeShader.SetBuffer(kernelBlit, "_PointsIn", voxelGrid.OriginalPointsBuffer);
-
+                    computeShader.SetBuffer(kernelBlit, "_PointsIn", pointsBuffer);
                     computeShader.SetBuffer(kernelBlit, "_PointsOut", finalCombinedBuffer);
 
                     int blitThreadGroups = Mathf.CeilToInt(originalPointCount / 64.0f);
@@ -179,9 +199,11 @@ public static class PCV_DensityComplementation
         }
         finally
         {
+            pointsBuffer?.Release();
             newPointsBuffer?.Release();
             finalCombinedBuffer?.Release();
             countBuffer?.Release();
+            gpuVoxelGrid?.Dispose();
         }
     }
 
@@ -192,18 +214,21 @@ public static class PCV_DensityComplementation
 
         if (countToRead > 0)
         {
-            var finalPointData = new PCV_Point[countToRead];
+            var finalPointData = new Point[countToRead];
             buffer.GetData(finalPointData, 0, 0, countToRead);
 
             for (int i = 0; i < countToRead; i++)
             {
-                finalVertices.Add((Vector3)finalPointData[i].position);
+                finalVertices.Add(new Vector3(
+                    finalPointData[i].position.x,
+                    finalPointData[i].position.y,
+                    finalPointData[i].position.z
+                ));
                 finalColors.Add(finalPointData[i].color);
             }
         }
         return new PCV_Data(finalVertices, finalColors);
     }
-
 
     private static PCV_Data ApplyCPU(PCV_Data currentData, VoxelGrid voxelGrid, PCV_Settings settings, Stopwatch stopwatch)
     {
@@ -213,6 +238,7 @@ public static class PCV_DensityComplementation
             UnityEngine.Debug.LogWarning("complementationPointsPerAxis が 0 以下に設定されているため、処理をスキップします。");
             return null;
         }
+
         bool useRandomPlacement = settings.complementationRandomPlacement;
         uint totalPointsPerVoxel = (pointsPerAxis == 1) ? 1u : (pointsPerAxis * pointsPerAxis);
         string placementMode = useRandomPlacement ? "ランダム配置" : "均等配置";
@@ -232,6 +258,7 @@ public static class PCV_DensityComplementation
                 float centerX = (voxelIndex.x * voxelSize) + (voxelSize / 2.0f);
                 float voxelMinY = voxelIndex.y * voxelSize;
                 float voxelMinZ = voxelIndex.z * voxelSize;
+
                 if (useRandomPlacement)
                 {
                     float voxelMaxY = voxelMinY + voxelSize;

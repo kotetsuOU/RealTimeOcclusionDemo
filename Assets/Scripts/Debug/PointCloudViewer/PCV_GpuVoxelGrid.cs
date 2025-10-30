@@ -119,7 +119,7 @@ public class PCV_GpuVoxelGrid : IDisposable
 
         uint[] countArray = { 0 };
         voxelCounterBuffer.GetData(countArray);
-        VoxelCount = (int)countArray[0];
+        VoxelCount = (int)System.Math.Min(countArray[0], (uint)maxVoxelCount);
     }
 
     public void Dispose()

@@ -42,7 +42,7 @@ int FindVoxelDataFast(int3 voxelIndex,
     uint hash = HashVoxelIndex(voxelIndex, hashTableSize);
     int idx = hashTable[hash];
     
-    while (idx >= 0)
+    while (idx != -1 && idx != 0x7FFFFFFF)
     {
         if (all(voxelData[idx].index == voxelIndex))
         {

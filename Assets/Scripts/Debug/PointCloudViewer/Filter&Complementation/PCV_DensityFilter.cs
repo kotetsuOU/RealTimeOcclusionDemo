@@ -2,9 +2,19 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using UnityEngine;
+using System.Runtime.InteropServices;
 
 public static class PCV_DensityFilter
 {
+    [StructLayout(LayoutKind.Sequential, Pack = 4)]
+    private struct Point
+    {
+        public Vector4 position;
+        public Color color;
+    }
+
+    private const int POINT_SIZE = 32;
+
     public static void Execute(PCV_DataManager dataManager, PCV_Settings settings)
     {
         if (dataManager.CurrentData == null || dataManager.SpatialSearch == null)
@@ -17,13 +27,14 @@ public static class PCV_DensityFilter
         var stopwatch = Stopwatch.StartNew();
         int originalCount = dataManager.CurrentData.PointCount;
 
-        if (settings.useGpuDensityFilter && settings.densityFilterShader != null)
+        if (settings.useGpuDensityFilter && settings.densityFilterShader != null && settings.voxelGridBuilderShader != null)
         {
             UnityEngine.Debug.Log($"GPUによるボクセル密度フィルタリングを開始します。(閾値: {settings.voxelDensityThreshold})");
             filteredData = ApplyGPU(
                 dataManager.CurrentData,
-                dataManager.SpatialSearch.VoxelGrid,
                 settings.densityFilterShader,
+                settings.voxelGridBuilderShader,
+                settings.voxelSize,
                 settings.voxelDensityThreshold
             );
             stopwatch.Stop();
@@ -39,7 +50,11 @@ public static class PCV_DensityFilter
             {
                 UnityEngine.Debug.LogWarning("GPU実行が選択されていますが、密度フィルタリングCompute Shaderが設定されていません。CPUで処理を実行します。");
             }
-            
+            else if (settings.voxelGridBuilderShader == null)
+            {
+                UnityEngine.Debug.LogWarning("GPU実行が選択されていますが、VoxelGridBuilder Compute Shaderが設定されていません。CPUで処理を実行します。");
+            }
+
             filteredData = ApplyCPU(dataManager.CurrentData, dataManager.SpatialSearch.VoxelGrid, settings.voxelDensityThreshold);
             stopwatch.Stop();
             LogFilteringResult("ボクセル密度フィルタリング (CPU)", originalCount, filteredData.PointCount, stopwatch.ElapsedMilliseconds);
@@ -48,41 +63,52 @@ public static class PCV_DensityFilter
         dataManager.SetData(filteredData, settings.voxelSize);
     }
 
-    public static PCV_Data ApplyGPU(PCV_Data data, VoxelGrid voxelGrid, ComputeShader computeShader, int densityThreshold)
+    public static PCV_Data ApplyGPU(PCV_Data data, ComputeShader computeShader, ComputeShader gridBuilderShader, float voxelSize, int densityThreshold)
     {
-        if (data == null || data.PointCount == 0 || computeShader == null || voxelGrid == null)
+        if (data == null || data.PointCount == 0 || computeShader == null || gridBuilderShader == null)
         {
             UnityEngine.Debug.LogError("[PCV_DensityFilter] Invalid input parameters");
             return new PCV_Data(new List<Vector3>(), new List<Color>());
         }
 
-        if (voxelGrid.VoxelDataBuffer == null || voxelGrid.OriginalPointsBuffer == null || voxelGrid.VoxelPointIndicesBuffer == null)
-        {
-            UnityEngine.Debug.LogError("[PCV_DensityFilter] VoxelGridのGPUバッファが初期化されていません。");
-            return data;
-        }
-
-        int voxelCount = voxelGrid.VoxelDataBuffer.count;
-
-        if (voxelCount == 0)
-        {
-            UnityEngine.Debug.LogWarning("[PCV_DensityFilter] No voxels to process");
-            return new PCV_Data(new List<Vector3>(), new List<Color>());
-        }
-
+        int pointCount = data.PointCount;
+        ComputeBuffer pointsBuffer = null;
         ComputeBuffer filteredPointsBuffer = null;
         ComputeBuffer countBuffer = null;
+        PCV_GpuVoxelGrid gpuVoxelGrid = null;
 
         try
         {
-            filteredPointsBuffer = new ComputeBuffer(data.PointCount, sizeof(float) * 8, ComputeBufferType.Append);
+            var pointArray = new Point[pointCount];
+            for (int i = 0; i < pointCount; i++)
+            {
+                pointArray[i].position = new Vector4(data.Vertices[i].x, data.Vertices[i].y, data.Vertices[i].z, 0f);
+                pointArray[i].color = data.Colors[i];
+            }
+
+            pointsBuffer = new ComputeBuffer(pointCount, POINT_SIZE);
+            pointsBuffer.SetData(pointArray);
+
+            gpuVoxelGrid = new PCV_GpuVoxelGrid(gridBuilderShader, voxelSize);
+            gpuVoxelGrid.AllocateBuffers(pointCount);
+            gpuVoxelGrid.Build(pointsBuffer, pointCount);
+
+            int voxelCount = gpuVoxelGrid.VoxelCount;
+            if (voxelCount == 0)
+            {
+                UnityEngine.Debug.LogWarning("[PCV_DensityFilter] No voxels to process");
+                return new PCV_Data(new List<Vector3>(), new List<Color>());
+            }
+
+            filteredPointsBuffer = new ComputeBuffer(pointCount, POINT_SIZE, ComputeBufferType.Append);
             filteredPointsBuffer.SetCounterValue(0);
 
             int kernel = computeShader.FindKernel("CSDensityFilter");
+
             computeShader.SetInt("_DensityThreshold", densityThreshold);
-            computeShader.SetBuffer(kernel, "_VoxelData", voxelGrid.VoxelDataBuffer);
-            computeShader.SetBuffer(kernel, "_VoxelPointIndices", voxelGrid.VoxelPointIndicesBuffer);
-            computeShader.SetBuffer(kernel, "_PointsIn", voxelGrid.OriginalPointsBuffer);
+            computeShader.SetBuffer(kernel, "_VoxelData", gpuVoxelGrid.VoxelDataBuffer);
+            computeShader.SetBuffer(kernel, "_VoxelPointIndices", gpuVoxelGrid.VoxelPointIndicesBuffer);
+            computeShader.SetBuffer(kernel, "_PointsIn", pointsBuffer);
             computeShader.SetBuffer(kernel, "_PointsOut", filteredPointsBuffer);
 
             int threadGroups = Mathf.CeilToInt(voxelCount / 64.0f);
@@ -100,12 +126,16 @@ public static class PCV_DensityFilter
 
             if (filteredPointCount > 0)
             {
-                var filteredPointData = new PCV_Point_GPU[filteredPointCount]; 
+                var filteredPointData = new Point[filteredPointCount];
                 filteredPointsBuffer.GetData(filteredPointData, 0, 0, filteredPointCount);
 
                 for (int i = 0; i < filteredPointCount; i++)
                 {
-                    filteredVertices.Add((Vector3)filteredPointData[i].position); 
+                    filteredVertices.Add(new Vector3(
+                        filteredPointData[i].position.x,
+                        filteredPointData[i].position.y,
+                        filteredPointData[i].position.z
+                    ));
                     filteredColors.Add(filteredPointData[i].color);
                 }
             }
@@ -114,15 +144,10 @@ public static class PCV_DensityFilter
         }
         finally
         {
-            if (filteredPointsBuffer != null && filteredPointsBuffer.IsValid())
-            {
-                filteredPointsBuffer.Release();
-            }
-
-            if (countBuffer != null && countBuffer.IsValid())
-            {
-                countBuffer.Release();
-            }
+            pointsBuffer?.Release();
+            filteredPointsBuffer?.Release();
+            countBuffer?.Release();
+            gpuVoxelGrid?.Dispose();
         }
     }
 
@@ -156,12 +181,5 @@ public static class PCV_DensityFilter
         {
             UnityEngine.Debug.LogWarning("全ての点が除去されました。メッシュは空になります。");
         }
-    }
-
-    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
-    private struct PCV_Point_GPU
-    {
-        public Vector4 position;
-        public Color color;
     }
 }
