@@ -1,21 +1,8 @@
 #pragma kernel CSDensityFilter
 
-struct Point
-{
-    float4 position;
-    float4 color;
-};
-
-struct VoxelData
-{
-    int3 index;
-    int pointCount;
-    int dataOffset;
-    int padding;
-};
+#include "UnifiedVoxelStructures.hlsl"
 
 int _DensityThreshold;
-
 StructuredBuffer<VoxelData> _VoxelData;
 StructuredBuffer<int> _VoxelPointIndices;
 StructuredBuffer<Point> _PointsIn;

@@ -3,19 +3,7 @@
 #pragma kernel CSMerge
 #pragma kernel CSBlit
 
-struct Point
-{
-    float4 position;
-    float4 color;
-};
-
-struct VoxelData
-{
-    int3 index;
-    int pointCount;
-    int dataOffset;
-    int padding;
-};
+#include "UnifiedVoxelStructures.hlsl"
 
 StructuredBuffer<Point> _PointsIn;
 RWStructuredBuffer<Point> _PointsOut;
@@ -23,7 +11,6 @@ RWStructuredBuffer<uint> _PointCountOut;
 
 StructuredBuffer<Point> _NewPointsIn;
 uint _NewPointCountIn;
-
 
 StructuredBuffer<VoxelData> _VoxelData;
 StructuredBuffer<int> _VoxelPointIndices;
@@ -41,42 +28,10 @@ float _RandomSeed;
 #define EROSION_THRESHOLD 5
 #define DILATION_THRESHOLD 15
 
-int3 GetVoxelIndex(float3 position)
-{
-    return int3(
-        floor(position.x / _VoxelSize),
-        floor(position.y / _VoxelSize),
-        floor(position.z / _VoxelSize)
-    );
-}
-
-uint HashVoxelIndex(int3 voxelIndex)
-{
-    const uint p1 = 73856093;
-    const uint p2 = 19349663;
-    const uint p3 = 83492791;
-    uint hash = ((uint) voxelIndex.x * p1) ^ ((uint) voxelIndex.y * p2) ^ ((uint) voxelIndex.z * p3);
-    return hash % _HashTableSize;
-}
-
-int FindVoxelDataFast(int3 voxelIndex)
-{
-    uint hash = HashVoxelIndex(voxelIndex);
-    int idx = _VoxelHashTable[hash];
-    while (idx >= 0)
-    {
-        if (all(_VoxelData[idx].index == voxelIndex))
-        {
-            return idx;
-        }
-        idx = _VoxelHashChains[idx];
-    }
-    return -1;
-}
-
 int CountNeighborsVoxelBased(int3 centerVoxel)
 {
     int neighborCount = 0;
+    
     [unroll]
     for (int x = -1; x <= 1; x++)
     {
@@ -86,12 +41,14 @@ int CountNeighborsVoxelBased(int3 centerVoxel)
             [unroll]
             for (int z = -1; z <= 1; z++)
             {
-        
                 if (x == 0 && y == 0 && z == 0)
                     continue;
                 
                 int3 neighborVoxel = centerVoxel + int3(x, y, z);
-                int voxelDataIndex = FindVoxelDataFast(neighborVoxel);
+                int voxelDataIndex = FindVoxelDataFast(
+                    neighborVoxel, _VoxelData, _VoxelHashTable,
+                    _VoxelHashChains, _HashTableSize
+                );
                 
                 if (voxelDataIndex >= 0)
                 {
@@ -108,7 +65,6 @@ float rand(float2 co, float seed)
 {
     return frac(sin(dot(co, float2(12.9898, 78.233)) + seed) * 43758.5453);
 }
-
 
 [numthreads(64, 1, 1)]
 void CSErosion(uint3 id : SV_DispatchThreadID)
@@ -170,13 +126,13 @@ void CSDilation(uint3 id : SV_DispatchThreadID)
             [unroll]
             for (int z = -1; z <= 1; z++)
             {
-        
                 if (x == 0 && y == 0 && z == 0)
                     continue;
                 
                 int3 newVoxelIndex = vd.index + int3(x, y, z);
                 
-                if (FindVoxelDataFast(newVoxelIndex) >= 0)
+                if (FindVoxelDataFast(newVoxelIndex, _VoxelData, _VoxelHashTable,
+                                     _VoxelHashChains, _HashTableSize) >= 0)
                 {
                     continue;
                 }

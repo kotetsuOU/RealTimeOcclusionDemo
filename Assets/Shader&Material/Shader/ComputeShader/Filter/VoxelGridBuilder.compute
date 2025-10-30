@@ -4,19 +4,7 @@
 #pragma kernel CSScanOffsets
 #pragma kernel CSBuildIndices
 
-struct Point
-{
-    float4 position;
-    float4 color;
-};
-
-struct VoxelData
-{
-    int3 index;
-    int pointCount;
-    int dataOffset;
-    int writeCounter;
-};
+#include "UnifiedVoxelStructures.hlsl"
 
 StructuredBuffer<Point> _PointsIn;
 uint _PointCount;
@@ -29,24 +17,6 @@ RWStructuredBuffer<int> _VoxelHashTable;
 RWStructuredBuffer<int> _VoxelHashChains;
 RWStructuredBuffer<int> _VoxelPointIndices;
 RWStructuredBuffer<uint> _VoxelCounter;
-
-int3 GetVoxelIndex(float3 position)
-{
-    return int3(
-        floor(position.x / _VoxelSize),
-        floor(position.y / _VoxelSize),
-        floor(position.z / _VoxelSize)
-    );
-}
-
-uint HashVoxelIndex(int3 voxelIndex)
-{
-    const uint p1 = 73856093;
-    const uint p2 = 19349663;
-    const uint p3 = 83492791;
-    uint hash = ((uint) voxelIndex.x * p1) ^ ((uint) voxelIndex.y * p2) ^ ((uint) voxelIndex.z * p3);
-    return hash % _HashTableSize;
-}
 
 [numthreads(256, 1, 1)]
 void CSClearHashTable(uint3 id : SV_DispatchThreadID)
@@ -83,8 +53,8 @@ void CSBuildGrid(uint3 id : SV_DispatchThreadID)
     }
 
     Point pt = _PointsIn[pointIndex];
-    int3 voxelIndex = GetVoxelIndex(pt.position.xyz);
-    uint hash = HashVoxelIndex(voxelIndex);
+    int3 voxelIndex = GetVoxelIndex(pt.position.xyz, _VoxelSize);
+    uint hash = HashVoxelIndex(voxelIndex, _HashTableSize);
 
     int voxelDataIndex = _VoxelHashTable[hash];
     int foundIndex = -1;
@@ -113,19 +83,19 @@ void CSBuildGrid(uint3 id : SV_DispatchThreadID)
         _VoxelData[newIndex].writeCounter = 0;
         
         int oldHead;
-        InterlockedCompareExchange(_VoxelHashTable[hash], -1, (int) newIndex, oldHead);
+        InterlockedCompareExchange(_VoxelHashTable[hash], -1, (int)newIndex, oldHead);
         
         if (oldHead != -1)
         {
             _VoxelHashChains[newIndex] = oldHead;
-            InterlockedExchange(_VoxelHashTable[hash], (int) newIndex, oldHead);
+            InterlockedExchange(_VoxelHashTable[hash], (int)newIndex, oldHead);
         }
         else
         {
             _VoxelHashChains[newIndex] = -1;
         }
         
-        foundIndex = (int) newIndex;
+        foundIndex = (int)newIndex;
     }
     InterlockedAdd(_VoxelData[foundIndex].pointCount, 1);
 }
@@ -138,7 +108,7 @@ void CSScanOffsets()
     
     for (uint i = 0; i < totalVoxels; i++)
     {
-        _VoxelData[i].dataOffset = (int) currentOffset;
+        _VoxelData[i].dataOffset = (int)currentOffset;
         _VoxelData[i].writeCounter = 0;
         currentOffset += _VoxelData[i].pointCount;
     }
@@ -154,8 +124,8 @@ void CSBuildIndices(uint3 id : SV_DispatchThreadID)
     }
 
     Point pt = _PointsIn[pointIndex];
-    int3 voxelIndex = GetVoxelIndex(pt.position.xyz);
-    uint hash = HashVoxelIndex(voxelIndex);
+    int3 voxelIndex = GetVoxelIndex(pt.position.xyz, _VoxelSize);
+    uint hash = HashVoxelIndex(voxelIndex, _HashTableSize);
 
     int voxelDataIndex = _VoxelHashTable[hash];
     int foundIndex = -1;
@@ -175,13 +145,13 @@ void CSBuildIndices(uint3 id : SV_DispatchThreadID)
         uint localWriteIndex;
         InterlockedAdd(_VoxelData[foundIndex].writeCounter, 1, localWriteIndex);
 
-        if (localWriteIndex < (uint) _VoxelData[foundIndex].pointCount)
+        if (localWriteIndex < (uint)_VoxelData[foundIndex].pointCount)
         {
-            int globalIndex = _VoxelData[foundIndex].dataOffset + (int) localWriteIndex;
+            int globalIndex = _VoxelData[foundIndex].dataOffset + (int)localWriteIndex;
             
-            if (globalIndex >= 0 && globalIndex < (int) _PointCount)
+            if (globalIndex >= 0 && globalIndex < (int)_PointCount)
             {
-                _VoxelPointIndices[globalIndex] = (int) pointIndex;
+                _VoxelPointIndices[globalIndex] = (int)pointIndex;
             }
         }
     }
