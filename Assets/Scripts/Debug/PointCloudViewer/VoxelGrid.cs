@@ -1,19 +1,9 @@
 using System.Collections.Generic;
-using System.Diagnostics;
 using UnityEngine;
 using System.Runtime.InteropServices;
 
 public class VoxelGrid
 {
-    [StructLayout(LayoutKind.Sequential, Pack = 4)]
-    private struct VoxelData
-    {
-        public Vector3Int index;
-        public int pointCount;
-        public int dataOffset;
-        public int writeCounter;
-    }
-
     [StructLayout(LayoutKind.Sequential, Pack = 4)]
     private struct Point
     {
@@ -28,17 +18,10 @@ public class VoxelGrid
     public IReadOnlyDictionary<Vector3Int, List<int>> Grid => grid;
 
     public ComputeBuffer OriginalPointsBuffer { get; private set; }
-    public ComputeBuffer VoxelDataBuffer { get; private set; }
-    public ComputeBuffer VoxelPointIndicesBuffer { get; private set; }
-    public ComputeBuffer VoxelHashTableBuffer { get; private set; }
-    public ComputeBuffer VoxelHashChainsBuffer { get; private set; }
 
     public float VoxelSize => voxelSize;
-    public int HashTableSize { get; private set; } = 1;
 
     private Point[] pointDataCache;
-
-    private const int VOXEL_DATA_SIZE = 24;
     private const int POINT_SIZE = 32;
 
     public VoxelGrid(Vector3[] points, float size)
@@ -47,7 +30,14 @@ public class VoxelGrid
         voxelSize = size;
         grid = new Dictionary<Vector3Int, List<int>>();
         BuildCpuGrid();
-        BuildGpuBuffersWithHash();
+
+        int pointCount = Mathf.Max(1, originalPoints.Length);
+        OriginalPointsBuffer = new ComputeBuffer(pointCount, POINT_SIZE);
+
+        if (originalPoints.Length > 0)
+        {
+            SetPointDataCacheFromVertices();
+        }
     }
 
     private void BuildCpuGrid()
@@ -113,92 +103,31 @@ public class VoxelGrid
         return neighbors;
     }
 
-    private void BuildGpuBuffersWithHash()
-    {
-        int pointCount = Mathf.Max(1, originalPoints.Length);
-        OriginalPointsBuffer = new ComputeBuffer(pointCount, POINT_SIZE);
-
-        if (grid.Count == 0 || originalPoints.Length == 0)
-        {
-            BuildEmptyGpuBuffers();
-            return;
-        }
-
-        HashTableSize = GetNextPrime(grid.Count * 2);
-        int[] hashTable = new int[HashTableSize];
-        for (int i = 0; i < HashTableSize; i++)
-        {
-            hashTable[i] = -1;
-        }
-
-        var voxelDataList = new List<VoxelData>(grid.Count);
-        var pointIndicesList = new List<int>(originalPoints.Length);
-        var hashChains = new int[grid.Count];
-
-        int currentOffset = 0;
-        int voxelIdx = 0;
-
-        foreach (var kvp in grid)
-        {
-            voxelDataList.Add(new VoxelData
-            {
-                index = kvp.Key,
-                pointCount = kvp.Value.Count,
-                dataOffset = currentOffset,
-                writeCounter = 0  // èâä˙âªéûÇÕ0
-            });
-
-            pointIndicesList.AddRange(kvp.Value);
-            currentOffset += kvp.Value.Count;
-
-            uint hash = HashVoxelIndex(kvp.Key, (uint)HashTableSize);
-            hashChains[voxelIdx] = hashTable[hash];
-            hashTable[hash] = voxelIdx;
-
-            voxelIdx++;
-        }
-
-        VoxelDataBuffer = new ComputeBuffer(voxelDataList.Count, VOXEL_DATA_SIZE, ComputeBufferType.Structured);
-        VoxelDataBuffer.SetData(voxelDataList);
-
-        VoxelPointIndicesBuffer = new ComputeBuffer(pointIndicesList.Count, sizeof(int));
-        VoxelPointIndicesBuffer.SetData(pointIndicesList);
-
-        VoxelHashTableBuffer = new ComputeBuffer(HashTableSize, sizeof(int));
-        VoxelHashTableBuffer.SetData(hashTable);
-
-        VoxelHashChainsBuffer = new ComputeBuffer(hashChains.Length, sizeof(int));
-        VoxelHashChainsBuffer.SetData(hashChains);
-    }
-
-    private void BuildEmptyGpuBuffers()
-    {
-        VoxelDataBuffer = new ComputeBuffer(1, VOXEL_DATA_SIZE, ComputeBufferType.Structured);
-        VoxelDataBuffer.SetData(new VoxelData[] { new VoxelData() });
-
-        VoxelPointIndicesBuffer = new ComputeBuffer(1, sizeof(int));
-        VoxelPointIndicesBuffer.SetData(new int[] { 0 });
-
-        HashTableSize = GetNextPrime(2);
-        VoxelHashTableBuffer = new ComputeBuffer(HashTableSize, sizeof(int));
-        int[] emptyTable = new int[HashTableSize];
-        for (int i = 0; i < HashTableSize; i++)
-        {
-            emptyTable[i] = -1;
-        }
-        VoxelHashTableBuffer.SetData(emptyTable);
-
-        VoxelHashChainsBuffer = new ComputeBuffer(1, sizeof(int));
-        VoxelHashChainsBuffer.SetData(new int[] { -1 });
-    }
-
     public bool IsGpuDataReady()
     {
-        return OriginalPointsBuffer != null && OriginalPointsBuffer.IsValid() &&
-               VoxelDataBuffer != null && VoxelDataBuffer.IsValid() &&
-               VoxelPointIndicesBuffer != null && VoxelPointIndicesBuffer.IsValid() &&
-               VoxelHashTableBuffer != null && VoxelHashTableBuffer.IsValid() &&
-               VoxelHashChainsBuffer != null && VoxelHashChainsBuffer.IsValid();
+        return OriginalPointsBuffer != null && OriginalPointsBuffer.IsValid();
+    }
+
+    private void SetPointDataCacheFromVertices()
+    {
+        if (originalPoints == null || originalPoints.Length == 0) return;
+
+        if (pointDataCache == null || pointDataCache.Length != originalPoints.Length)
+        {
+            pointDataCache = new Point[originalPoints.Length];
+        }
+
+        for (int i = 0; i < originalPoints.Length; i++)
+        {
+            pointDataCache[i].position = new Vector4(
+                originalPoints[i].x,
+                originalPoints[i].y,
+                originalPoints[i].z,
+                0f
+            );
+            pointDataCache[i].color = Color.white;
+        }
+        OriginalPointsBuffer.SetData(pointDataCache);
     }
 
     public void SetPointDataCache(PCV_Data data)
@@ -228,7 +157,8 @@ public class VoxelGrid
         if (OriginalPointsBuffer == null || !OriginalPointsBuffer.IsValid())
         {
             UnityEngine.Debug.LogError("OriginalPointsBuffer is null or invalid in SetPointDataCache!");
-            return;
+            int pointCount = Mathf.Max(1, data.PointCount);
+            OriginalPointsBuffer = new ComputeBuffer(pointCount, POINT_SIZE);
         }
 
         if (OriginalPointsBuffer.count != data.PointCount)
@@ -246,49 +176,6 @@ public class VoxelGrid
         OriginalPointsBuffer?.Release();
         OriginalPointsBuffer = null;
 
-        VoxelDataBuffer?.Release();
-        VoxelDataBuffer = null;
-
-        VoxelPointIndicesBuffer?.Release();
-        VoxelPointIndicesBuffer = null;
-
-        VoxelHashTableBuffer?.Release();
-        VoxelHashTableBuffer = null;
-
-        VoxelHashChainsBuffer?.Release();
-        VoxelHashChainsBuffer = null;
-
         pointDataCache = null;
-    }
-
-    private static uint HashVoxelIndex(Vector3Int voxelIndex, uint hashTableSize)
-    {
-        const uint p1 = 73856093;
-        const uint p2 = 19349663;
-        const uint p3 = 83492791;
-        uint hash = ((uint)voxelIndex.x * p1) ^ ((uint)voxelIndex.y * p2) ^ ((uint)voxelIndex.z * p3);
-        return hash % hashTableSize;
-    }
-
-    private static int GetNextPrime(int min)
-    {
-        if (min < 2) min = 2;
-        for (int i = min | 1; i < int.MaxValue; i += 2)
-        {
-            if (IsPrime(i)) return i;
-        }
-        return min;
-    }
-
-    private static bool IsPrime(int n)
-    {
-        if (n < 2) return false;
-        if (n == 2 || n == 3) return true;
-        if (n % 2 == 0 || n % 3 == 0) return false;
-        for (int i = 5; i * i <= n; i += 6)
-        {
-            if (n % i == 0 || n % (i + 2) == 0) return false;
-        }
-        return true;
     }
 }
