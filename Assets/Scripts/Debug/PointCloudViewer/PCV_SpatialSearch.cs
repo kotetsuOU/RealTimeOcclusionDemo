@@ -53,11 +53,6 @@ public class PCV_SpatialSearch : IDisposable
         {
             if (disposing)
             {
-            }
-
-            if (VoxelGrid != null)
-            {
-                VoxelGrid.ReleaseBuffers();
                 VoxelGrid = null;
             }
             disposedValue = true;

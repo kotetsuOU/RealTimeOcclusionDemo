@@ -2,7 +2,7 @@ using System;
 using UnityEngine;
 using System.Collections.Generic;
 #if UNITY_EDITOR
-using UnityEditor; // EditorApplication ‚Æ AssemblyReloadEvents ‚Ì‚½‚ß‚É’Ç‰Á
+using UnityEditor; 
 #endif
 
 public class PCV_DataManager : MonoBehaviour
@@ -35,10 +35,6 @@ public class PCV_DataManager : MonoBehaviour
         if (CurrentData != null && CurrentData.PointCount > 0)
         {
             SpatialSearch = new PCV_SpatialSearch(CurrentData, voxelSize);
-            if (SpatialSearch.VoxelGrid != null)
-            {
-                SpatialSearch.VoxelGrid.SetPointDataCache(CurrentData);
-            }
         }
         else
         {
