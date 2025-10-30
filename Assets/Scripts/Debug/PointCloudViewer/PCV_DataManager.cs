@@ -1,11 +1,14 @@
-using UnityEngine;
 using System;
+using UnityEngine;
+using System.Collections.Generic;
+#if UNITY_EDITOR
+using UnityEditor; 
+#endif
 
 public class PCV_DataManager : MonoBehaviour
 {
     public PCV_Data CurrentData { get; private set; }
     public PCV_SpatialSearch SpatialSearch { get; private set; }
-
     public event Action<PCV_Data> OnDataUpdated;
 
     public void LoadAndSetData(FileSettings[] fileSettings, float voxelSize)
@@ -25,7 +28,10 @@ public class PCV_DataManager : MonoBehaviour
 
     public void SetData(PCV_Data newData, float voxelSize)
     {
+        ReleaseAllBuffers();
+
         CurrentData = newData;
+
         if (CurrentData != null && CurrentData.PointCount > 0)
         {
             SpatialSearch = new PCV_SpatialSearch(CurrentData, voxelSize);
@@ -34,6 +40,55 @@ public class PCV_DataManager : MonoBehaviour
         {
             SpatialSearch = null;
         }
+
         OnDataUpdated?.Invoke(CurrentData);
     }
+
+    private void OnDestroy()
+    {
+        ReleaseAllBuffers();
+#if UNITY_EDITOR
+        AssemblyReloadEvents.beforeAssemblyReload -= OnBeforeAssemblyReload;
+        EditorApplication.playModeStateChanged -= OnPlayModeStateChanged;
+#endif
+    }
+
+    private void OnDisable()
+    {
+        ReleaseAllBuffers();
+#if UNITY_EDITOR
+        AssemblyReloadEvents.beforeAssemblyReload -= OnBeforeAssemblyReload;
+        EditorApplication.playModeStateChanged -= OnPlayModeStateChanged;
+#endif
+    }
+
+    private void ReleaseAllBuffers()
+    {
+        if (SpatialSearch != null)
+        {
+            SpatialSearch.Dispose();
+            SpatialSearch = null;
+        }
+    }
+
+#if UNITY_EDITOR
+    private void OnEnable()
+    {
+        AssemblyReloadEvents.beforeAssemblyReload += OnBeforeAssemblyReload;
+        EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
+    }
+
+    private void OnBeforeAssemblyReload()
+    {
+        ReleaseAllBuffers();
+    }
+
+    private void OnPlayModeStateChanged(PlayModeStateChange state)
+    {
+        if (state == PlayModeStateChange.ExitingPlayMode || state == PlayModeStateChange.EnteredEditMode)
+        {
+            ReleaseAllBuffers();
+        }
+    }
+#endif
 }

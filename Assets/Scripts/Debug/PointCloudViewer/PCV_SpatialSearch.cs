@@ -1,10 +1,12 @@
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 
-public class PCV_SpatialSearch
+public class PCV_SpatialSearch : IDisposable
 {
     private readonly PCV_Data data;
     public VoxelGrid VoxelGrid { get; private set; }
+    private bool disposedValue;
 
     public PCV_SpatialSearch(PCV_Data pointCloudData, float voxelSize)
     {
@@ -35,6 +37,7 @@ public class PCV_SpatialSearch
                 closestIndex = i;
             }
         }
+
         return closestIndex != -1 && minDistanceSq < maxDistanceSq;
     }
 
@@ -42,5 +45,23 @@ public class PCV_SpatialSearch
     {
         if (VoxelGrid == null) return new List<int>();
         return VoxelGrid.FindNeighbors(pointIndex, searchRadius);
+    }
+
+    protected virtual void Dispose(bool disposing)
+    {
+        if (!disposedValue)
+        {
+            if (disposing)
+            {
+                VoxelGrid = null;
+            }
+            disposedValue = true;
+        }
+    }
+
+    public void Dispose()
+    {
+        Dispose(disposing: true);
+        GC.SuppressFinalize(this);
     }
 }

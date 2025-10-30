@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -105,7 +106,7 @@ public class RsPointCloudGroupControllerEditor : Editor
             return;
         }
 
-        RsDeviceController deviceController = FindObjectOfType<RsDeviceController>();
+        var deviceController = UnityEngine.Object.FindFirstObjectByType<RsDeviceController>();
         if (deviceController == null)
         {
             Handles.BeginGUI();

@@ -1,0 +1,73 @@
+#pragma kernel CSMain
+#include "UnifiedVoxelStructures.hlsl"
+
+StructuredBuffer<Point> _Points;
+AppendStructuredBuffer<Point> _FilteredPoints;
+StructuredBuffer<VoxelData> _VoxelData;
+StructuredBuffer<int> _VoxelPointIndices;
+StructuredBuffer<int> _VoxelHashTable;
+StructuredBuffer<int> _VoxelHashChains;
+
+uint _PointCount;
+float _SearchRadius;
+int _NeighborThreshold;
+float _VoxelSize;
+uint _HashTableSize;
+
+[numthreads(64, 1, 1)]
+void CSMain(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= _PointCount)
+    {
+        return;
+    }
+    
+    Point currentPoint = _Points[id.x];
+    int neighborCount = 0;
+    float searchRadiusSq = _SearchRadius * _SearchRadius;
+    
+    int3 centerVoxel = GetVoxelIndex(currentPoint.position.xyz, _VoxelSize);
+    
+    int searchRange = max(1, (int) ceil(_SearchRadius / _VoxelSize));
+    
+    for (int x = -searchRange; x <= searchRange; x++)
+    {
+        for (int y = -searchRange; y <= searchRange; y++)
+        {
+            for (int z = -searchRange; z <= searchRange; z++)
+            {
+                int3 neighborVoxel = centerVoxel + int3(x, y, z);
+                
+                int voxelDataIndex = FindVoxelDataFast(
+                    neighborVoxel, _VoxelData, _VoxelHashTable,
+                    _VoxelHashChains, _HashTableSize
+                );
+                
+                if (voxelDataIndex >= 0)
+                {
+                    VoxelData vd = _VoxelData[voxelDataIndex];
+                    for (int i = 0; i < vd.pointCount; i++)
+                    {
+                        int pointIndex = _VoxelPointIndices[vd.dataOffset + i];
+                        if (pointIndex == (int) id.x)
+                        {
+                            continue;
+                        }
+                        
+                        float3 diff = currentPoint.position.xyz - _Points[pointIndex].position.xyz;
+                        float distSq = dot(diff, diff);
+                        if (distSq <= searchRadiusSq)
+                        {
+                            neighborCount++;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    if (neighborCount >= _NeighborThreshold)
+    {
+        _FilteredPoints.Append(currentPoint);
+    }
+}

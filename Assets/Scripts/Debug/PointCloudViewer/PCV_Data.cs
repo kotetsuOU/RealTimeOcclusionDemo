@@ -1,5 +1,6 @@
 using UnityEngine;
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
 
 public class PCV_Data
 {
@@ -24,5 +25,30 @@ public class PCV_Data
             this.Vertices = new Vector3[0];
             this.Colors = new Color[0];
         }
+    }
+}
+
+[StructLayout(LayoutKind.Sequential, Pack = 4)]
+public struct PCV_Point
+{
+    public float posX;
+    public float posY;
+    public float posZ;
+    public float padding1; 
+    public float colorR;
+    public float colorG;
+    public float colorB;
+    public float colorA;
+
+    public Vector3 position
+    {
+        get => new Vector3(posX, posY, posZ);
+        set { posX = value.x; posY = value.y; posZ = value.z; }
+    }
+
+    public Color color
+    {
+        get => new Color(colorR, colorG, colorB, colorA);
+        set { colorR = value.r; colorG = value.g; colorB = value.b; colorA = value.a; }
     }
 }

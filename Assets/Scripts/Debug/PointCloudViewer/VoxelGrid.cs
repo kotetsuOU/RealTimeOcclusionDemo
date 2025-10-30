@@ -9,16 +9,20 @@ public class VoxelGrid
 
     public IReadOnlyDictionary<Vector3Int, List<int>> Grid => grid;
 
+    public float VoxelSize => voxelSize;
+
     public VoxelGrid(Vector3[] points, float size)
     {
-        originalPoints = points;
+        originalPoints = points ?? new Vector3[0];
         voxelSize = size;
         grid = new Dictionary<Vector3Int, List<int>>();
-        Build();
+        BuildCpuGrid();
     }
 
-    private void Build()
+    private void BuildCpuGrid()
     {
+        if (originalPoints.Length == 0) return;
+
         for (int i = 0; i < originalPoints.Length; i++)
         {
             Vector3 point = originalPoints[i];
@@ -34,6 +38,7 @@ public class VoxelGrid
 
     private Vector3Int GetVoxelIndex(Vector3 point)
     {
+        if (voxelSize <= 0) return Vector3Int.zero;
         return new Vector3Int(
             Mathf.FloorToInt(point.x / voxelSize),
             Mathf.FloorToInt(point.y / voxelSize),
@@ -44,16 +49,19 @@ public class VoxelGrid
     public List<int> FindNeighbors(int pointIndex, float searchRadius)
     {
         List<int> neighbors = new List<int>();
-        Vector3 searchPoint = originalPoints[pointIndex];
+        if (pointIndex < 0 || pointIndex >= originalPoints.Length) return neighbors;
 
+        Vector3 searchPoint = originalPoints[pointIndex];
         Vector3Int centerVoxelIndex = GetVoxelIndex(searchPoint);
         float searchRadiusSq = searchRadius * searchRadius;
 
-        for (int x = -1; x <= 1; x++)
+        int searchRange = Mathf.Max(1, Mathf.CeilToInt(searchRadius / voxelSize));
+
+        for (int x = -searchRange; x <= searchRange; x++)
         {
-            for (int y = -1; y <= 1; y++)
+            for (int y = -searchRange; y <= searchRange; y++)
             {
-                for (int z = -1; z <= 1; z++)
+                for (int z = -searchRange; z <= searchRange; z++)
                 {
                     Vector3Int neighborVoxelIndex = centerVoxelIndex + new Vector3Int(x, y, z);
                     if (grid.TryGetValue(neighborVoxelIndex, out List<int> pointsInVoxel))

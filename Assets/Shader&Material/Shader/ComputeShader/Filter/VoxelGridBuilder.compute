@@ -1,0 +1,169 @@
+#pragma kernel CSClearHashTable
+#pragma kernel CSClearVoxelData
+#pragma kernel CSBuildGrid
+#pragma kernel CSScanOffsets
+#pragma kernel CSBuildIndices
+
+#include "UnifiedVoxelStructures.hlsl"
+
+StructuredBuffer<Point> _PointsIn;
+uint _PointCount;
+uint _HashTableSize;
+float _VoxelSize;
+uint _MaxVoxelCount;
+
+RWStructuredBuffer<VoxelData> _VoxelData;
+RWStructuredBuffer<int> _VoxelHashTable;
+RWStructuredBuffer<int> _VoxelHashChains;
+RWStructuredBuffer<int> _VoxelPointIndices;
+RWStructuredBuffer<uint> _VoxelCounter;
+
+[numthreads(256, 1, 1)]
+void CSClearHashTable(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x < _HashTableSize)
+    {
+        _VoxelHashTable[id.x] = -1;
+    }
+    if (id.x == 0)
+    {
+        _VoxelCounter[0] = 0;
+    }
+}
+
+[numthreads(256, 1, 1)]
+void CSClearVoxelData(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x < _MaxVoxelCount)
+    {
+        _VoxelData[id.x].index = int3(0, 0, 0);
+        _VoxelData[id.x].pointCount = 0;
+        _VoxelData[id.x].dataOffset = 0;
+        _VoxelData[id.x].writeCounter = 0;
+    }
+}
+
+[numthreads(256, 1, 1)]
+void CSBuildGrid(uint3 id : SV_DispatchThreadID)
+{
+    uint pointIndex = id.x;
+    if (pointIndex >= _PointCount)
+    {
+        return;
+    }
+
+    Point pt = _PointsIn[pointIndex];
+    int3 voxelIndex = GetVoxelIndex(pt.position.xyz, _VoxelSize);
+    uint hash = HashVoxelIndex(voxelIndex, _HashTableSize);
+    
+    int foundIndex = -1;
+    
+    while (true)
+    {
+        int voxelDataIndex = _VoxelHashTable[hash];
+        int currentHead = voxelDataIndex;
+        
+        while (voxelDataIndex != -1 && voxelDataIndex != 0x7FFFFFFF)
+        {
+            if (all(_VoxelData[voxelDataIndex].index == voxelIndex))
+            {
+                foundIndex = voxelDataIndex;
+                break;
+            }
+            voxelDataIndex = _VoxelHashChains[voxelDataIndex];
+        }
+
+        if (foundIndex != -1)
+        {
+            break;
+        }
+
+        uint newIndex;
+        InterlockedAdd(_VoxelCounter[0], 1, newIndex);
+        
+        if (newIndex >= _MaxVoxelCount)
+            return;
+
+        _VoxelData[newIndex].index = voxelIndex;
+        _VoxelData[newIndex].pointCount = 0;
+        _VoxelData[newIndex].dataOffset = 0;
+        _VoxelData[newIndex].writeCounter = 0;
+        
+        _VoxelHashChains[newIndex] = currentHead;
+
+        AllMemoryBarrier();
+
+        int originalValue;
+        InterlockedCompareExchange(
+            _VoxelHashTable[hash],
+            currentHead,
+            (int) newIndex,
+            originalValue
+        );
+
+        if (originalValue == currentHead)
+        {
+            foundIndex = (int) newIndex;
+            break;
+        }
+    }
+
+    InterlockedAdd(_VoxelData[foundIndex].pointCount, 1);
+}
+
+[numthreads(1, 1, 1)]
+void CSScanOffsets()
+{
+    uint totalVoxels = min(_VoxelCounter[0], _MaxVoxelCount);
+    uint currentOffset = 0;
+    
+    for (uint i = 0; i < totalVoxels; i++)
+    {
+        _VoxelData[i].dataOffset = (int)currentOffset;
+        _VoxelData[i].writeCounter = 0;
+        currentOffset += _VoxelData[i].pointCount;
+    }
+}
+
+[numthreads(256, 1, 1)]
+void CSBuildIndices(uint3 id : SV_DispatchThreadID)
+{
+    uint pointIndex = id.x;
+    if (pointIndex >= _PointCount)
+    {
+        return;
+    }
+
+    Point pt = _PointsIn[pointIndex];
+    int3 voxelIndex = GetVoxelIndex(pt.position.xyz, _VoxelSize);
+    uint hash = HashVoxelIndex(voxelIndex, _HashTableSize);
+
+    int voxelDataIndex = _VoxelHashTable[hash];
+    int foundIndex = -1;
+    
+    while (voxelDataIndex != -1 && voxelDataIndex != 0x7FFFFFFF)
+    {
+        if (all(_VoxelData[voxelDataIndex].index == voxelIndex))
+        {
+            foundIndex = voxelDataIndex;
+            break;
+        }
+        voxelDataIndex = _VoxelHashChains[voxelDataIndex];
+    }
+
+    if (foundIndex != -1)
+    {
+        uint localWriteIndex;
+        InterlockedAdd(_VoxelData[foundIndex].writeCounter, 1, localWriteIndex);
+
+        if (localWriteIndex < (uint)_VoxelData[foundIndex].pointCount)
+        {
+            int globalIndex = _VoxelData[foundIndex].dataOffset + (int)localWriteIndex;
+            
+            if (globalIndex >= 0 && globalIndex < (int)_PointCount)
+            {
+                _VoxelPointIndices[globalIndex] = (int)pointIndex;
+            }
+        }
+    }
+}
