@@ -1,0 +1,75 @@
+#pragma kernel CSMain
+
+// Input buffer (from RSPC_FocusCentroidCalculator)
+StructuredBuffer<float3> _InputVertices;
+
+// Output buffer (one result per thread group)
+// float4 contains: float3(Sum.xyz) + float(Count)
+RWStructuredBuffer<float4> _ResultBuffer;
+
+cbuffer Params
+{
+    float3 _FocusPoint;
+    float _RadiusSq;
+    uint _VertexCount;
+};
+
+// Thread group size (must match C# constant)
+#define THREAD_GROUP_SIZE 256
+
+// Group shared memory for partial sums and counts
+groupshared float3 _LocalSum[THREAD_GROUP_SIZE];
+groupshared uint _LocalCount[THREAD_GROUP_SIZE];
+
+[numthreads(THREAD_GROUP_SIZE, 1, 1)]
+void CSMain(uint3 dispatchThreadID : SV_DispatchThreadID, // Global thread ID
+            uint3 groupThreadID : SV_GroupThreadID, // Thread ID within the group (0-255)
+            uint3 groupID : SV_GroupID)                 // Group ID
+{
+    uint g_idx = groupThreadID.x; // Local index (0-255)
+    uint d_idx = dispatchThreadID.x; // Global index
+
+    // 1. Initialize shared memory for this thread
+    _LocalSum[g_idx] = float3(0, 0, 0);
+    _LocalCount[g_idx] = 0;
+    
+    // Wait for all threads in the group to initialize
+    GroupMemoryBarrierWithGroupSync();
+
+    // 2. Process the vertex if within bounds
+    if (d_idx < _VertexCount)
+    {
+        float3 vertex = _InputVertices[d_idx];
+        
+        // Calculate distance squared
+        float distSq = dot(vertex - _FocusPoint, vertex - _FocusPoint);
+
+        // If inside the radius, store result in shared memory
+        if (distSq <= _RadiusSq)
+        {
+            _LocalSum[g_idx] = vertex;
+            _LocalCount[g_idx] = 1;
+        }
+    }
+
+    // Wait for all threads to finish processing vertices
+    GroupMemoryBarrierWithGroupSync();
+
+    // 3. Reduction: Sum up results within the group
+    // Only the first thread in the group (g_idx == 0) performs the final sum.
+    if (g_idx == 0)
+    {
+        float3 totalGroupSum = float3(0, 0, 0);
+        uint totalGroupCount = 0;
+
+        // Loop over all shared memory entries
+        for (uint i = 0; i < THREAD_GROUP_SIZE; i++)
+        {
+            totalGroupSum += _LocalSum[i];
+            totalGroupCount += _LocalCount[i];
+        }
+        
+        // 4. Write the group's total result to the output buffer
+        _ResultBuffer[groupID.x] = float4(totalGroupSum, (float) totalGroupCount);
+    }
+}
