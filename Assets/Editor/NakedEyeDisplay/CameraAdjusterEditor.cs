@@ -6,6 +6,11 @@ public class CameraAdjusterEditor : Editor
 {
     public override void OnInspectorGUI()
     {
+        if (target == null)
+        {
+            return;
+        }
+
         base.OnInspectorGUI();
         CameraAdjuster adjuster = (CameraAdjuster)target;
 

@@ -15,6 +15,7 @@ public class PCDRenderPass : ScriptableRenderPass
     {
         public Vector3 position;
         public Vector3 color;
+        public uint originType; // 0 = PointCloud, 1 = StaticMesh
     }
 
     private class MeshTransformPair
@@ -31,6 +32,7 @@ public class PCDRenderPass : ScriptableRenderPass
     private bool _enableGradientCorrection;
     private float _gradientThreshold_g_th;
     private float _occlusionThreshold;
+    private bool _enableOriginDebugMap;
 
     private ComputeBuffer _pointBuffer;
     private int _pointCount = 0;
@@ -38,11 +40,14 @@ public class PCDRenderPass : ScriptableRenderPass
     private bool _isDataDirty = false;
 
     private int _kernelClear, _kernelProject, _kernelCalcGridZMin, _kernelCalcDensity,
-                _kernelCalcNeighborhoodSize, _kernelMedianFilter,
-                _kernelBuildDepthPyramidL1, _kernelBuildDepthPyramidL2, // 7a
-                _kernelBuildDepthPyramidL3, _kernelBuildDepthPyramidL4, // 7a
-                _kernelApplyGradient, // 7b+7c
+                _kernelCalcGridLevel, _kernelGridMedianFilter,
+                _kernelCalcNeighborhoodSize,
+                _kernelBuildDepthPyramidL1, _kernelBuildDepthPyramidL2,
+                _kernelBuildDepthPyramidL3, _kernelBuildDepthPyramidL4,
+                _kernelApplyGradient,
                 _kernelOcclusion, _kernelInterpolate;
+
+    private RTHandle _originDebugMapHandle;
 
     private bool _isInitialized = false;
 
@@ -59,9 +64,15 @@ public class PCDRenderPass : ScriptableRenderPass
         this._enableGradientCorrection = settings.enableGradientCorrection;
         this._gradientThreshold_g_th = settings.gradientThreshold_g_th;
         this._occlusionThreshold = settings.occlusionThreshold;
+        this._enableOriginDebugMap = settings.enableOriginDebugMap;
 
         this.m_BlendMaterial = blendMaterial;
         this._enableAlphaBlend = enableAlphaBlend;
+    }
+
+    public void SetDebugFlag(bool enableDebugMap)
+    {
+        this._enableOriginDebugMap = enableDebugMap;
     }
 
     public void SetPointCloudData(PCV_Data data)
@@ -139,6 +150,7 @@ public class PCDRenderPass : ScriptableRenderPass
 
         int cacheIndex = 0;
 
+        // Dynamic data
         if (dataPointCount > 0)
         {
             for (int i = 0; i < dataPointCount; i++)
@@ -146,13 +158,15 @@ public class PCDRenderPass : ScriptableRenderPass
                 _pointsCache[cacheIndex] = new Point
                 {
                     position = _dynamicData.Vertices[i],
-                    color = new Vector3(_dynamicData.Colors[i].r, _dynamicData.Colors[i].g, _dynamicData.Colors[i].b)
+                    color = new Vector3(_dynamicData.Colors[i].r, _dynamicData.Colors[i].g, _dynamicData.Colors[i].b),
+                    originType = 0 // 0 = PointCloud
                 };
                 cacheIndex++;
             }
         }
 
         Vector3 defaultColor = new Vector3(1.0f, 1.0f, 1.0f);
+        // Static mesh data
         foreach (var pair in _staticMeshes)
         {
             if (pair.mesh == null || !pair.mesh.isReadable || pair.transform == null) continue;
@@ -174,7 +188,8 @@ public class PCDRenderPass : ScriptableRenderPass
                 _pointsCache[cacheIndex] = new Point
                 {
                     position = worldPos,
-                    color = color
+                    color = color,
+                    originType = 1 // 1 = StaticMesh
                 };
                 cacheIndex++;
             }
@@ -199,8 +214,9 @@ public class PCDRenderPass : ScriptableRenderPass
         _kernelProject = pointCloudCompute.FindKernel("ProjectPoints");
         _kernelCalcGridZMin = pointCloudCompute.FindKernel("CalculateGridZMin");
         _kernelCalcDensity = pointCloudCompute.FindKernel("CalculateDensity");
+        _kernelCalcGridLevel = pointCloudCompute.FindKernel("CalculateGridLevel");
+        _kernelGridMedianFilter = pointCloudCompute.FindKernel("GridMedianFilter");
         _kernelCalcNeighborhoodSize = pointCloudCompute.FindKernel("CalculateNeighborhoodSize");
-        _kernelMedianFilter = pointCloudCompute.FindKernel("MedianFilter");
 
         if (_enableGradientCorrection)
         {
@@ -230,7 +246,7 @@ public class PCDRenderPass : ScriptableRenderPass
         if (_pointBuffer == null || !_pointBuffer.IsValid() || _pointBuffer.count != _pointCount)
         {
             _pointBuffer?.Release();
-            _pointBuffer = new ComputeBuffer(_pointCount, sizeof(float) * 6);
+            _pointBuffer = new ComputeBuffer(_pointCount, sizeof(float) * 6 + sizeof(uint));
         }
 
         _pointBuffer.SetData(_pointsCache);
@@ -253,9 +269,11 @@ public class PCDRenderPass : ScriptableRenderPass
         internal bool enableGradientCorrection;
         internal float gradientThreshold_g_th;
         internal float occlusionThreshold;
+        internal bool enableOriginDebugMap;
 
         internal int kernelClear, kernelProject, kernelCalcGridZMin, kernelCalcDensity,
-                     kernelCalcNeighborhoodSize, kernelMedianFilter,
+                     kernelCalcGridLevel, kernelGridMedianFilter,
+                     kernelCalcNeighborhoodSize,
                      kernelBuildDepthPyramidL1, kernelBuildDepthPyramidL2,
                      kernelBuildDepthPyramidL3, kernelBuildDepthPyramidL4,
                      kernelApplyGradient,
@@ -268,8 +286,9 @@ public class PCDRenderPass : ScriptableRenderPass
         internal TextureHandle viewPositionMap;
         internal TextureHandle gridZMinMap;
         internal TextureHandle densityMap;
+        internal TextureHandle gridLevelMap;
+        internal TextureHandle filteredGridLevelMap;
         internal TextureHandle neighborhoodSizeMap;
-        internal TextureHandle filteredNeighborhoodSizeMap;
         internal TextureHandle depthPyramidL1;
         internal TextureHandle depthPyramidL2;
         internal TextureHandle depthPyramidL3;
@@ -277,6 +296,8 @@ public class PCDRenderPass : ScriptableRenderPass
         internal TextureHandle correctedNeighborhoodSizeMap;
         internal TextureHandle occlusionResultMap;
         internal TextureHandle finalImage;
+        internal TextureHandle originTypeMap;
+        internal TextureHandle originDebugMap;
     }
 
     private class BlitPassData
@@ -285,6 +306,16 @@ public class PCDRenderPass : ScriptableRenderPass
         internal TextureHandle sourceImage;
         internal TextureHandle cameraTarget;
         internal bool enableAlphaBlend;
+        internal bool enableOriginDebugMap;
+    }
+
+    public Texture GetOriginDebugMap()
+    {
+        if (_enableOriginDebugMap && _originDebugMapHandle != null)
+        {
+            return _originDebugMapHandle;
+        }
+        return null;
     }
 
     public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData)
@@ -335,7 +366,20 @@ public class PCDRenderPass : ScriptableRenderPass
             l4_Height = Mathf.Max(1, Mathf.CeilToInt(l3_Height / 2.0f));
         }
 
+        if (_enableOriginDebugMap)
+        {
+            if (_originDebugMapHandle == null || _originDebugMapHandle.rt == null || _originDebugMapHandle.rt.width != screenWidth || _originDebugMapHandle.rt.height != screenHeight)
+            {
+                _originDebugMapHandle?.Release();
+                var desc = new RenderTextureDescriptor(screenWidth, screenHeight, GraphicsFormatUtility.GetGraphicsFormat(RenderTextureFormat.ARGBFloat, false), 0);
+                desc.enableRandomWrite = true;
+                _originDebugMapHandle = RTHandles.Alloc(desc, name: "_OriginDebugMap");
+            }
+        }
+
         TextureHandle finalImageHandle;
+
+        TextureHandle originDebugMapHandle_RG = default;
 
         using (var builder = renderGraph.AddComputePass<ComputePassData>(PROFILER_TAG, out var data))
         {
@@ -349,13 +393,15 @@ public class PCDRenderPass : ScriptableRenderPass
             data.enableGradientCorrection = _enableGradientCorrection;
             data.gradientThreshold_g_th = _gradientThreshold_g_th;
             data.occlusionThreshold = _occlusionThreshold;
+            data.enableOriginDebugMap = _enableOriginDebugMap;
 
             data.kernelClear = _kernelClear;
             data.kernelProject = _kernelProject;
             data.kernelCalcGridZMin = _kernelCalcGridZMin;
             data.kernelCalcDensity = _kernelCalcDensity;
+            data.kernelCalcGridLevel = _kernelCalcGridLevel;
+            data.kernelGridMedianFilter = _kernelGridMedianFilter;
             data.kernelCalcNeighborhoodSize = _kernelCalcNeighborhoodSize;
-            data.kernelMedianFilter = _kernelMedianFilter;
             data.kernelBuildDepthPyramidL1 = _kernelBuildDepthPyramidL1;
             data.kernelBuildDepthPyramidL2 = _kernelBuildDepthPyramidL2;
             data.kernelBuildDepthPyramidL3 = _kernelBuildDepthPyramidL3;
@@ -374,12 +420,15 @@ public class PCDRenderPass : ScriptableRenderPass
             desc.colorFormat = GraphicsFormatUtility.GetGraphicsFormat(RenderTextureFormat.RInt, false);
             data.depthMap = renderGraph.CreateTexture(desc);
             data.neighborhoodSizeMap = renderGraph.CreateTexture(desc);
-            data.filteredNeighborhoodSizeMap = renderGraph.CreateTexture(desc);
             data.correctedNeighborhoodSizeMap = renderGraph.CreateTexture(desc);
+            data.originTypeMap = renderGraph.CreateTexture(desc);
 
             var gridDesc = new TextureDesc(gridWidth, gridHeight) { enableRandomWrite = true };
             gridDesc.colorFormat = GraphicsFormatUtility.GetGraphicsFormat(RenderTextureFormat.RInt, false);
             data.gridZMinMap = renderGraph.CreateTexture(gridDesc);
+            data.gridLevelMap = renderGraph.CreateTexture(gridDesc);
+            data.filteredGridLevelMap = renderGraph.CreateTexture(gridDesc);
+
             gridDesc.colorFormat = GraphicsFormatUtility.GetGraphicsFormat(RenderTextureFormat.RFloat, false);
             data.densityMap = renderGraph.CreateTexture(gridDesc);
 
@@ -399,13 +448,24 @@ public class PCDRenderPass : ScriptableRenderPass
             data.occlusionResultMap = renderGraph.CreateTexture(desc);
             data.finalImage = renderGraph.CreateTexture(desc);
 
+            if (data.enableOriginDebugMap)
+            {
+                originDebugMapHandle_RG = renderGraph.ImportTexture(_originDebugMapHandle);
+                data.originDebugMap = originDebugMapHandle_RG;
+            }
+            else
+            {
+                data.originDebugMap = renderGraph.CreateTexture(desc);
+            }
+
             builder.UseTexture(data.colorMap, AccessFlags.ReadWrite);
             builder.UseTexture(data.depthMap, AccessFlags.ReadWrite);
             builder.UseTexture(data.viewPositionMap, AccessFlags.ReadWrite);
             builder.UseTexture(data.gridZMinMap, AccessFlags.ReadWrite);
             builder.UseTexture(data.densityMap, AccessFlags.ReadWrite);
+            builder.UseTexture(data.gridLevelMap, AccessFlags.ReadWrite);
+            builder.UseTexture(data.filteredGridLevelMap, AccessFlags.ReadWrite);
             builder.UseTexture(data.neighborhoodSizeMap, AccessFlags.ReadWrite);
-            builder.UseTexture(data.filteredNeighborhoodSizeMap, AccessFlags.ReadWrite);
             if (data.enableGradientCorrection)
             {
                 builder.UseTexture(data.depthPyramidL1, AccessFlags.ReadWrite);
@@ -416,6 +476,9 @@ public class PCDRenderPass : ScriptableRenderPass
             builder.UseTexture(data.correctedNeighborhoodSizeMap, AccessFlags.ReadWrite);
             builder.UseTexture(data.occlusionResultMap, AccessFlags.ReadWrite);
             builder.UseTexture(data.finalImage, AccessFlags.ReadWrite);
+            builder.UseTexture(data.originTypeMap, AccessFlags.ReadWrite);
+            builder.UseTexture(data.originDebugMap, AccessFlags.ReadWrite);
+
             finalImageHandle = data.finalImage;
 
             // --- RenderFunc ---
@@ -445,6 +508,8 @@ public class PCDRenderPass : ScriptableRenderPass
                 cmd.SetComputeTextureParam(cs, passData.kernelClear, "_ViewPositionMap_RW", passData.viewPositionMap);
                 cmd.SetComputeTextureParam(cs, passData.kernelClear, "_OcclusionResultMap_RW", passData.occlusionResultMap);
                 cmd.SetComputeTextureParam(cs, passData.kernelClear, "_FinalImage_RW", passData.finalImage);
+                cmd.SetComputeTextureParam(cs, passData.kernelClear, "_OriginMap_RW", passData.originDebugMap);
+                cmd.SetComputeTextureParam(cs, passData.kernelClear, "_OriginTypeMap_RW", passData.originTypeMap);
                 cmd.DispatchCompute(cs, passData.kernelClear, threadGroupsX, threadGroupsY, 1);
 
                 // 2. ProjectPoints
@@ -452,6 +517,7 @@ public class PCDRenderPass : ScriptableRenderPass
                 cmd.SetComputeTextureParam(cs, passData.kernelProject, "_ColorMap_RW", passData.colorMap);
                 cmd.SetComputeTextureParam(cs, passData.kernelProject, "_DepthMap_RW", passData.depthMap);
                 cmd.SetComputeTextureParam(cs, passData.kernelProject, "_ViewPositionMap_RW", passData.viewPositionMap);
+                cmd.SetComputeTextureParam(cs, passData.kernelProject, "_OriginTypeMap_RW", passData.originTypeMap);
                 cmd.DispatchCompute(cs, passData.kernelProject, Mathf.CeilToInt(passData.pointCount / 256.0f), 1, 1);
 
                 // 3. CalculateGridZMin
@@ -465,15 +531,22 @@ public class PCDRenderPass : ScriptableRenderPass
                 cmd.SetComputeTextureParam(cs, passData.kernelCalcDensity, "_DensityMap_RW", passData.densityMap);
                 cmd.DispatchCompute(cs, passData.kernelCalcDensity, gridGroupsX, gridGroupsY, 1);
 
+                // 4.5. CalculateGridLevel
+                int gridKernelGroupsX = Mathf.CeilToInt(gridGroupsX / 16.0f);
+                int gridKernelGroupsY = Mathf.CeilToInt(gridGroupsY / 16.0f);
+                cmd.SetComputeTextureParam(cs, passData.kernelCalcGridLevel, "_DensityMap", passData.densityMap);
+                cmd.SetComputeTextureParam(cs, passData.kernelCalcGridLevel, "_GridLevelMap_RW", passData.gridLevelMap);
+                cmd.DispatchCompute(cs, passData.kernelCalcGridLevel, gridKernelGroupsX, gridKernelGroupsY, 1);
+
+                // 4.7. GridMedianFilter
+                cmd.SetComputeTextureParam(cs, passData.kernelGridMedianFilter, "_GridLevelMap", passData.gridLevelMap);
+                cmd.SetComputeTextureParam(cs, passData.kernelGridMedianFilter, "_FilteredGridLevelMap_RW", passData.filteredGridLevelMap);
+                cmd.DispatchCompute(cs, passData.kernelGridMedianFilter, gridKernelGroupsX, gridKernelGroupsY, 1);
+
                 // 5. CalculateNeighborhoodSize
-                cmd.SetComputeTextureParam(cs, passData.kernelCalcNeighborhoodSize, "_DensityMap", passData.densityMap);
+                cmd.SetComputeTextureParam(cs, passData.kernelCalcNeighborhoodSize, "_FilteredGridLevelMap", passData.filteredGridLevelMap);
                 cmd.SetComputeTextureParam(cs, passData.kernelCalcNeighborhoodSize, "_NeighborhoodSizeMap_RW", passData.neighborhoodSizeMap);
                 cmd.DispatchCompute(cs, passData.kernelCalcNeighborhoodSize, threadGroupsX, threadGroupsY, 1);
-
-                // 6. MedianFilter
-                cmd.SetComputeTextureParam(cs, passData.kernelMedianFilter, "_NeighborhoodSizeMap", passData.neighborhoodSizeMap);
-                cmd.SetComputeTextureParam(cs, passData.kernelMedianFilter, "_FilteredNeighborhoodSizeMap_RW", passData.filteredNeighborhoodSizeMap);
-                cmd.DispatchCompute(cs, passData.kernelMedianFilter, threadGroupsX, threadGroupsY, 1);
 
                 // 7. Gradient Correction Path
                 if (passData.enableGradientCorrection)
@@ -497,6 +570,7 @@ public class PCDRenderPass : ScriptableRenderPass
                     cmd.SetComputeTextureParam(cs, passData.kernelBuildDepthPyramidL3, "_DepthPyramidL3_RW", passData.depthPyramidL3);
                     cmd.DispatchCompute(cs, passData.kernelBuildDepthPyramidL3, l3_tgX, l3_tgY, 1);
 
+
                     int l4_tgX = Mathf.CeilToInt(l4_Width / 8.0f);
                     int l4_tgY = Mathf.CeilToInt(l4_Height / 8.0f);
                     cmd.SetComputeTextureParam(cs, passData.kernelBuildDepthPyramidL4, "_DepthPyramidL3", passData.depthPyramidL3);
@@ -504,7 +578,7 @@ public class PCDRenderPass : ScriptableRenderPass
                     cmd.DispatchCompute(cs, passData.kernelBuildDepthPyramidL4, l4_tgX, l4_tgY, 1);
 
                     // 7b+7c. ApplyAdaptiveGradientCorrection
-                    cmd.SetComputeTextureParam(cs, passData.kernelApplyGradient, "_FilteredNeighborhoodSizeMap", passData.filteredNeighborhoodSizeMap);
+                    cmd.SetComputeTextureParam(cs, passData.kernelApplyGradient, "_NeighborhoodSizeMap", passData.neighborhoodSizeMap);
                     cmd.SetComputeTextureParam(cs, passData.kernelApplyGradient, "_DepthPyramidL1", passData.depthPyramidL1);
                     cmd.SetComputeTextureParam(cs, passData.kernelApplyGradient, "_DepthPyramidL2", passData.depthPyramidL2);
                     cmd.SetComputeTextureParam(cs, passData.kernelApplyGradient, "_DepthPyramidL3", passData.depthPyramidL3);
@@ -517,6 +591,7 @@ public class PCDRenderPass : ScriptableRenderPass
                 cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, "_ColorMap", passData.colorMap);
                 cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, "_DepthMap", passData.depthMap);
                 cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, "_ViewPositionMap", passData.viewPositionMap);
+                cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, "_OriginTypeMap", passData.originTypeMap);
 
                 if (passData.enableGradientCorrection)
                 {
@@ -524,32 +599,63 @@ public class PCDRenderPass : ScriptableRenderPass
                 }
                 else
                 {
-                    cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, "_FinalNeighborhoodSizeMap", passData.filteredNeighborhoodSizeMap);
+                    cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, "_FinalNeighborhoodSizeMap", passData.neighborhoodSizeMap);
                 }
 
                 cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, "_OcclusionResultMap_RW", passData.occlusionResultMap);
+                cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, "_OriginMap_RW", passData.originDebugMap);
                 cmd.DispatchCompute(cs, passData.kernelOcclusion, threadGroupsX, threadGroupsY, 1);
 
                 // 9. Interpolate
                 cmd.SetComputeTextureParam(cs, passData.kernelInterpolate, "_OcclusionResultMap", passData.occlusionResultMap);
+                cmd.SetComputeTextureParam(cs, passData.kernelInterpolate, "_OriginTypeMap", passData.originTypeMap);
                 cmd.SetComputeTextureParam(cs, passData.kernelInterpolate, "_FinalImage_RW", passData.finalImage);
+                cmd.SetComputeTextureParam(cs, passData.kernelInterpolate, "_OriginMap_RW", passData.originDebugMap);
                 cmd.DispatchCompute(cs, passData.kernelInterpolate, threadGroupsX, threadGroupsY, 1);
             });
         }
 
+        // --- Blit Pass ---
         using (var builder = renderGraph.AddRasterRenderPass<BlitPassData>("PCD Blit Pass", out var data))
         {
             data.blendMaterial = m_BlendMaterial;
             data.enableAlphaBlend = _enableAlphaBlend;
-            data.sourceImage = finalImageHandle;
             data.cameraTarget = resourceData.activeColorTexture;
 
-            builder.UseTexture(data.sourceImage, AccessFlags.Read);
+            data.enableOriginDebugMap = _enableOriginDebugMap;
+
+            if (data.enableOriginDebugMap)
+            {
+                data.sourceImage = originDebugMapHandle_RG;
+                builder.UseTexture(data.sourceImage, AccessFlags.Read);
+            }
+            else
+            {
+                data.sourceImage = finalImageHandle;
+                builder.UseTexture(data.sourceImage, AccessFlags.Read);
+            }
+
             builder.SetRenderAttachment(data.cameraTarget, 0);
 
             builder.SetRenderFunc((BlitPassData passData, RasterGraphContext context) =>
             {
-                if (passData.enableAlphaBlend && passData.blendMaterial != null)
+                if (!passData.enableOriginDebugMap)
+                {
+                    // 0.0f, false は「ブレンドしない」設定です。
+                    Blitter.BlitTexture(context.cmd, passData.sourceImage, new Vector4(1, 1, 0, 0), 0.0f, false);
+                }
+                else
+                {
+                    // DebugMap が有効な場合は、そちらを優先して表示します。
+                    Blitter.BlitTexture(context.cmd, passData.sourceImage, new Vector4(1, 1, 0, 0), 0.0f, false);
+                }
+
+                /*
+                if (passData.enableOriginDebugMap)
+                {
+                    Blitter.BlitTexture(context.cmd, passData.sourceImage, new Vector4(1, 1, 0, 0), 0.0f, false);
+                }
+                else if (passData.enableAlphaBlend && passData.blendMaterial != null)
                 {
                     Blitter.BlitTexture(context.cmd, passData.sourceImage, new Vector4(1, 1, 0, 0), passData.blendMaterial, 0);
                 }
@@ -557,6 +663,7 @@ public class PCDRenderPass : ScriptableRenderPass
                 {
                     Blitter.BlitTexture(context.cmd, passData.sourceImage, new Vector4(1, 1, 0, 0), 0.0f, false);
                 }
+                */
             });
         }
     }
@@ -565,6 +672,10 @@ public class PCDRenderPass : ScriptableRenderPass
     {
         _pointBuffer?.Release();
         _pointBuffer = null;
+
+        _originDebugMapHandle?.Release();
+        _originDebugMapHandle = null;
+
         _isInitialized = false;
         _pointsCache = null;
         _dynamicData = null;

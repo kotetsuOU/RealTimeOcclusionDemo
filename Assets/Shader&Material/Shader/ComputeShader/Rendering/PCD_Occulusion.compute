@@ -2,8 +2,9 @@
 #pragma kernel ProjectPoints
 #pragma kernel CalculateGridZMin
 #pragma kernel CalculateDensity
+#pragma kernel CalculateGridLevel
+#pragma kernel GridMedianFilter
 #pragma kernel CalculateNeighborhoodSize
-#pragma kernel MedianFilter
 #pragma kernel BuildDepthPyramidL1
 #pragma kernel BuildDepthPyramidL2
 #pragma kernel BuildDepthPyramidL3
@@ -17,6 +18,7 @@ struct Point
 {
     float3 position;
     float3 color;
+    uint originType; // 0 = PointCloud, 1 = StaticMesh
 };
 
 // --- Buffers and Textures ---
@@ -26,27 +28,32 @@ RWTexture2D<uint> _DepthMap_RW;
 RWTexture2D<float4> _ViewPositionMap_RW;
 RWTexture2D<uint> _GridZMinMap_RW;
 RWTexture2D<float> _DensityMap_RW;
+RWTexture2D<int> _GridLevelMap_RW;
+RWTexture2D<int> _FilteredGridLevelMap_RW;
 RWTexture2D<int> _NeighborhoodSizeMap_RW;
-RWTexture2D<int> _FilteredNeighborhoodSizeMap_RW;
 RWTexture2D<uint> _DepthPyramidL1_RW;
 RWTexture2D<uint> _DepthPyramidL2_RW;
 RWTexture2D<uint> _DepthPyramidL3_RW;
 RWTexture2D<uint> _DepthPyramidL4_RW;
 RWTexture2D<int> _CorrectedNeighborhoodSizeMap_RW;
+RWTexture2D<uint> _OriginTypeMap_RW;
 RWTexture2D<float4> _OcclusionResultMap_RW;
 RWTexture2D<float4> _FinalImage_RW;
+RWTexture2D<float4> _OriginMap_RW;
 
 Texture2D<float4> _ColorMap;
 Texture2D<uint> _DepthMap;
 Texture2D<float4> _ViewPositionMap;
 Texture2D<uint> _GridZMinMap;
 Texture2D<float> _DensityMap;
+Texture2D<int> _GridLevelMap;
+Texture2D<int> _FilteredGridLevelMap;
 Texture2D<int> _NeighborhoodSizeMap;
-Texture2D<int> _FilteredNeighborhoodSizeMap;
 Texture2D<uint> _DepthPyramidL1;
 Texture2D<uint> _DepthPyramidL2;
 Texture2D<uint> _DepthPyramidL3;
 Texture2D<uint> _DepthPyramidL4;
+Texture2D<uint> _OriginTypeMap;
 Texture2D<int> _FinalNeighborhoodSizeMap;
 Texture2D<float4> _OcclusionResultMap;
 
@@ -80,7 +87,6 @@ float SobelOnPyramid(Texture2D<uint> pyramidTex, uint2 uv)
 {
     uint2 dim;
     pyramidTex.GetDimensions(dim.x, dim.y);
-
     float tl = (float) pyramidTex[clamp(uv + int2(-1, -1), 0, dim - 1)] / (float) DEPTH_MAX_UINT;
     float t = (float) pyramidTex[clamp(uv + int2(0, -1), 0, dim - 1)] / (float) DEPTH_MAX_UINT;
     float tr = (float) pyramidTex[clamp(uv + int2(1, -1), 0, dim - 1)] / (float) DEPTH_MAX_UINT;
@@ -100,7 +106,6 @@ float SobelOnPyramid(Texture2D<uint> pyramidTex, uint2 uv)
 
     float Gx = (tr + 2.0 * r + br) - (tl + 2.0 * l + bl);
     float Gy = (bl + 2.0 * b + br) - (tl + 2.0 * t + tr);
-    
     return sqrt(Gx * Gx + Gy * Gy);
 }
 
@@ -117,6 +122,9 @@ void ClearMaps(uint3 id : SV_DispatchThreadID)
     _ViewPositionMap_RW[id.xy] = float4(0, 0, 0, 1e9);
     _OcclusionResultMap_RW[id.xy] = float4(0, 0, 0, 0);
     _FinalImage_RW[id.xy] = float4(0, 0, 0, 0);
+
+    _OriginMap_RW[id.xy] = float4(0, 0, 0, 1); //color
+    _OriginTypeMap_RW[id.xy] = 2u;
 }
 
 // 2. Project Points
@@ -141,6 +149,7 @@ void ProjectPoints(uint3 id : SV_DispatchThreadID)
     {
         _ColorMap_RW[screenUV] = float4(p.color, 1.0);
         _ViewPositionMap_RW[screenUV] = float4(viewPos.xyz, depth);
+        _OriginTypeMap_RW[screenUV] = p.originType;
     }
 }
 
@@ -193,41 +202,47 @@ void CalculateDensity(uint3 id : SV_DispatchThreadID, uint3 groupID : SV_GroupID
     }
 }
 
-// 5. Calculate Neighborhood Size
-[numthreads(8, 8, 1)]
-void CalculateNeighborhoodSize(uint3 id : SV_DispatchThreadID)
+// 4.5. Calculate Grid Level
+[numthreads(16, 16, 1)]
+void CalculateGridLevel(uint3 id : SV_DispatchThreadID)
 {
-    if (id.x >= (uint) _ScreenParams.x || id.y >= (uint) _ScreenParams.y)
+    uint2 dim;
+    _DensityMap.GetDimensions(dim.x, dim.y);
+    if (id.x >= dim.x || id.y >= dim.y)
         return;
-    uint2 gridID = id.xy / GRID_SIZE;
-    float density = _DensityMap[gridID];
+        
+    float density = _DensityMap[id.xy];
     int level = 0;
     if (density > 0.001)
     {
         float L = _NeighborhoodParam_p_prime / sqrt(density);
         level = (int) floor(log2(L));
     }
-    _NeighborhoodSizeMap_RW[id.xy] = max(0, level);
+    _GridLevelMap_RW[id.xy] = max(0, level);
 }
 
-// 6. Median Filter
-[numthreads(8, 8, 1)]
-void MedianFilter(uint3 id : SV_DispatchThreadID)
+// 4.7. Grid Median Filter
+[numthreads(16, 16, 1)]
+void GridMedianFilter(uint3 id : SV_DispatchThreadID)
 {
-    if (id.x >= (uint) _ScreenParams.x || id.y >= (uint) _ScreenParams.y)
+    uint2 dim;
+    _GridLevelMap.GetDimensions(dim.x, dim.y);
+    if (id.x >= dim.x || id.y >= dim.y)
         return;
-    
+
     int values[9];
-    int index = 0;
-    for (int y = -1; y <= 1; y++)
-    {
-        for (int x = -1; x <= 1; x++)
-        {
-            uint2 uv = clamp(id.xy + int2(x, y), 0, _ScreenParams.xy - 1);
-            values[index++] = _NeighborhoodSizeMap[uv];
-        }
-    }
-    for (int i = 0; i < 5; ++i)
+    
+    values[0] = _GridLevelMap[clamp(id.xy + int2(-1, -1), 0, dim - 1)];
+    values[1] = _GridLevelMap[clamp(id.xy + int2( 0, -1), 0, dim - 1)];
+    values[2] = _GridLevelMap[clamp(id.xy + int2( 1, -1), 0, dim - 1)];
+    values[3] = _GridLevelMap[clamp(id.xy + int2(-1,  0), 0, dim - 1)];
+    values[4] = _GridLevelMap[clamp(id.xy + int2( 0,  0), 0, dim - 1)];
+    values[5] = _GridLevelMap[clamp(id.xy + int2( 1,  0), 0, dim - 1)];
+    values[6] = _GridLevelMap[clamp(id.xy + int2(-1,  1), 0, dim - 1)];
+    values[7] = _GridLevelMap[clamp(id.xy + int2( 0,  1), 0, dim - 1)];
+    values[8] = _GridLevelMap[clamp(id.xy + int2( 1,  1), 0, dim - 1)];
+
+    for (int i = 0; i < 9; ++i)
     {
         for (int j = i + 1; j < 9; ++j)
         {
@@ -239,7 +254,20 @@ void MedianFilter(uint3 id : SV_DispatchThreadID)
             }
         }
     }
-    _FilteredNeighborhoodSizeMap_RW[id.xy] = values[4];
+    
+    _FilteredGridLevelMap_RW[id.xy] = values[4];
+}
+
+
+// 5. Calculate Neighborhood Size
+[numthreads(8, 8, 1)]
+void CalculateNeighborhoodSize(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint) _ScreenParams.x || id.y >= (uint) _ScreenParams.y)
+        return;
+    uint2 gridID = id.xy / GRID_SIZE;
+    int level = _FilteredGridLevelMap[gridID];
+    _NeighborhoodSizeMap_RW[id.xy] = level;
 }
 
 // 7a-1. Build Depth Pyramid L1
@@ -250,7 +278,6 @@ void BuildDepthPyramidL1(uint3 id : SV_DispatchThreadID)
     _DepthPyramidL1_RW.GetDimensions(dim.x, dim.y);
     if (id.x >= dim.x || id.y >= dim.y)
         return;
-    
     _DepthPyramidL1_RW[id.xy] = ZMinDownsample(_DepthMap, id.xy * 2u);
 }
 
@@ -262,7 +289,6 @@ void BuildDepthPyramidL2(uint3 id : SV_DispatchThreadID)
     _DepthPyramidL2_RW.GetDimensions(dim.x, dim.y);
     if (id.x >= dim.x || id.y >= dim.y)
         return;
-    
     _DepthPyramidL2_RW[id.xy] = ZMinDownsample(_DepthPyramidL1, id.xy * 2u);
 }
 
@@ -274,7 +300,6 @@ void BuildDepthPyramidL3(uint3 id : SV_DispatchThreadID)
     _DepthPyramidL3_RW.GetDimensions(dim.x, dim.y);
     if (id.x >= dim.x || id.y >= dim.y)
         return;
-    
     _DepthPyramidL3_RW[id.xy] = ZMinDownsample(_DepthPyramidL2, id.xy * 2u);
 }
 
@@ -286,22 +311,19 @@ void BuildDepthPyramidL4(uint3 id : SV_DispatchThreadID)
     _DepthPyramidL4_RW.GetDimensions(dim.x, dim.y);
     if (id.x >= dim.x || id.y >= dim.y)
         return;
-    
     _DepthPyramidL4_RW[id.xy] = ZMinDownsample(_DepthPyramidL3, id.xy * 2u);
 }
 
-// 7b. Apply Adaptive Gradient Correction
+// 7b+7c. Apply Adaptive Gradient Correction
 [numthreads(8, 8, 1)]
 void ApplyAdaptiveGradientCorrection(uint3 id : SV_DispatchThreadID)
 {
     if (id.x >= (uint) _ScreenParams.x || id.y >= (uint) _ScreenParams.y)
         return;
-
     uint2 fullResUV = id.xy;
     
-    int level = _FilteredNeighborhoodSizeMap[fullResUV];
+    int level = _NeighborhoodSizeMap[fullResUV];
     int correctedLevel = level;
-
     if (level > 0)
     {
         float gradient = 0.0;
@@ -309,22 +331,22 @@ void ApplyAdaptiveGradientCorrection(uint3 id : SV_DispatchThreadID)
         
         if (level == 1)
         {
-            uv_lowres = fullResUV / 2u; // (x/2)
+            uv_lowres = fullResUV / 2u;
             gradient = SobelOnPyramid(_DepthPyramidL1, uv_lowres);
         }
         else if (level == 2)
         {
-            uv_lowres = fullResUV / 4u; // (x/4)
+            uv_lowres = fullResUV / 4u;
             gradient = SobelOnPyramid(_DepthPyramidL2, uv_lowres);
         }
         else if (level == 3)
         {
-            uv_lowres = fullResUV / 8u; // (x/8)
+            uv_lowres = fullResUV / 8u;
             gradient = SobelOnPyramid(_DepthPyramidL3, uv_lowres);
         }
         else
         {
-            uv_lowres = fullResUV / 16u; // (x/16)
+            uv_lowres = fullResUV / 16u;
             gradient = SobelOnPyramid(_DepthPyramidL4, uv_lowres);
         }
 
@@ -343,7 +365,6 @@ void OcclusionAndFilter(uint3 id : SV_DispatchThreadID)
 {
     if (id.x >= (uint) _ScreenParams.x || id.y >= (uint) _ScreenParams.y)
         return;
-
     uint currentDepth_uint = _DepthMap[id.xy];
     if (currentDepth_uint >= DEPTH_MAX_UINT)
     {
@@ -367,12 +388,10 @@ void OcclusionAndFilter(uint3 id : SV_DispatchThreadID)
         {
             if (x == radius && y == radius)
                 continue;
-
             int2 offset = int2((int) x - (int) radius, (int) y - (int) radius);
             uint2 uv = clamp(id.xy + offset, 0, _ScreenParams.xy - 1);
             
             uint neighborDepth_uint = _DepthMap[uv];
-
             if (neighborDepth_uint < DEPTH_MAX_UINT)
             {
                 float3 neighborPos = _ViewPositionMap[uv].xyz;
@@ -398,13 +417,12 @@ void OcclusionAndFilter(uint3 id : SV_DispatchThreadID)
     if (neighborCount > 0)
     {
         float occlusionAverage = occlusionSum / (float) neighborCount;
-        
         if (occlusionAverage < _OcclusionThreshold)
         {
             isOccluded = true;
         }
     }
-
+    
     if (isOccluded)
     {
         _OcclusionResultMap_RW[id.xy] = float4(0, 0, 0, 0);
@@ -412,7 +430,53 @@ void OcclusionAndFilter(uint3 id : SV_DispatchThreadID)
     else
     {
         _OcclusionResultMap_RW[id.xy] = _ColorMap[id.xy];
+        
+        uint originType = _OriginTypeMap[id.xy];
+        if (originType == 0u)
+        {
+            _OriginMap_RW[id.xy] = float4(0, 0, 0, 1);
+        }
+        else if (originType == 1u)
+        {
+            _OriginMap_RW[id.xy] = float4(1, 1, 1, 1);
+        }
     }
+    
+    /*
+    uint originType = _OriginTypeMap[id.xy];
+    if (isOccluded)
+    {
+        if (originType == 0u)
+        {
+            _OcclusionResultMap_RW[id.xy] = float4(0, 0, 0, 1);
+            _OriginMap_RW[id.xy] = float4(1.0, 192.0 / 255.0, 128.0 / 255.0, 1.0);
+        }
+        else
+        {
+            _OcclusionResultMap_RW[id.xy] = float4(0, 0, 0, 0);
+            if (originType == 1u)
+            {
+                _OriginMap_RW[id.xy] = float4(1.0, 1.0, 1.0, 1.0);
+            }
+        }
+    }
+    else
+    {
+        if (originType == 0u)
+        {
+            _OcclusionResultMap_RW[id.xy] = float4(0, 0, 0, 1);
+            _OriginMap_RW[id.xy] = float4(1.0, 192.0 / 255.0, 128.0 / 255.0, 1.0);
+        }
+        else
+        {
+            _OcclusionResultMap_RW[id.xy] = float4(0, 0, 0, 0);
+            if (originType == 1u)
+            {
+                _OriginMap_RW[id.xy] = float4(1.0, 1.0, 1.0, 1.0);
+            }
+        }
+    }
+    */
 }
 
 // 9. Interpolate (Simple Dilation)
@@ -421,7 +485,6 @@ void Interpolate(uint3 id : SV_DispatchThreadID)
 {
     if (id.x >= (uint) _ScreenParams.x || id.y >= (uint) _ScreenParams.y)
         return;
-
     float4 centerColor = _OcclusionResultMap[id.xy];
 
     if (centerColor.a > 0)
@@ -432,19 +495,27 @@ void Interpolate(uint3 id : SV_DispatchThreadID)
 
     float4 accumulatedColor = float4(0, 0, 0, 0);
     uint count = 0u;
+    
+    uint chosenOriginType = 2u;
+
     for (int y = -1; y <= 1; y++)
     {
         for (int x = -1; x <= 1; x++)
         {
             if (x == 0 && y == 0)
                 continue;
-
             uint2 uv = clamp(id.xy + int2(x, y), 0, _ScreenParams.xy - 1);
             float4 neighborColor = _OcclusionResultMap[uv];
+            
             if (neighborColor.a > 0)
             {
                 accumulatedColor += neighborColor;
                 count++;
+                uint neighborOriginType = _OriginTypeMap[uv];
+                if (neighborOriginType < chosenOriginType)
+                {
+                    chosenOriginType = neighborOriginType;
+                }
             }
         }
     }
@@ -452,6 +523,15 @@ void Interpolate(uint3 id : SV_DispatchThreadID)
     if (count > 0u)
     {
         _FinalImage_RW[id.xy] = accumulatedColor / (float) count;
+        
+        if (chosenOriginType == 0u)
+        {
+            _OriginMap_RW[id.xy] = float4(0, 0, 0, 1);
+        }
+        else if (chosenOriginType == 1u)
+        {
+            _OriginMap_RW[id.xy] = float4(1, 1, 1, 1);
+        }
     }
     else
     {

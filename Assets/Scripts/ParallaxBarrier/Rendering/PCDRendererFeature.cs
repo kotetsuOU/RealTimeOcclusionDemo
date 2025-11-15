@@ -33,6 +33,10 @@ public class PCDRendererFeature : ScriptableRendererFeature
     public bool enableAlphaBlend = true;
     public Material blendMaterial;
 
+    [Header("Debug")]
+    [Tooltip("点群(黒)と静的メッシュ(白)の由来を示すデバッグマップを有効にします")]
+    public bool enableOriginDebugMap = false;
+
     private PCDRenderPass _scriptablePass;
 
     public override void Create()
@@ -74,11 +78,13 @@ public class PCDRendererFeature : ScriptableRendererFeature
             return;
         }
 
-        if (enableAlphaBlend && blendMaterial == null)
+        if (enableAlphaBlend && !enableOriginDebugMap && blendMaterial == null)
         {
             UnityEngine.Debug.LogWarningFormat("PCDRendererFeature: Blend Material is not assigned (but blending is enabled). Skipping pass.");
             return;
         }
+
+        _scriptablePass?.SetDebugFlag(enableOriginDebugMap);
 
         renderer.EnqueuePass(_scriptablePass);
     }
@@ -92,5 +98,10 @@ public class PCDRendererFeature : ScriptableRendererFeature
         {
             Instance = null;
         }
+    }
+
+    public Texture GetOriginDebugMap()
+    {
+        return _scriptablePass?.GetOriginDebugMap();
     }
 }

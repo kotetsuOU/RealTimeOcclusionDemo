@@ -6,6 +6,11 @@ public class CameraCaptureEditor : Editor
 {
     public override void OnInspectorGUI()
     {
+        if (target == null)
+        {
+            return;
+        }
+
         base.OnInspectorGUI();
 
         EditorGUILayout.Space(20);

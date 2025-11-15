@@ -101,15 +101,6 @@ public class PointCloudViewerEditor : Editor
         }
         EditorGUILayout.Space();
 
-        showRenderingSettings = EditorGUILayout.Foldout(showRenderingSettings, "Rendering Settings", true, EditorStyles.foldoutHeader);
-        if (showRenderingSettings)
-        {
-            EditorGUI.indentLevel++;
-            EditorGUILayout.PropertyField(pointSizeProp);
-            EditorGUI.indentLevel--;
-        }
-        EditorGUILayout.Space();
-
         showNeighborSearch = EditorGUILayout.Foldout(showNeighborSearch, "Neighbor Search & Filtering", true, EditorStyles.foldoutHeader);
 
         GUI.backgroundColor = new Color(0.7f, 0.9f, 0.7f);
@@ -180,6 +171,15 @@ public class PointCloudViewerEditor : Editor
             EditorGUILayout.PropertyField(complementationPointsPerAxisProp);
             EditorGUILayout.PropertyField(complementationPointColorProp);
             EditorGUILayout.PropertyField(complementationRandomPlacementProp);
+            EditorGUI.indentLevel--;
+        }
+        EditorGUILayout.Space();
+
+        showRenderingSettings = EditorGUILayout.Foldout(showRenderingSettings, "Rendering Settings", true, EditorStyles.foldoutHeader);
+        if (showRenderingSettings)
+        {
+            EditorGUI.indentLevel++;
+            EditorGUILayout.PropertyField(pointSizeProp);
             EditorGUI.indentLevel--;
         }
         EditorGUILayout.Space();
