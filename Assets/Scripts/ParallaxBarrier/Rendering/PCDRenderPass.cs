@@ -531,27 +531,27 @@ public class PCDRenderPass : ScriptableRenderPass
                 cmd.SetComputeTextureParam(cs, passData.kernelCalcDensity, "_DensityMap_RW", passData.densityMap);
                 cmd.DispatchCompute(cs, passData.kernelCalcDensity, gridGroupsX, gridGroupsY, 1);
 
-                // 4.5. CalculateGridLevel
+                // 5. CalculateGridLevel
                 int gridKernelGroupsX = Mathf.CeilToInt(gridGroupsX / 16.0f);
                 int gridKernelGroupsY = Mathf.CeilToInt(gridGroupsY / 16.0f);
                 cmd.SetComputeTextureParam(cs, passData.kernelCalcGridLevel, "_DensityMap", passData.densityMap);
                 cmd.SetComputeTextureParam(cs, passData.kernelCalcGridLevel, "_GridLevelMap_RW", passData.gridLevelMap);
                 cmd.DispatchCompute(cs, passData.kernelCalcGridLevel, gridKernelGroupsX, gridKernelGroupsY, 1);
 
-                // 4.7. GridMedianFilter
+                // 6. GridMedianFilter
                 cmd.SetComputeTextureParam(cs, passData.kernelGridMedianFilter, "_GridLevelMap", passData.gridLevelMap);
                 cmd.SetComputeTextureParam(cs, passData.kernelGridMedianFilter, "_FilteredGridLevelMap_RW", passData.filteredGridLevelMap);
                 cmd.DispatchCompute(cs, passData.kernelGridMedianFilter, gridKernelGroupsX, gridKernelGroupsY, 1);
 
-                // 5. CalculateNeighborhoodSize
+                // 7. CalculateNeighborhoodSize
                 cmd.SetComputeTextureParam(cs, passData.kernelCalcNeighborhoodSize, "_FilteredGridLevelMap", passData.filteredGridLevelMap);
                 cmd.SetComputeTextureParam(cs, passData.kernelCalcNeighborhoodSize, "_NeighborhoodSizeMap_RW", passData.neighborhoodSizeMap);
                 cmd.DispatchCompute(cs, passData.kernelCalcNeighborhoodSize, threadGroupsX, threadGroupsY, 1);
 
-                // 7. Gradient Correction Path
+                // 8. Gradient Correction Path
                 if (passData.enableGradientCorrection)
                 {
-                    // 7a. Build Z-Min Depth Pyramid
+                    // 8a. Build Z-Min Depth Pyramid
                     int l1_tgX = Mathf.CeilToInt(l1_Width / 8.0f);
                     int l1_tgY = Mathf.CeilToInt(l1_Height / 8.0f);
                     cmd.SetComputeTextureParam(cs, passData.kernelBuildDepthPyramidL1, "_DepthMap", passData.depthMap);
@@ -577,7 +577,7 @@ public class PCDRenderPass : ScriptableRenderPass
                     cmd.SetComputeTextureParam(cs, passData.kernelBuildDepthPyramidL4, "_DepthPyramidL4_RW", passData.depthPyramidL4);
                     cmd.DispatchCompute(cs, passData.kernelBuildDepthPyramidL4, l4_tgX, l4_tgY, 1);
 
-                    // 7b+7c. ApplyAdaptiveGradientCorrection
+                    // 8b+8c. ApplyAdaptiveGradientCorrection
                     cmd.SetComputeTextureParam(cs, passData.kernelApplyGradient, "_NeighborhoodSizeMap", passData.neighborhoodSizeMap);
                     cmd.SetComputeTextureParam(cs, passData.kernelApplyGradient, "_DepthPyramidL1", passData.depthPyramidL1);
                     cmd.SetComputeTextureParam(cs, passData.kernelApplyGradient, "_DepthPyramidL2", passData.depthPyramidL2);
@@ -587,7 +587,7 @@ public class PCDRenderPass : ScriptableRenderPass
                     cmd.DispatchCompute(cs, passData.kernelApplyGradient, threadGroupsX, threadGroupsY, 1);
                 }
 
-                // 8. OcclusionAndFilter
+                // 9. OcclusionAndFilter
                 cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, "_ColorMap", passData.colorMap);
                 cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, "_DepthMap", passData.depthMap);
                 cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, "_ViewPositionMap", passData.viewPositionMap);
@@ -606,7 +606,7 @@ public class PCDRenderPass : ScriptableRenderPass
                 cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, "_OriginMap_RW", passData.originDebugMap);
                 cmd.DispatchCompute(cs, passData.kernelOcclusion, threadGroupsX, threadGroupsY, 1);
 
-                // 9. Interpolate
+                // 10. Interpolate
                 cmd.SetComputeTextureParam(cs, passData.kernelInterpolate, "_OcclusionResultMap", passData.occlusionResultMap);
                 cmd.SetComputeTextureParam(cs, passData.kernelInterpolate, "_OriginTypeMap", passData.originTypeMap);
                 cmd.SetComputeTextureParam(cs, passData.kernelInterpolate, "_FinalImage_RW", passData.finalImage);

@@ -202,7 +202,7 @@ void CalculateDensity(uint3 id : SV_DispatchThreadID, uint3 groupID : SV_GroupID
     }
 }
 
-// 4.5. Calculate Grid Level
+// 5. Calculate Grid Level
 [numthreads(16, 16, 1)]
 void CalculateGridLevel(uint3 id : SV_DispatchThreadID)
 {
@@ -221,7 +221,7 @@ void CalculateGridLevel(uint3 id : SV_DispatchThreadID)
     _GridLevelMap_RW[id.xy] = max(0, level);
 }
 
-// 4.7. Grid Median Filter
+// 6. Grid Median Filter
 [numthreads(16, 16, 1)]
 void GridMedianFilter(uint3 id : SV_DispatchThreadID)
 {
@@ -233,14 +233,14 @@ void GridMedianFilter(uint3 id : SV_DispatchThreadID)
     int values[9];
     
     values[0] = _GridLevelMap[clamp(id.xy + int2(-1, -1), 0, dim - 1)];
-    values[1] = _GridLevelMap[clamp(id.xy + int2( 0, -1), 0, dim - 1)];
-    values[2] = _GridLevelMap[clamp(id.xy + int2( 1, -1), 0, dim - 1)];
-    values[3] = _GridLevelMap[clamp(id.xy + int2(-1,  0), 0, dim - 1)];
-    values[4] = _GridLevelMap[clamp(id.xy + int2( 0,  0), 0, dim - 1)];
-    values[5] = _GridLevelMap[clamp(id.xy + int2( 1,  0), 0, dim - 1)];
-    values[6] = _GridLevelMap[clamp(id.xy + int2(-1,  1), 0, dim - 1)];
-    values[7] = _GridLevelMap[clamp(id.xy + int2( 0,  1), 0, dim - 1)];
-    values[8] = _GridLevelMap[clamp(id.xy + int2( 1,  1), 0, dim - 1)];
+    values[1] = _GridLevelMap[clamp(id.xy + int2(0, -1), 0, dim - 1)];
+    values[2] = _GridLevelMap[clamp(id.xy + int2(1, -1), 0, dim - 1)];
+    values[3] = _GridLevelMap[clamp(id.xy + int2(-1, 0), 0, dim - 1)];
+    values[4] = _GridLevelMap[clamp(id.xy + int2(0, 0), 0, dim - 1)];
+    values[5] = _GridLevelMap[clamp(id.xy + int2(1, 0), 0, dim - 1)];
+    values[6] = _GridLevelMap[clamp(id.xy + int2(-1, 1), 0, dim - 1)];
+    values[7] = _GridLevelMap[clamp(id.xy + int2(0, 1), 0, dim - 1)];
+    values[8] = _GridLevelMap[clamp(id.xy + int2(1, 1), 0, dim - 1)];
 
     for (int i = 0; i < 9; ++i)
     {
@@ -259,7 +259,7 @@ void GridMedianFilter(uint3 id : SV_DispatchThreadID)
 }
 
 
-// 5. Calculate Neighborhood Size
+// 7. Calculate Neighborhood Size
 [numthreads(8, 8, 1)]
 void CalculateNeighborhoodSize(uint3 id : SV_DispatchThreadID)
 {
@@ -270,7 +270,7 @@ void CalculateNeighborhoodSize(uint3 id : SV_DispatchThreadID)
     _NeighborhoodSizeMap_RW[id.xy] = level;
 }
 
-// 7a-1. Build Depth Pyramid L1
+// 8a-1. Build Depth Pyramid L1
 [numthreads(8, 8, 1)]
 void BuildDepthPyramidL1(uint3 id : SV_DispatchThreadID)
 {
@@ -281,7 +281,7 @@ void BuildDepthPyramidL1(uint3 id : SV_DispatchThreadID)
     _DepthPyramidL1_RW[id.xy] = ZMinDownsample(_DepthMap, id.xy * 2u);
 }
 
-// 7a-2. Build Depth Pyramid L2
+// 8a-2. Build Depth Pyramid L2
 [numthreads(8, 8, 1)]
 void BuildDepthPyramidL2(uint3 id : SV_DispatchThreadID)
 {
@@ -292,7 +292,7 @@ void BuildDepthPyramidL2(uint3 id : SV_DispatchThreadID)
     _DepthPyramidL2_RW[id.xy] = ZMinDownsample(_DepthPyramidL1, id.xy * 2u);
 }
 
-// 7a-3. Build Depth Pyramid L3
+// 8a-3. Build Depth Pyramid L3
 [numthreads(8, 8, 1)]
 void BuildDepthPyramidL3(uint3 id : SV_DispatchThreadID)
 {
@@ -303,7 +303,7 @@ void BuildDepthPyramidL3(uint3 id : SV_DispatchThreadID)
     _DepthPyramidL3_RW[id.xy] = ZMinDownsample(_DepthPyramidL2, id.xy * 2u);
 }
 
-// 7a-4. Build Depth Pyramid L4
+// 8a-4. Build Depth Pyramid L4
 [numthreads(8, 8, 1)]
 void BuildDepthPyramidL4(uint3 id : SV_DispatchThreadID)
 {
@@ -314,7 +314,7 @@ void BuildDepthPyramidL4(uint3 id : SV_DispatchThreadID)
     _DepthPyramidL4_RW[id.xy] = ZMinDownsample(_DepthPyramidL3, id.xy * 2u);
 }
 
-// 7b+7c. Apply Adaptive Gradient Correction
+// 8b+8c. Apply Adaptive Gradient Correction
 [numthreads(8, 8, 1)]
 void ApplyAdaptiveGradientCorrection(uint3 id : SV_DispatchThreadID)
 {
@@ -359,7 +359,7 @@ void ApplyAdaptiveGradientCorrection(uint3 id : SV_DispatchThreadID)
     _CorrectedNeighborhoodSizeMap_RW[fullResUV] = correctedLevel;
 }
 
-// 8. Occlusion and Filtering
+// 9. Occlusion and Filtering
 [numthreads(8, 8, 1)]
 void OcclusionAndFilter(uint3 id : SV_DispatchThreadID)
 {
@@ -430,7 +430,7 @@ void OcclusionAndFilter(uint3 id : SV_DispatchThreadID)
     else
     {
         _OcclusionResultMap_RW[id.xy] = _ColorMap[id.xy];
-        
+    
         uint originType = _OriginTypeMap[id.xy];
         if (originType == 0u)
         {
@@ -479,7 +479,7 @@ void OcclusionAndFilter(uint3 id : SV_DispatchThreadID)
     */
 }
 
-// 9. Interpolate (Simple Dilation)
+// 10. Interpolate (Simple Dilation)
 [numthreads(8, 8, 1)]
 void Interpolate(uint3 id : SV_DispatchThreadID)
 {
@@ -497,7 +497,6 @@ void Interpolate(uint3 id : SV_DispatchThreadID)
     uint count = 0u;
     
     uint chosenOriginType = 2u;
-
     for (int y = -1; y <= 1; y++)
     {
         for (int x = -1; x <= 1; x++)
@@ -506,11 +505,11 @@ void Interpolate(uint3 id : SV_DispatchThreadID)
                 continue;
             uint2 uv = clamp(id.xy + int2(x, y), 0, _ScreenParams.xy - 1);
             float4 neighborColor = _OcclusionResultMap[uv];
-            
             if (neighborColor.a > 0)
             {
                 accumulatedColor += neighborColor;
                 count++;
+                
                 uint neighborOriginType = _OriginTypeMap[uv];
                 if (neighborOriginType < chosenOriginType)
                 {
@@ -523,7 +522,6 @@ void Interpolate(uint3 id : SV_DispatchThreadID)
     if (count > 0u)
     {
         _FinalImage_RW[id.xy] = accumulatedColor / (float) count;
-        
         if (chosenOriginType == 0u)
         {
             _OriginMap_RW[id.xy] = float4(0, 0, 0, 1);
