@@ -376,7 +376,7 @@ void OcclusionAndFilter(uint3 id : SV_DispatchThreadID)
     float currentDepth = _ViewPositionMap[id.xy].w;
 
     int level = _FinalNeighborhoodSizeMap[id.xy];
-    uint radius = (uint) pow(2.0, (float) level) / 2u;
+    uint radius = (uint) pow(2.0, (float) level);
     radius = max(radius, 1u);
 
     float occlusionSum = 0.0;

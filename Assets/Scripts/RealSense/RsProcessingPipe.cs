@@ -130,15 +130,27 @@ public class RsProcessingPipe : RsFrameProvider
             {
                 var filters = profile._processingBlocks.AsReadOnly();
 
+                //UnityEngine.Debug.Log($"RsProcessingPipe: {filters.Count} 個のブロックを処理します。");
+
                 foreach (var pb in filters)
                 {
-                    if (pb == null || !pb.Enabled)
+                    if (pb == null)
+                    {
+                        //UnityEngine.Debug.LogWarning("RsProcessingPipe: null のブロックをスキップします。");
                         continue;
+                    }
+
+                    if (!pb.Enabled)
+                    {
+                        //UnityEngine.Debug.LogWarning($"RsProcessingPipe: ブロック '{pb.GetType().Name}' は Enabled=false のためスキップします。");
+                        continue;
+                    }
+
+                    //UnityEngine.Debug.Log($"RsProcessingPipe: ブロック '{pb.GetType().Name}' の Process を実行します...");
 
                     var r = pb.Process(f, src);
                     if (r != f)
                     {
-                        // Prevent from disposing the original frame during post-processing
                         if (f != frame)
                         {
                             f.Dispose();
