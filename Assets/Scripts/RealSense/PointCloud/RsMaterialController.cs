@@ -1,8 +1,7 @@
 using UnityEngine;
 using System.Collections.Generic;
 
-
-public class MaterialController : MonoBehaviour
+public class RsMaterialController : MonoBehaviour
 {
     [Tooltip("操作対象とするMeshRendererコンポーネントのリスト")]
     public List<MeshRenderer> targetRenderers;
@@ -10,13 +9,14 @@ public class MaterialController : MonoBehaviour
     [Tooltip("切り替えに使用するマテリアルのリスト")]
     public List<Material> materials;
 
+    [SerializeField, HideInInspector]
     private int _currentMaterialIndex = 0;
 
     void Start()
     {
         if (targetRenderers == null || targetRenderers.Count == 0)
         {
-            UnityEngine.Debug.LogWarning("操作対象のMeshRendererが1つも設定されていません。", this);
+            UnityEngine.Debug.LogWarning("[RsMaterialController] 操作対象のMeshRendererが1つも設定されていません。", this);
             return;
         }
 
@@ -27,19 +27,19 @@ public class MaterialController : MonoBehaviour
     {
         if (materials == null || materials.Count == 0)
         {
-            UnityEngine.Debug.LogWarning("マテリアルリストが設定されていません。", this);
+            UnityEngine.Debug.LogWarning("[RsMaterialController] マテリアルリストが設定されていません。", this);
             return;
         }
 
         if (index < 0 || index >= materials.Count)
         {
-            UnityEngine.Debug.LogError($"マテリアルのインデックスが範囲外です: {index}", this);
+            UnityEngine.Debug.LogError($"[RsMaterialController] マテリアルのインデックスが範囲外です: {index}", this);
             return;
         }
 
         if (materials[index] == null)
         {
-            UnityEngine.Debug.LogWarning($"インデックス {index} のマテリアルがNULLです。", this);
+            UnityEngine.Debug.LogWarning($"[RsMaterialController] インデックス {index} のマテリアルがNULLです。", this);
             return;
         }
 

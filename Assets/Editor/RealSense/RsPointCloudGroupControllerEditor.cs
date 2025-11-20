@@ -15,6 +15,7 @@ public class RsPointCloudGroupControllerEditor : Editor
     {
         DrawDefaultInspector();
         EditorGUILayout.Space();
+
         EditorGUILayout.LabelField("Batch Control for RsPointCloudRenderer Children", EditorStyles.boldLabel);
 
         GUI.backgroundColor = Color.cyan;

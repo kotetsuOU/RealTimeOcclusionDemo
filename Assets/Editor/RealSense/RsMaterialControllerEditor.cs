@@ -2,14 +2,14 @@ using UnityEditor;
 using UnityEngine;
 using System.Linq;
 
-[CustomEditor(typeof(MaterialController))]
-public class MaterialControllerEditor : Editor
+[CustomEditor(typeof(RsMaterialController))]
+public class RsMaterialControllerEditor : Editor
 {
     public override void OnInspectorGUI()
     {
         base.OnInspectorGUI();
 
-        MaterialController controller = (MaterialController)target;
+        RsMaterialController controller = (RsMaterialController)target;
 
         if (controller.materials == null || controller.materials.Count == 0)
         {
@@ -23,10 +23,12 @@ public class MaterialControllerEditor : Editor
 
         int currentIndex = controller.GetCurrentMaterialIndex();
 
+        EditorGUI.BeginChangeCheck();
         int selectedIndex = EditorGUILayout.Popup("Select Material", currentIndex, materialNames);
 
-        if (selectedIndex != currentIndex)
+        if (EditorGUI.EndChangeCheck())
         {
+            Undo.RecordObject(controller, "Change Material");
             controller.ChangeMaterial(selectedIndex);
             EditorUtility.SetDirty(controller);
         }

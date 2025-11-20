@@ -1,0 +1,219 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using UnityEngine;
+
+#if UNITY_EDITOR
+using UnityEditor;
+#endif
+
+/// <summary>
+/// 子オブジェクトのTransform情報を管理・保存・読み込みを行うコントローラー。
+/// 指定された矩形（Box）領域をガイドとして表示し、位置合わせを支援する。
+/// </summary>
+public class RsTransformController : MonoBehaviour
+{
+    [Header("Config")]
+    [Tooltip("設定ファイルの保存名 (.json)。Assets/Configフォルダに保存されます。")]
+    public string configFileName = "ChildTransforms.json";
+
+    [Tooltip("起動時に自動的に設定をロードするかどうか")]
+    public bool loadOnStart = false;
+
+    [Header("Calibration Box Guide")]
+    [Tooltip("シーンビューに位置合わせ用のガイドボックスを表示するか")]
+    public bool showCalibrationGuide = true;
+
+    [Tooltip("ボックス枠線の色")]
+    public Color guideFrameColor = Color.green;
+
+    [Tooltip("各頂点のマーカー色")]
+    public Color cornerMarkerColor = Color.red;
+
+    [Tooltip("直方体の起点となる座標（親からのローカル座標）")]
+    public Vector3 calibrationOrigin = new Vector3(0.30f, 0.0f, 0.25f);
+
+    [Tooltip("直方体のサイズ（幅・高さ・奥行き）")]
+    public Vector3 calibrationBoxSize = new Vector3(0.29f, 0.405f, 0.08f);
+
+    // 保存先のパス定数
+    private const string SAVE_FOLDER_PATH = "Assets/Config";
+
+    // --- データ構造定義 ---
+    [Serializable]
+    private class TransformItem
+    {
+        public string childName;
+        public Vector3 localPosition;
+        public Quaternion localRotation;
+        public Vector3 localScale;
+    }
+
+    [Serializable]
+    private class TransformDataList
+    {
+        public List<TransformItem> items = new List<TransformItem>();
+    }
+    // ---------------------
+
+    private void Start()
+    {
+        if (loadOnStart)
+        {
+            LoadTransformConfig();
+        }
+    }
+
+    /// <summary>
+    /// シーンビューにキャリブレーション用のボックスガイドを描画する。
+    /// </summary>
+    private void OnDrawGizmos()
+    {
+        // 変更点: アプリケーション実行中（Play Mode）は絶対に描画しない
+        if (UnityEngine.Application.isPlaying) return;
+
+        if (!showCalibrationGuide) return;
+
+        // 親（このオブジェクト）のローカル座標系に合わせて描画行列を設定
+        Gizmos.matrix = transform.localToWorldMatrix;
+
+        // 1. ボックスの枠線描画
+        Gizmos.color = guideFrameColor;
+
+        // 直方体の中心座標を算出（起点 + サイズの半分）
+        Vector3 localCenter = calibrationOrigin + (calibrationBoxSize * 0.5f);
+        Gizmos.DrawWireCube(localCenter, calibrationBoxSize);
+
+        // 2. 8つの頂点すべてにマーカーを描画
+        Gizmos.color = cornerMarkerColor;
+
+        // マーカーサイズ（ボックスの最小辺の5%程度とする）
+        float markerRadius = Mathf.Min(Mathf.Abs(calibrationBoxSize.x), Mathf.Abs(calibrationBoxSize.y), Mathf.Abs(calibrationBoxSize.z)) * 0.05f;
+
+        // 8点の座標を算出
+        Vector3[] corners = new Vector3[]
+        {
+            calibrationOrigin,
+            calibrationOrigin + new Vector3(calibrationBoxSize.x, 0, 0),
+            calibrationOrigin + new Vector3(0, calibrationBoxSize.y, 0),
+            calibrationOrigin + new Vector3(0, 0, calibrationBoxSize.z),
+            calibrationOrigin + new Vector3(calibrationBoxSize.x, calibrationBoxSize.y, 0),
+            calibrationOrigin + new Vector3(calibrationBoxSize.x, 0, calibrationBoxSize.z),
+            calibrationOrigin + new Vector3(0, calibrationBoxSize.y, calibrationBoxSize.z),
+            calibrationOrigin + calibrationBoxSize
+        };
+
+        foreach (var point in corners)
+        {
+            Gizmos.DrawWireSphere(point, markerRadius);
+        }
+    }
+
+    /// <summary>
+    /// 現在の子オブジェクトのTransform情報をファイルに保存する。
+    /// </summary>
+    public void SaveTransformConfig()
+    {
+        if (string.IsNullOrEmpty(configFileName))
+        {
+            UnityEngine.Debug.LogError("[RsTransformController] 設定ファイル名が指定されていません。", this);
+            return;
+        }
+
+        string fileName = configFileName.EndsWith(".json") ? configFileName : configFileName + ".json";
+        string fullPath = Path.Combine(SAVE_FOLDER_PATH, fileName);
+
+        // データリスト作成
+        TransformDataList dataList = new TransformDataList();
+        foreach (Transform child in this.transform)
+        {
+            dataList.items.Add(new TransformItem
+            {
+                childName = child.name,
+                localPosition = child.localPosition,
+                localRotation = child.localRotation,
+                localScale = child.localScale
+            });
+        }
+
+        // ディレクトリ確認・作成
+        if (!Directory.Exists(SAVE_FOLDER_PATH))
+        {
+            Directory.CreateDirectory(SAVE_FOLDER_PATH);
+        }
+
+        // JSON保存
+        try
+        {
+            string json = JsonUtility.ToJson(dataList, true);
+            File.WriteAllText(fullPath, json);
+            UnityEngine.Debug.Log($"[RsTransformController] Saved config to: {fullPath}", this);
+
+#if UNITY_EDITOR
+            AssetDatabase.Refresh();
+#endif
+        }
+        catch (Exception e)
+        {
+            UnityEngine.Debug.LogError($"[RsTransformController] Failed to save file: {e.Message}", this);
+        }
+    }
+
+    /// <summary>
+    /// ファイルからTransform情報を読み込み、子オブジェクトに適用する。
+    /// </summary>
+    public void LoadTransformConfig()
+    {
+        if (string.IsNullOrEmpty(configFileName))
+        {
+            UnityEngine.Debug.LogError("[RsTransformController] 設定ファイル名が指定されていません。", this);
+            return;
+        }
+
+        string fileName = configFileName.EndsWith(".json") ? configFileName : configFileName + ".json";
+        string fullPath = Path.Combine(SAVE_FOLDER_PATH, fileName);
+
+        if (!File.Exists(fullPath))
+        {
+            UnityEngine.Debug.LogError($"[RsTransformController] File not found: {fullPath}", this);
+            return;
+        }
+
+        try
+        {
+            string json = File.ReadAllText(fullPath);
+            TransformDataList dataList = JsonUtility.FromJson<TransformDataList>(json);
+
+            if (dataList == null || dataList.items == null)
+            {
+                UnityEngine.Debug.LogError("[RsTransformController] Failed to parse JSON data.", this);
+                return;
+            }
+
+#if UNITY_EDITOR
+            Undo.RecordObjects(this.transform.GetComponentsInChildren<Transform>(), "Load Transforms");
+#endif
+
+            foreach (var item in dataList.items)
+            {
+                Transform child = this.transform.Find(item.childName);
+                if (child != null)
+                {
+                    child.localPosition = item.localPosition;
+                    child.localRotation = item.localRotation;
+                    child.localScale = item.localScale;
+                }
+                else
+                {
+                    UnityEngine.Debug.LogWarning($"[RsTransformController] Child object not found: {item.childName}", this);
+                }
+            }
+
+            UnityEngine.Debug.Log($"[RsTransformController] Loaded config from: {fullPath}", this);
+        }
+        catch (Exception e)
+        {
+            UnityEngine.Debug.LogError($"[RsTransformController] Failed to load file: {e.Message}", this);
+        }
+    }
+}
