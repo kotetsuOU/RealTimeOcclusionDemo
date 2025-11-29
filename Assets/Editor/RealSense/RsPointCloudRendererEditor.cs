@@ -170,7 +170,7 @@ public class RsPointCloudRendererEditor : Editor
             return;
         }
 
-        string path = Path.Combine("Assets/HandTrakingData/PointCloudData", fileName);
+        string path = Path.Combine("Assets/HandTrackingData/PointCloudData", fileName);
         using (var writer = new StreamWriter(path))
         {
             foreach (var v in vertices)

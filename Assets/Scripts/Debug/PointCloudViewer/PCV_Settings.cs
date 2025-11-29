@@ -23,10 +23,10 @@ public class PCV_Settings : MonoBehaviour
 {
     public FileSettings[] fileSettings = new FileSettings[4]
     {
-        new FileSettings { useFile = true,  filePath = "Assets/HandTrakingData/PointCloudData/currentGlobalVerticesRight.txt",  color = Color.red },
-        new FileSettings { useFile = false, filePath = "Assets/HandTrakingData/PointCloudData/currentGlobalVerticesLeft.txt",   color = Color.green },
-        new FileSettings { useFile = false, filePath = "Assets/HandTrakingData/PointCloudData/currentGlobalVerticesBottom.txt", color = Color.blue },
-        new FileSettings { useFile = false, filePath = "Assets/HandTrakingData/PointCloudData/currentGlobalVerticesTop.txt",    color = Color.yellow }
+        new FileSettings { useFile = true,  filePath = "Assets/HandTrackingData/PointCloudData/currentGlobalVerticesRight.txt",  color = Color.red },
+        new FileSettings { useFile = false, filePath = "Assets/HandTrackingData/PointCloudData/currentGlobalVerticesLeft.txt",   color = Color.green },
+        new FileSettings { useFile = false, filePath = "Assets/HandTrackingData/PointCloudData/currentGlobalVerticesBottom.txt", color = Color.blue },
+        new FileSettings { useFile = false, filePath = "Assets/HandTrackingData/PointCloudData/currentGlobalVerticesTop.txt",    color = Color.yellow }
     };
 
     public float pointSize = 0.01f;
@@ -63,7 +63,7 @@ public class PCV_Settings : MonoBehaviour
 
     [Header("GPU Acceleration")]
     [Tooltip("近傍探索ノイズ除去に使用するCompute Shader")]
-    public ComputeShader neighborNoiseFilterShader; // 名前変更: pointCloudFilterShader -> neighborNoiseFilterShader
+    public ComputeShader neighborNoiseFilterShader;
     [Tooltip("形態学的操作に使用するCompute Shader")]
     public ComputeShader morpologyOperationShader;
     [Tooltip("ボクセル密度フィルタリングに使用するCompute Shader")]
@@ -98,7 +98,7 @@ public class PCV_Settings : MonoBehaviour
     private Color lastComplementationPointColor;
     private bool lastComplementationRandomPlacement;
 
-    private ComputeShader lastNeighborNoiseFilterShader; // 名前変更
+    private ComputeShader lastNeighborNoiseFilterShader;
     private ComputeShader lastMorpologyOperationShader;
     private ComputeShader lastDensityFilterShader;
     private ComputeShader lastDensityComplementationShader;
@@ -138,7 +138,7 @@ public class PCV_Settings : MonoBehaviour
         lastComplementationPointColor = complementationPointColor;
         lastComplementationRandomPlacement = complementationRandomPlacement;
 
-        lastNeighborNoiseFilterShader = neighborNoiseFilterShader; // 名前変更
+        lastNeighborNoiseFilterShader = neighborNoiseFilterShader;
         lastMorpologyOperationShader = morpologyOperationShader;
         lastDensityFilterShader = densityFilterShader;
         lastDensityComplementationShader = densityComplementationShader;
@@ -186,7 +186,7 @@ public class PCV_Settings : MonoBehaviour
         bool densityShadersChanged = (morpologyOperationShader != lastMorpologyOperationShader) ||
                                      (densityFilterShader != lastDensityFilterShader) ||
                                      (densityComplementationShader != lastDensityComplementationShader) ||
-                                     (neighborNoiseFilterShader != lastNeighborNoiseFilterShader) || // 名前変更
+                                     (neighborNoiseFilterShader != lastNeighborNoiseFilterShader) ||
                                      (voxelGridBuilderShader != lastVoxelGridBuilderShader);
 
         bool processingParamsChanged = voxelSize != lastVoxelSize ||

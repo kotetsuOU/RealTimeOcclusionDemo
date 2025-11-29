@@ -183,7 +183,7 @@ public class RsPointCloudGroupControllerEditor : Editor
 
     private void SaveVerticesToFile(Vector3[] vertices, string fileName)
     {
-        string directoryPath = "Assets/HandTrakingData/PointCloudData";
+        string directoryPath = "Assets/HandTrackingData/PointCloudData";
         if (!System.IO.Directory.Exists(directoryPath))
         {
             System.IO.Directory.CreateDirectory(directoryPath);

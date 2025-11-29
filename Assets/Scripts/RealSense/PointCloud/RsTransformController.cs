@@ -7,10 +7,6 @@ using UnityEngine;
 using UnityEditor;
 #endif
 
-/// <summary>
-/// 子オブジェクトのTransform情報を管理・保存・読み込みを行うコントローラー。
-/// 指定された矩形（Box）領域をガイドとして表示し、位置合わせを支援する。
-/// </summary>
 public class RsTransformController : MonoBehaviour
 {
     [Header("Config")]
@@ -36,10 +32,8 @@ public class RsTransformController : MonoBehaviour
     [Tooltip("直方体のサイズ（幅・高さ・奥行き）")]
     public Vector3 calibrationBoxSize = new Vector3(0.29f, 0.405f, 0.08f);
 
-    // 保存先のパス定数
     private const string SAVE_FOLDER_PATH = "Assets/Config";
 
-    // --- データ構造定義 ---
     [Serializable]
     private class TransformItem
     {
@@ -64,33 +58,23 @@ public class RsTransformController : MonoBehaviour
         }
     }
 
-    /// <summary>
-    /// シーンビューにキャリブレーション用のボックスガイドを描画する。
-    /// </summary>
     private void OnDrawGizmos()
     {
-        // 変更点: アプリケーション実行中（Play Mode）は絶対に描画しない
         if (UnityEngine.Application.isPlaying) return;
 
         if (!showCalibrationGuide) return;
 
-        // 親（このオブジェクト）のローカル座標系に合わせて描画行列を設定
         Gizmos.matrix = transform.localToWorldMatrix;
 
-        // 1. ボックスの枠線描画
         Gizmos.color = guideFrameColor;
 
-        // 直方体の中心座標を算出（起点 + サイズの半分）
         Vector3 localCenter = calibrationOrigin + (calibrationBoxSize * 0.5f);
         Gizmos.DrawWireCube(localCenter, calibrationBoxSize);
 
-        // 2. 8つの頂点すべてにマーカーを描画
         Gizmos.color = cornerMarkerColor;
 
-        // マーカーサイズ（ボックスの最小辺の5%程度とする）
         float markerRadius = Mathf.Min(Mathf.Abs(calibrationBoxSize.x), Mathf.Abs(calibrationBoxSize.y), Mathf.Abs(calibrationBoxSize.z)) * 0.05f;
 
-        // 8点の座標を算出
         Vector3[] corners = new Vector3[]
         {
             calibrationOrigin,
@@ -109,9 +93,6 @@ public class RsTransformController : MonoBehaviour
         }
     }
 
-    /// <summary>
-    /// 現在の子オブジェクトのTransform情報をファイルに保存する。
-    /// </summary>
     public void SaveTransformConfig()
     {
         if (string.IsNullOrEmpty(configFileName))
@@ -123,7 +104,6 @@ public class RsTransformController : MonoBehaviour
         string fileName = configFileName.EndsWith(".json") ? configFileName : configFileName + ".json";
         string fullPath = Path.Combine(SAVE_FOLDER_PATH, fileName);
 
-        // データリスト作成
         TransformDataList dataList = new TransformDataList();
         foreach (Transform child in this.transform)
         {
@@ -136,13 +116,11 @@ public class RsTransformController : MonoBehaviour
             });
         }
 
-        // ディレクトリ確認・作成
         if (!Directory.Exists(SAVE_FOLDER_PATH))
         {
             Directory.CreateDirectory(SAVE_FOLDER_PATH);
         }
 
-        // JSON保存
         try
         {
             string json = JsonUtility.ToJson(dataList, true);
@@ -159,9 +137,6 @@ public class RsTransformController : MonoBehaviour
         }
     }
 
-    /// <summary>
-    /// ファイルからTransform情報を読み込み、子オブジェクトに適用する。
-    /// </summary>
     public void LoadTransformConfig()
     {
         if (string.IsNullOrEmpty(configFileName))
