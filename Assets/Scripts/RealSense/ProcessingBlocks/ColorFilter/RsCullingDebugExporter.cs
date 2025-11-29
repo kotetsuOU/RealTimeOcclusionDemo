@@ -8,22 +8,22 @@ public static class RsCullingDebugExporter
 {
     private static readonly byte[][] _palette16 = new byte[][]
     {
-        new byte[] {0, 0, 0},       // 0: Black
-        new byte[] {0, 0, 255},     // 1: Blue
-        new byte[] {0, 128, 255},   // 2
-        new byte[] {0, 255, 255},   // 3: Cyan
-        new byte[] {0, 255, 128},   // 4
-        new byte[] {0, 255, 0},     // 5: Green
-        new byte[] {128, 255, 0},   // 6
-        new byte[] {255, 255, 0},   // 7: Yellow
-        new byte[] {255, 128, 0},   // 8: Orange
-        new byte[] {255, 0, 0},     // 9: Red
-        new byte[] {255, 0, 128},   // 10
-        new byte[] {255, 0, 255},   // 11: Magenta
-        new byte[] {128, 0, 255},   // 12
-        new byte[] {128, 128, 128}, // 13: Grey
-        new byte[] {192, 192, 192}, // 14: Light Grey
-        new byte[] {255, 255, 255}  // 15: White
+        new byte[] {0, 0, 0},
+        new byte[] {0, 0, 255},
+        new byte[] {0, 128, 255},
+        new byte[] {0, 255, 255},
+        new byte[] {0, 255, 128},
+        new byte[] {0, 255, 0},
+        new byte[] {128, 255, 0},
+        new byte[] {255, 255, 0},
+        new byte[] {255, 128, 0},
+        new byte[] {255, 0, 0},
+        new byte[] {255, 0, 128},
+        new byte[] {255, 0, 255},
+        new byte[] {128, 0, 255},
+        new byte[] {128, 128, 128},
+        new byte[] {192, 192, 192},
+        new byte[] {255, 255, 255}
     };
 
     public static string ResolveAndCreatePath(string rawPath)
@@ -65,7 +65,12 @@ public static class RsCullingDebugExporter
         return resolvedPath;
     }
 
-    public static void SaveDebugImages(VideoFrame colorFrame, RsColorBasedDepthCulling.ConversionMode mode, string savePath, Func<byte, byte, byte, bool> isTargetPredicate)
+    public static void SaveDebugImages(
+        VideoFrame colorFrame,
+        RsColorBasedDepthCulling.ConversionMode mode,
+        string savePath,
+        Func<byte, byte, byte, bool> isTargetPredicate,
+        RsColorBasedDepthCulling.ColorVisualizationMode debugMode)
     {
         int width = colorFrame.Width;
         int height = colorFrame.Height;
@@ -83,9 +88,9 @@ public static class RsCullingDebugExporter
         colorFrame.CopyTo(rawRgbData);
 
         byte[] bgrOriginal = new byte[byteCount];
-        byte[] debug1 = new byte[byteCount]; // Hue or Y
-        byte[] debug2 = new byte[byteCount]; // Sat or Cb
-        byte[] debug3 = new byte[byteCount]; // Val or Cr
+        byte[] debug1 = new byte[byteCount];
+        byte[] debug2 = new byte[byteCount];
+        byte[] debug3 = new byte[byteCount];
         byte[] filteredBuffer = new byte[byteCount];
 
         Vector3 hsvCache;
@@ -97,12 +102,10 @@ public static class RsCullingDebugExporter
             byte g = rawRgbData[i + 1];
             byte b = rawRgbData[i + 2];
 
-            // 1. Original (RGB -> BGR)
             bgrOriginal[i] = b;
             bgrOriginal[i + 1] = g;
             bgrOriginal[i + 2] = r;
 
-            // 2. Debug Layers & Filtered Preview
             if (mode == RsColorBasedDepthCulling.ConversionMode.HSV)
             {
                 RsHsvConverter.RgbToHsv(r, g, b, out hsvCache);
@@ -119,9 +122,22 @@ public static class RsCullingDebugExporter
             {
                 RsYCbCrConverter.RgbToYCbCr(r, g, b, out ycbcrCache);
 
-                SetPixelGrayscale(debug1, i, (byte)ycbcrCache.x); // Y
-                SetPixelGrayscale(debug2, i, (byte)ycbcrCache.y); // Cb
-                SetPixelGrayscale(debug3, i, (byte)ycbcrCache.z); // Cr
+                if (debugMode == RsColorBasedDepthCulling.ColorVisualizationMode.Palette16)
+                {
+                    int idxY = Mathf.Clamp(ycbcrCache.x / 16, 0, 15);
+                    int idxCb = Mathf.Clamp(ycbcrCache.y / 16, 0, 15);
+                    int idxCr = Mathf.Clamp(ycbcrCache.z / 16, 0, 15);
+
+                    SetPixelBgr(debug1, i, _palette16[idxY]);
+                    SetPixelBgr(debug2, i, _palette16[idxCb]);
+                    SetPixelBgr(debug3, i, _palette16[idxCr]);
+                }
+                else
+                {
+                    SetPixelGrayscale(debug1, i, (byte)ycbcrCache.x);
+                    SetPixelGrayscale(debug2, i, (byte)ycbcrCache.y);
+                    SetPixelGrayscale(debug3, i, (byte)ycbcrCache.z);
+                }
             }
 
             bool isTarget = isTargetPredicate(r, g, b);
@@ -141,25 +157,26 @@ public static class RsCullingDebugExporter
         }
 
         string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+        string modeStr = debugMode == RsColorBasedDepthCulling.ColorVisualizationMode.Palette16 ? "P16" : "GS";
 
         SaveBitmap(width, height, bgrOriginal, savePath, $"Debug_{timestamp}_1_Original.bmp");
 
         if (mode == RsColorBasedDepthCulling.ConversionMode.HSV)
         {
-            SaveBitmap(width, height, debug1, savePath, $"Debug_{timestamp}_2_Hue.bmp");
-            SaveBitmap(width, height, debug2, savePath, $"Debug_{timestamp}_3_Sat.bmp");
-            SaveBitmap(width, height, debug3, savePath, $"Debug_{timestamp}_4_Val.bmp");
+            SaveBitmap(width, height, debug1, savePath, $"Debug_{timestamp}_2_Hue_P16.bmp");
+            SaveBitmap(width, height, debug2, savePath, $"Debug_{timestamp}_3_Sat_P16.bmp");
+            SaveBitmap(width, height, debug3, savePath, $"Debug_{timestamp}_4_Val_P16.bmp");
         }
         else
         {
-            SaveBitmap(width, height, debug1, savePath, $"Debug_{timestamp}_2_Y.bmp");
-            SaveBitmap(width, height, debug2, savePath, $"Debug_{timestamp}_3_Cb.bmp");
-            SaveBitmap(width, height, debug3, savePath, $"Debug_{timestamp}_4_Cr.bmp");
+            SaveBitmap(width, height, debug1, savePath, $"Debug_{timestamp}_2_Y_{modeStr}.bmp");
+            SaveBitmap(width, height, debug2, savePath, $"Debug_{timestamp}_3_Cb_{modeStr}.bmp");
+            SaveBitmap(width, height, debug3, savePath, $"Debug_{timestamp}_4_Cr_{modeStr}.bmp");
         }
 
         SaveBitmap(width, height, filteredBuffer, savePath, $"Debug_{timestamp}_5_Filtered_{mode}.bmp");
 
-        UnityEngine.Debug.Log($"[RsCullingDebugExporter] Saved debug images ({mode}) to: {savePath}");
+        UnityEngine.Debug.Log($"[RsCullingDebugExporter] Saved debug images ({mode}, {debugMode}) to: {savePath}");
     }
 
     private static void SetPixelBgr(byte[] buffer, int index, byte[] colorRgb)
@@ -184,8 +201,8 @@ public static class RsCullingDebugExporter
         int fileSize = 54 + dataSize;
         byte[] bmpBytes = new byte[fileSize];
 
-        bmpBytes[0] = 0x42; // 'B'
-        bmpBytes[1] = 0x4D; // 'M'
+        bmpBytes[0] = 0x42;
+        bmpBytes[1] = 0x4D;
         BitConverter.GetBytes(fileSize).CopyTo(bmpBytes, 2);
         BitConverter.GetBytes(0).CopyTo(bmpBytes, 6);
         BitConverter.GetBytes(54).CopyTo(bmpBytes, 10);
