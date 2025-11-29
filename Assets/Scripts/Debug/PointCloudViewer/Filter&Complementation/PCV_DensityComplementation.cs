@@ -230,7 +230,7 @@ public static class PCV_DensityComplementation
         return new PCV_Data(finalVertices, finalColors);
     }
 
-    private static PCV_Data ApplyCPU(PCV_Data currentData, VoxelGrid voxelGrid, PCV_Settings settings, Stopwatch stopwatch)
+    private static PCV_Data ApplyCPU(PCV_Data currentData, PCV_VoxelGrid voxelGrid, PCV_Settings settings, Stopwatch stopwatch)
     {
         uint pointsPerAxis = settings.complementationPointsPerAxis;
         if (pointsPerAxis == 0)

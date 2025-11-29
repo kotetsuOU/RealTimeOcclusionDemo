@@ -5,7 +5,9 @@ using UnityEngine;
 public class PCV_SpatialSearch : IDisposable
 {
     private readonly PCV_Data data;
-    public VoxelGrid VoxelGrid { get; private set; }
+
+    public PCV_VoxelGrid VoxelGrid { get; private set; }
+
     private bool disposedValue;
 
     public PCV_SpatialSearch(PCV_Data pointCloudData, float voxelSize)
@@ -13,7 +15,7 @@ public class PCV_SpatialSearch : IDisposable
         this.data = pointCloudData;
         if (this.data != null && this.data.PointCount > 0)
         {
-            this.VoxelGrid = new VoxelGrid(this.data.Vertices, voxelSize);
+            this.VoxelGrid = new PCV_VoxelGrid(this.data.Vertices, voxelSize);
         }
     }
 

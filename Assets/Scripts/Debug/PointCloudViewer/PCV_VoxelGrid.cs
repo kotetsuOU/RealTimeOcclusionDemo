@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-public class VoxelGrid
+public class PCV_VoxelGrid
 {
     private readonly Dictionary<Vector3Int, List<int>> grid;
     private readonly float voxelSize;
@@ -11,7 +11,7 @@ public class VoxelGrid
 
     public float VoxelSize => voxelSize;
 
-    public VoxelGrid(Vector3[] points, float size)
+    public PCV_VoxelGrid(Vector3[] points, float size)
     {
         originalPoints = points ?? new Vector3[0];
         voxelSize = size;

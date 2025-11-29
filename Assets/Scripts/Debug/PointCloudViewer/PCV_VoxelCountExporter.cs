@@ -6,7 +6,7 @@ using System.Text;
 
 public static class PCV_VoxelCountExporter
 {
-    public static void Export(VoxelGrid voxelGrid)
+    public static void Export(PCV_VoxelGrid voxelGrid)
     {
         if (voxelGrid == null)
         {

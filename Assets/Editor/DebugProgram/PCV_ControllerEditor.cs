@@ -1,12 +1,18 @@
-ï»¿using UnityEditor;
 using UnityEngine;
+using UnityEditor;
 
-[CustomEditor(typeof(PointCloudViewer))]
-public class PointCloudViewerEditor : Editor
+[CustomEditor(typeof(PCV_Controller))]
+public class PCV_ControllerEditor : Editor
 {
-    private PointCloudViewer viewer;
+    private PCV_Controller controller;
     private SerializedObject settingsObject;
+    private PCV_Settings settingsComponent;
 
+    // Profile Management
+    private string profileName = "DefaultProfile";
+    private bool showProfileSettings = false;
+
+    // Properties
     private SerializedProperty fileSettingsProp;
     private SerializedProperty pointSizeProp;
     private SerializedProperty outlineProp, outlineColorProp;
@@ -18,7 +24,7 @@ public class PointCloudViewerEditor : Editor
     private SerializedProperty complementationPointColorProp;
     private SerializedProperty complementationRandomPlacementProp;
 
-    private SerializedProperty pointCloudFilterShaderProp;
+    private SerializedProperty neighborNoiseFilterShaderProp;
     private SerializedProperty morpologyOperationShaderProp;
     private SerializedProperty densityFilterShaderProp;
     private SerializedProperty densityComplementationShaderProp;
@@ -28,18 +34,20 @@ public class PointCloudViewerEditor : Editor
     private SerializedProperty useGpuDensityFilterProp;
     private SerializedProperty useGpuDensityComplementationProp;
 
-    private bool showDataFiles = true;
-    private bool showRenderingSettings = true;
-    private bool showNeighborSearch = true;
-    private bool showMorpologyOperation = true;
-    private bool showDensityComplementation = true;
-    private bool showGpuAcceleration = true;
-    private bool showOutlineSettings = true;
+    // Foldouts
+    private bool showDataFiles = false;
+    private bool showNeighborSearch = false;
+    private bool showMorpologyOperation = false;
+    private bool showDensityComplementation = false;
+    private bool showGpuAcceleration = false;
+    private bool showRenderingSettings = false;
+    private bool showOutlineSettings = false;
 
     void OnEnable()
     {
-        viewer = (PointCloudViewer)target;
-        var settingsComponent = viewer.GetComponent<PCV_Settings>();
+        controller = (PCV_Controller)target;
+        settingsComponent = controller.GetComponent<PCV_Settings>();
+
         if (settingsComponent != null)
         {
             settingsObject = new SerializedObject(settingsComponent);
@@ -59,7 +67,7 @@ public class PointCloudViewerEditor : Editor
             complementationPointColorProp = settingsObject.FindProperty("complementationPointColor");
             complementationRandomPlacementProp = settingsObject.FindProperty("complementationRandomPlacement");
 
-            pointCloudFilterShaderProp = settingsObject.FindProperty("pointCloudFilterShader");
+            neighborNoiseFilterShaderProp = settingsObject.FindProperty("neighborNoiseFilterShader");
             morpologyOperationShaderProp = settingsObject.FindProperty("morpologyOperationShader");
             densityFilterShaderProp = settingsObject.FindProperty("densityFilterShader");
             densityComplementationShaderProp = settingsObject.FindProperty("densityComplementationShader");
@@ -80,17 +88,87 @@ public class PointCloudViewerEditor : Editor
         }
         settingsObject.Update();
 
+        EditorGUILayout.Space();
+        showProfileSettings = EditorGUILayout.Foldout(showProfileSettings, "Profile Management (JSON)", true, EditorStyles.foldoutHeader);
+        if (showProfileSettings)
+        {
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+
+            EditorGUILayout.LabelField("Manage Settings Preset", EditorStyles.miniBoldLabel);
+            profileName = EditorGUILayout.TextField("Profile Name", profileName);
+
+            EditorGUILayout.BeginHorizontal();
+
+            GUI.backgroundColor = new Color(0.7f, 0.8f, 1f);
+            if (GUILayout.Button("Save Profile"))
+            {
+                if (EditorUtility.DisplayDialog("Save Profile",
+                    $"Save current settings to '{profileName}.json'?", "Save", "Cancel"))
+                {
+                    PCV_ConfigIO.SaveConfig(settingsComponent, profileName);
+                }
+            }
+
+            GUI.backgroundColor = new Color(1f, 0.8f, 0.7f);
+            if (GUILayout.Button("Load Profile"))
+            {
+                if (EditorUtility.DisplayDialog("Load Profile",
+                    $"Load settings from '{profileName}.json'?\nCurrent settings will be overwritten.", "Load", "Cancel"))
+                {
+                    PCV_ConfigIO.LoadConfig(settingsComponent, profileName);
+                }
+            }
+
+            GUI.backgroundColor = Color.white;
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.EndVertical();
+        }
+        EditorGUILayout.Space();
+
         showDataFiles = EditorGUILayout.Foldout(showDataFiles, "Data Files", true, EditorStyles.foldoutHeader);
+
+        if (showDataFiles)
+        {
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+            EditorGUILayout.LabelField("Manual Calibration", EditorStyles.boldLabel);
+            EditorGUILayout.HelpBox("1. Viewer‚ğ‰ñ“]‚³‚¹‚Ä [Apply Rotation] ‚ğ‰Ÿ‚·\n2. Viewer‚ğˆÚ“®‚³‚¹‚Ä [Apply Position] ‚ğ‰Ÿ‚·\n¦ÀsŒãAViewer‚ÌTransform‚ÍƒŠƒZƒbƒg‚³‚ê‚Ü‚·B", MessageType.Info);
+
+            EditorGUILayout.BeginHorizontal();
+
+            GUI.backgroundColor = new Color(1f, 0.7f, 0.4f); // ƒIƒŒƒ“ƒWŒn
+            if (GUILayout.Button("Apply Rotation Only"))
+            {
+                if (EditorUtility.DisplayDialog("Apply Rotation",
+                    "Œ»İ‚ÌViewer‚Ìy‰ñ“]z‚Ì‚İ‚ğƒ^[ƒQƒbƒg‚É”½‰f‚µ‚Ü‚·B\n”½‰fŒãAViewer‚Ì‰ñ“]‚ÍƒŠƒZƒbƒg‚³‚ê‚Ü‚·B\n‚æ‚ë‚µ‚¢‚Å‚·‚©H", "Yes", "Cancel"))
+                {
+                    controller.ApplyRotationCorrection();
+                }
+            }
+
+            GUI.backgroundColor = new Color(0.4f, 1f, 0.6f); // —ÎŒn
+            if (GUILayout.Button("Apply Position Only"))
+            {
+                if (EditorUtility.DisplayDialog("Apply Position",
+                    "Œ»İ‚ÌViewer‚ÌyˆÊ’uz‚Ì‚İ‚ğƒ^[ƒQƒbƒg‚É”½‰f‚µ‚Ü‚·B\n”½‰fŒãAViewer‚ÌˆÊ’u‚ÍƒŠƒZƒbƒg‚³‚ê‚Ü‚·B\n‚æ‚ë‚µ‚¢‚Å‚·‚©H", "Yes", "Cancel"))
+                {
+                    controller.ApplyPositionCorrection();
+                }
+            }
+
+            GUI.backgroundColor = Color.white;
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.EndVertical();
+        }
 
         EditorGUILayout.BeginHorizontal();
         GUI.backgroundColor = new Color(0.6f, 1f, 0.6f);
-        if (GUILayout.Button("ã™ã¹ã¦ON")) SetAllFileUsage(true);
+        if (GUILayout.Button("‚·‚×‚ÄON")) SetAllFileUsage(true);
         GUI.backgroundColor = new Color(1f, 0.6f, 0.6f);
-        if (GUILayout.Button("ã™ã¹ã¦OFF")) SetAllFileUsage(false);
+        if (GUILayout.Button("‚·‚×‚ÄOFF")) SetAllFileUsage(false);
         EditorGUILayout.EndHorizontal();
 
         GUI.backgroundColor = new Color(0.8f, 0.8f, 0.6f);
-        if (GUILayout.Button("ç‚¹ç¾¤ã‚’å†æ§‹ç¯‰")) viewer.RebuildPointCloud();
+        if (GUILayout.Button("“_ŒQ‚ğÄ\’z")) controller.RebuildPointCloud();
         GUI.backgroundColor = Color.white;
 
         if (showDataFiles)
@@ -104,23 +182,23 @@ public class PointCloudViewerEditor : Editor
         showNeighborSearch = EditorGUILayout.Foldout(showNeighborSearch, "Neighbor Search & Filtering", true, EditorStyles.foldoutHeader);
 
         GUI.backgroundColor = new Color(0.7f, 0.9f, 0.7f);
-        if (GUILayout.Button("Voxelã”ã¨ã®ç‚¹ç¾¤æ•°ã‚’CSVå‡ºåŠ›"))
+        if (GUILayout.Button("Voxel‚²‚Æ‚Ì“_ŒQ”‚ğCSVo—Í"))
         {
-            viewer.ExportVoxelCountsToCSV();
+            controller.ExportVoxelCountsToCSV();
         }
         GUI.backgroundColor = Color.white;
         EditorGUILayout.Space();
 
         EditorGUILayout.BeginHorizontal();
         GUI.backgroundColor = new Color(0.8f, 1f, 0.8f);
-        if (GUILayout.Button("ãƒœã‚¯ã‚»ãƒ«å¯†åº¦ãƒ•ã‚£ãƒ«ã‚¿ãƒªãƒ³ã‚°ã‚’å®Ÿè¡Œ"))
+        if (GUILayout.Button("ƒ{ƒNƒZƒ‹–§“xƒtƒBƒ‹ƒ^ƒŠƒ“ƒO‚ğÀs"))
         {
-            viewer.StartVoxelDensityFiltering();
+            controller.StartVoxelDensityFiltering();
         }
         GUI.backgroundColor = new Color(0.6f, 0.8f, 1f);
-        if (GUILayout.Button("è¿‘å‚æ¢ç´¢ãƒã‚¤ã‚ºé™¤å»ã‚’å®Ÿè¡Œ"))
+        if (GUILayout.Button("‹ß–T’TõƒtƒBƒ‹ƒ^‚ğÀs"))
         {
-            viewer.StartNoiseFiltering();
+            controller.StartNeighborFiltering();
         }
         GUI.backgroundColor = Color.white;
         EditorGUILayout.EndHorizontal();
@@ -140,9 +218,9 @@ public class PointCloudViewerEditor : Editor
         showMorpologyOperation = EditorGUILayout.Foldout(showMorpologyOperation, "Morpology Operation", true, EditorStyles.foldoutHeader);
 
         GUI.backgroundColor = new Color(1f, 0.8f, 0.6f);
-        if (GUILayout.Button("ãƒ¢ãƒ«ãƒ•ã‚©ãƒ­ã‚¸ãƒ¼æ¼”ç®—ã‚’å®Ÿè¡Œ (Morpology)"))
+        if (GUILayout.Button("ƒ‚ƒ‹ƒtƒHƒƒW[‰‰Z‚ğÀs (Morpology)"))
         {
-            viewer.StartMorpologyOperation();
+            controller.StartMorpologyOperation();
         }
         GUI.backgroundColor = Color.white;
 
@@ -158,9 +236,9 @@ public class PointCloudViewerEditor : Editor
         showDensityComplementation = EditorGUILayout.Foldout(showDensityComplementation, "Density Complementation", true, EditorStyles.foldoutHeader);
 
         GUI.backgroundColor = new Color(1f, 0.7f, 1f);
-        if (GUILayout.Button("å¯†åº¦è£œå®Œã‚’å®Ÿè¡Œ"))
+        if (GUILayout.Button("–§“x•âŠ®‚ğÀs"))
         {
-            viewer.StartDensityComplementation();
+            controller.StartDensityComplementation();
         }
         GUI.backgroundColor = Color.white;
 
@@ -188,23 +266,23 @@ public class PointCloudViewerEditor : Editor
 
         EditorGUILayout.BeginHorizontal();
         GUI.backgroundColor = new Color(0.6f, 1f, 0.6f);
-        if (GUILayout.Button("ã™ã¹ã¦ GPU ON")) SetAllGpuUsage(true);
+        if (GUILayout.Button("‚·‚×‚Ä GPU ON")) SetAllGpuUsage(true);
         GUI.backgroundColor = new Color(1f, 0.6f, 0.6f);
-        if (GUILayout.Button("ã™ã¹ã¦ GPU OFF (CPU)")) SetAllGpuUsage(false);
+        if (GUILayout.Button("‚·‚×‚Ä GPU OFF (CPU)")) SetAllGpuUsage(false);
         EditorGUILayout.EndHorizontal();
         GUI.backgroundColor = Color.white;
 
         if (showGpuAcceleration)
         {
             EditorGUI.indentLevel++;
-            EditorGUILayout.PropertyField(useGpuNoiseFilterProp, new GUIContent("è¿‘å‚æ¢ç´¢ãƒã‚¤ã‚ºé™¤å» (GPU)"));
-            EditorGUILayout.PropertyField(useGpuDensityFilterProp, new GUIContent("ãƒœã‚¯ã‚»ãƒ«å¯†åº¦ãƒ•ã‚£ãƒ«ã‚¿ (GPU)"));
-            EditorGUILayout.PropertyField(useGpuDensityComplementationProp, new GUIContent("å¯†åº¦è£œå®Œ (GPU)"));
+            EditorGUILayout.PropertyField(useGpuNoiseFilterProp, new GUIContent("‹ß–T’TõƒtƒBƒ‹ƒ^ (GPU)"));
+            EditorGUILayout.PropertyField(useGpuDensityFilterProp, new GUIContent("ƒ{ƒNƒZƒ‹–§“xƒtƒBƒ‹ƒ^ (GPU)"));
+            EditorGUILayout.PropertyField(useGpuDensityComplementationProp, new GUIContent("–§“x•âŠ® (GPU)"));
 
             EditorGUILayout.Space();
             EditorGUILayout.LabelField("Compute Shader Assets", EditorStyles.boldLabel);
 
-            EditorGUILayout.PropertyField(pointCloudFilterShaderProp);
+            EditorGUILayout.PropertyField(neighborNoiseFilterShaderProp);
             EditorGUILayout.PropertyField(morpologyOperationShaderProp);
             EditorGUILayout.PropertyField(densityFilterShaderProp);
             EditorGUILayout.PropertyField(densityComplementationShaderProp);

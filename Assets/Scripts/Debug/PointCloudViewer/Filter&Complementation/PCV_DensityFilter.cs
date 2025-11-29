@@ -151,7 +151,7 @@ public static class PCV_DensityFilter
         }
     }
 
-    private static PCV_Data ApplyCPU(PCV_Data inputData, VoxelGrid voxelGrid, int densityThreshold)
+    private static PCV_Data ApplyCPU(PCV_Data inputData, PCV_VoxelGrid voxelGrid, int densityThreshold)
     {
         var filteredVertices = new List<Vector3>(inputData.PointCount);
         var filteredColors = new List<Color>(inputData.PointCount);

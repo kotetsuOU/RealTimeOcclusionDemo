@@ -2,28 +2,28 @@ using UnityEngine;
 
 public class PCV_InputHandler : MonoBehaviour
 {
-    [SerializeField] private PointCloudViewer viewer;
+    [SerializeField] private PCV_Controller controller;
 
     private void Awake()
     {
-        if (viewer == null)
+        if (controller == null)
         {
-            viewer = GetComponent<PointCloudViewer>();
+            controller = GetComponent<PCV_Controller>();
         }
     }
 
     private void Update()
     {
-        if (viewer == null || !UnityEngine.Application.isPlaying) return;
+        if (controller == null || !UnityEngine.Application.isPlaying) return;
 
         if (Input.GetMouseButtonDown(0))
         {
-            viewer.HandleInteraction();
+            controller.HandleInteraction();
         }
 
         if (Input.GetKeyDown(KeyCode.F))
         {
-            viewer.StartNoiseFiltering();
+            controller.StartNeighborFiltering();
         }
     }
 }

@@ -5,7 +5,7 @@ using UnityEngine;
 using System;
 using System.Runtime.InteropServices;
 
-public static class PCV_NoiseFilter
+public static class PCV_NeighborFilter
 {
     [StructLayout(LayoutKind.Sequential, Pack = 4)]
     private struct Point
@@ -25,7 +25,7 @@ public static class PCV_NoiseFilter
         }
 
         bool isGpuReady = settings.useGpuNoiseFilter &&
-                          settings.pointCloudFilterShader != null &&
+                          settings.neighborNoiseFilterShader != null &&
                           settings.voxelGridBuilderShader != null;
 
         if (isGpuReady)
@@ -36,11 +36,11 @@ public static class PCV_NoiseFilter
         {
             if (!settings.useGpuNoiseFilter)
             {
-                UnityEngine.Debug.Log("CPU実行が選択されています。CPUでノイズ除去を実行します。");
+                UnityEngine.Debug.Log("CPU実行が選択されています。CPUで近傍探索フィルタを実行します。");
             }
-            else if (settings.pointCloudFilterShader == null)
+            else if (settings.neighborNoiseFilterShader == null)
             {
-                UnityEngine.Debug.LogWarning("GPU実行が選択されていますが、近傍探索ノイズフィルターCompute Shaderが設定されていません。CPUで処理を実行します。");
+                UnityEngine.Debug.LogWarning("GPU実行が選択されていますが、Compute Shader (NeighborNoiseFilter) が設定されていません。CPUで処理を実行します。");
             }
             else if (settings.voxelGridBuilderShader == null)
             {
@@ -62,12 +62,12 @@ public static class PCV_NoiseFilter
     {
         var stopwatch = Stopwatch.StartNew();
         int originalCount = dataManager.CurrentData.PointCount;
-        UnityEngine.Debug.Log($"CPUによるノイズ除去処理を開始します。(閾値: {settings.neighborThreshold})");
+        UnityEngine.Debug.Log($"CPUによる近傍探索フィルタ処理を開始します。(閾値: {settings.neighborThreshold})");
 
         PCV_Data filteredData = FilterCPU(dataManager.CurrentData, dataManager.SpatialSearch.VoxelGrid, settings.searchRadius, settings.neighborThreshold);
 
         stopwatch.Stop();
-        LogFilteringResult("近傍探索ノイズ除去", originalCount, filteredData.PointCount, stopwatch.ElapsedMilliseconds);
+        LogFilteringResult("近傍探索フィルタ (CPU)", originalCount, filteredData.PointCount, stopwatch.ElapsedMilliseconds);
         dataManager.SetData(filteredData, settings.voxelSize);
     }
 
@@ -75,7 +75,7 @@ public static class PCV_NoiseFilter
     {
         var stopwatch = Stopwatch.StartNew();
         int originalCount = dataManager.CurrentData.PointCount;
-        UnityEngine.Debug.Log($"CPUによるノイズ除去処理(コルーチン)を開始します。(閾値: {settings.neighborThreshold})");
+        UnityEngine.Debug.Log($"CPUによる近傍探索フィルタ処理(コルーチン)を開始します。(閾値: {settings.neighborThreshold})");
 
         PCV_Data result = null;
         yield return FilterCPUCoroutine(dataManager.CurrentData, dataManager.SpatialSearch.VoxelGrid, settings.searchRadius, settings.neighborThreshold,
@@ -83,7 +83,7 @@ public static class PCV_NoiseFilter
         );
 
         stopwatch.Stop();
-        LogFilteringResult("近傍探索ノイズ除去", originalCount, result.PointCount, stopwatch.ElapsedMilliseconds);
+        LogFilteringResult("近傍探索フィルタ (CPU Coroutine)", originalCount, result.PointCount, stopwatch.ElapsedMilliseconds);
         dataManager.SetData(result, settings.voxelSize);
     }
 
@@ -91,11 +91,11 @@ public static class PCV_NoiseFilter
     {
         var stopwatch = Stopwatch.StartNew();
         int originalCount = dataManager.CurrentData.PointCount;
-        UnityEngine.Debug.Log($"GPUによる近傍探索ノイズ除去処理を開始します。(閾値: {settings.neighborThreshold})");
+        UnityEngine.Debug.Log($"GPUによる近傍探索フィルタ処理を開始します。(閾値: {settings.neighborThreshold})");
 
         PCV_Data filteredData = FilterGPU(
             dataManager.CurrentData,
-            settings.pointCloudFilterShader,
+            settings.neighborNoiseFilterShader,
             settings.voxelGridBuilderShader,
             settings.voxelSize,
             settings.searchRadius,
@@ -103,7 +103,7 @@ public static class PCV_NoiseFilter
         );
 
         stopwatch.Stop();
-        LogFilteringResult("近傍探索ノイズ除去", originalCount, filteredData.PointCount, stopwatch.ElapsedMilliseconds);
+        LogFilteringResult("近傍探索フィルタ (GPU)", originalCount, filteredData.PointCount, stopwatch.ElapsedMilliseconds);
         dataManager.SetData(filteredData, settings.voxelSize);
     }
 
@@ -116,7 +116,7 @@ public static class PCV_NoiseFilter
         }
     }
 
-    public static PCV_Data FilterCPU(PCV_Data data, VoxelGrid voxelGrid, float searchRadius, int threshold)
+    public static PCV_Data FilterCPU(PCV_Data data, PCV_VoxelGrid voxelGrid, float searchRadius, int threshold)
     {
         if (data == null || data.PointCount == 0 || voxelGrid == null)
         {
@@ -138,7 +138,7 @@ public static class PCV_NoiseFilter
         return new PCV_Data(filteredVertices, filteredColors);
     }
 
-    public static IEnumerator FilterCPUCoroutine(PCV_Data data, VoxelGrid voxelGrid, float searchRadius, int threshold, Action<PCV_Data> onComplete)
+    public static IEnumerator FilterCPUCoroutine(PCV_Data data, PCV_VoxelGrid voxelGrid, float searchRadius, int threshold, Action<PCV_Data> onComplete)
     {
         if (data == null || data.PointCount == 0 || voxelGrid == null)
         {

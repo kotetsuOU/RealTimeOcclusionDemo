@@ -7,9 +7,15 @@ public struct FileSettings
     public string filePath;
     public Color color;
 
+    [Tooltip("位置合わせの結果を反映させる対象のゲームオブジェクト")]
+    public GameObject targetObject;
+
     public bool IsDifferent(FileSettings other)
     {
-        return useFile != other.useFile || filePath != other.filePath || color != other.color;
+        return useFile != other.useFile ||
+                       filePath != other.filePath ||
+                       color != other.color ||
+                       targetObject != other.targetObject;
     }
 }
 
@@ -56,8 +62,8 @@ public class PCV_Settings : MonoBehaviour
     public bool useCoroutine = false;
 
     [Header("GPU Acceleration")]
-    [Tooltip("点群フィルタリングに使用するCompute Shader")]
-    public ComputeShader pointCloudFilterShader;
+    [Tooltip("近傍探索ノイズ除去に使用するCompute Shader")]
+    public ComputeShader neighborNoiseFilterShader; // 名前変更: pointCloudFilterShader -> neighborNoiseFilterShader
     [Tooltip("形態学的操作に使用するCompute Shader")]
     public ComputeShader morpologyOperationShader;
     [Tooltip("ボクセル密度フィルタリングに使用するCompute Shader")]
@@ -92,7 +98,7 @@ public class PCV_Settings : MonoBehaviour
     private Color lastComplementationPointColor;
     private bool lastComplementationRandomPlacement;
 
-    private ComputeShader lastPointCloudFilterShader;
+    private ComputeShader lastNeighborNoiseFilterShader; // 名前変更
     private ComputeShader lastMorpologyOperationShader;
     private ComputeShader lastDensityFilterShader;
     private ComputeShader lastDensityComplementationShader;
@@ -132,7 +138,7 @@ public class PCV_Settings : MonoBehaviour
         lastComplementationPointColor = complementationPointColor;
         lastComplementationRandomPlacement = complementationRandomPlacement;
 
-        lastPointCloudFilterShader = pointCloudFilterShader;
+        lastNeighborNoiseFilterShader = neighborNoiseFilterShader; // 名前変更
         lastMorpologyOperationShader = morpologyOperationShader;
         lastDensityFilterShader = densityFilterShader;
         lastDensityComplementationShader = densityComplementationShader;
@@ -180,7 +186,7 @@ public class PCV_Settings : MonoBehaviour
         bool densityShadersChanged = (morpologyOperationShader != lastMorpologyOperationShader) ||
                                      (densityFilterShader != lastDensityFilterShader) ||
                                      (densityComplementationShader != lastDensityComplementationShader) ||
-                                     (pointCloudFilterShader != lastPointCloudFilterShader) ||
+                                     (neighborNoiseFilterShader != lastNeighborNoiseFilterShader) || // 名前変更
                                      (voxelGridBuilderShader != lastVoxelGridBuilderShader);
 
         bool processingParamsChanged = voxelSize != lastVoxelSize ||

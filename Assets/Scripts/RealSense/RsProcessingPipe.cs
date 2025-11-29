@@ -2,6 +2,7 @@ using Intel.RealSense;
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using UnityEngine;
@@ -21,82 +22,91 @@ public sealed class ProcessingBlockDataAttribute : System.Attribute
     }
 }
 
-
 [Serializable]
 public class RsProcessingPipe : RsFrameProvider
 {
     public RsFrameProvider Source;
     public RsProcessingProfile profile;
+
     public override event Action<PipelineProfile> OnStart;
     public override event Action OnStop;
     public override event Action<Frame> OnNewSample;
+
     private CustomProcessingBlock _block;
 
+    public bool Streaming;
+
+    private RsDepthToColorCalibration _calibration;
     private int _frameCounter = 0;
-    [SerializeField] private int _processIntervalFrames = 2;
+
+    [SerializeField] private int _processIntervalFrames = 1;
 
     void Awake()
     {
-        Source.OnStart += OnSourceStart;
-        Source.OnStop += OnSourceStop;
+        if (Source != null)
+        {
+            Source.OnStart += OnSourceStart;
+            Source.OnStop += OnSourceStop;
+        }
 
         _block = new CustomProcessingBlock(ProcessFrame);
         _block.Start(OnFrame);
+
         if (_processIntervalFrames <= 0) { _processIntervalFrames = 1; }
+    }
+
+    void Start()
+    {
+        if (profile == null)
+        {
+            profile = ScriptableObject.CreateInstance<RsProcessingProfile>();
+            profile._processingBlocks = new List<RsProcessingBlock>();
+        }
     }
 
     private void OnSourceStart(PipelineProfile activeProfile)
     {
-        Source.OnNewSample += _block.Process;
+        if (Source != null)
+        {
+            Source.OnNewSample += _block.Process;
+        }
+
         ActiveProfile = activeProfile;
 
-        // For the L5** device, disable processing blocks in the PointCloudProcessingBlocks scene, except for Temporaral Filter
-        if (ActiveProfile != null)
+        _calibration = new RsDepthToColorCalibration(activeProfile);
+
+        if (profile != null)
         {
-            string devName = ActiveProfile.Device.Info.GetInfo(CameraInfo.Name);
-            if (!string.IsNullOrEmpty(devName) && devName.StartsWith("Intel RealSense L5", StringComparison.OrdinalIgnoreCase))
+            foreach (var pb in profile._processingBlocks)
             {
-                GameObject pbPanel = GameObject.Find("ProcessingBlocks/ScrollRect/Viewport/Content");
-                if (pbPanel != null)
+                if (pb is RsColorBasedDepthCulling colorCulling)
                 {
-                    foreach (Transform child in pbPanel.transform)
-                    {
-                        if (!child.name.Equals("TemporaFilter"))
-                        {
-                            child.gameObject.SetActive(false);
-                            Toggle toggle = child.transform.Find("Toggle").gameObject.GetComponent<Toggle>();
-                            if (toggle != null && toggle.isOn)
-                                toggle.isOn = false;
-                        }
-                    }
+                    colorCulling.SetCalibration(_calibration);
                 }
             }
-
         }
 
         Streaming = true;
-        var h = OnStart;
-        if (h != null)
-            h.Invoke(activeProfile);
+
+        OnStart?.Invoke(activeProfile);
     }
 
     private void OnSourceStop()
     {
         if (!Streaming)
             return;
-        if (_block != null)
+
+        if (_block != null && Source != null)
             Source.OnNewSample -= _block.Process;
+
         Streaming = false;
-        var h = OnStop;
-        if (h != null)
-            h();
+
+        OnStop?.Invoke();
     }
 
     private void OnFrame(Frame f)
     {
-        var onNewSample = OnNewSample;
-        if (onNewSample != null)
-            onNewSample.Invoke(f);
+        OnNewSample?.Invoke(f);
     }
 
     private void OnDestroy()
@@ -111,14 +121,11 @@ public class RsProcessingPipe : RsFrameProvider
 
     internal void ProcessFrame(Frame frame, FrameSource src)
     {
-        if (frame is VideoFrame videoFrame)
-        {
-            UnityEngine.Debug.Log($"ProcessingPipe: Received frame dimension => Width={videoFrame.Width}, Height={videoFrame.Height}");
-        }
-
         _frameCounter++;
+
         if (_frameCounter % _processIntervalFrames != 0)
             return;
+
         try
         {
             if (!Streaming)
@@ -128,34 +135,24 @@ public class RsProcessingPipe : RsFrameProvider
 
             if (profile != null)
             {
-                var filters = profile._processingBlocks.AsReadOnly();
-
-                //UnityEngine.Debug.Log($"RsProcessingPipe: {filters.Count} 個のブロックを処理します。");
+                var filters = profile._processingBlocks;
 
                 foreach (var pb in filters)
                 {
-                    if (pb == null)
-                    {
-                        //UnityEngine.Debug.LogWarning("RsProcessingPipe: null のブロックをスキップします。");
-                        continue;
-                    }
+                    if (pb == null) continue;
 
                     if (!pb.Enabled)
-                    {
-                        //UnityEngine.Debug.LogWarning($"RsProcessingPipe: ブロック '{pb.GetType().Name}' は Enabled=false のためスキップします。");
                         continue;
-                    }
 
-                    //UnityEngine.Debug.Log($"RsProcessingPipe: ブロック '{pb.GetType().Name}' の Process を実行します...");
+                    Frame processed = pb.Process(f, src);
 
-                    var r = pb.Process(f, src);
-                    if (r != f)
+                    if (processed != f)
                     {
                         if (f != frame)
                         {
                             f.Dispose();
                         }
-                        f = r;
+                        f = processed;
                     }
                 }
             }
@@ -167,9 +164,10 @@ public class RsProcessingPipe : RsFrameProvider
         }
         catch (Exception e)
         {
-            Debug.LogException(e);
+            UnityEngine.Debug.LogException(e);
         }
     }
+
     public void SetProcessIntervalFrames(int value)
     {
         _processIntervalFrames = value;

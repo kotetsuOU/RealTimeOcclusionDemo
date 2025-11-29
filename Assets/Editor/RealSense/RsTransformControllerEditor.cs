@@ -1,10 +1,9 @@
-using UnityEditor;
+ï»¿using UnityEditor;
 using UnityEngine;
 
 [CustomEditor(typeof(RsTransformController))]
 public class RsTransformControllerEditor : Editor
 {
-    // SerializedProperties
     private SerializedProperty configFileNameProp;
     private SerializedProperty loadOnStartProp;
     private SerializedProperty showCalibrationGuideProp;
@@ -15,7 +14,6 @@ public class RsTransformControllerEditor : Editor
 
     private void OnEnable()
     {
-        // ƒvƒƒpƒeƒB‚Ì•R‚Ã‚¯
         configFileNameProp = serializedObject.FindProperty("configFileName");
         loadOnStartProp = serializedObject.FindProperty("loadOnStart");
         showCalibrationGuideProp = serializedObject.FindProperty("showCalibrationGuide");
@@ -31,26 +29,22 @@ public class RsTransformControllerEditor : Editor
 
         RsTransformController controller = (RsTransformController)target;
 
-        // 1. Šî–{İ’è‚Ì•`‰æ
         EditorGUILayout.LabelField("Configuration", EditorStyles.boldLabel);
         EditorGUILayout.PropertyField(configFileNameProp);
         EditorGUILayout.PropertyField(loadOnStartProp);
 
         EditorGUILayout.Space();
 
-        // 2. ƒLƒƒƒŠƒuƒŒ[ƒVƒ‡ƒ“İ’è‚Ì•`‰æiPlay’†‚Í”ñ•\¦j
         if (!UnityEngine.Application.isPlaying)
         {
             EditorGUILayout.LabelField("Calibration Guide", EditorStyles.boldLabel);
 
-            // ƒKƒCƒh•\¦‚ÌƒgƒOƒ‹
             EditorGUILayout.PropertyField(showCalibrationGuideProp);
 
-            // ƒKƒCƒh‚ªON‚Ì‚Æ‚«‚¾‚¯Ú×İ’è‚ğ•\¦iƒCƒ“ƒfƒ“ƒg‚ğ•t‚¯‚ÄŠK‘w\‘¢‚ğ•\Œ»j
             if (showCalibrationGuideProp.boolValue)
             {
                 EditorGUI.indentLevel++;
-                EditorGUILayout.HelpBox("—ÎF‚Ì˜gü‚ÆÔ‚¢‹…‚É‡‚í‚¹‚ÄA“_ŒQ‚ÌˆÊ’u‚ğ’²®‚µ‚Ä‚­‚¾‚³‚¢B", MessageType.Info);
+                EditorGUILayout.HelpBox("ç·‘è‰²ã®æ ç·šã¨èµ¤ã„çƒã«åˆã‚ã›ã¦ã€ç‚¹ç¾¤ã®ä½ç½®ã‚’èª¿æ•´ã—ã¦ãã ã•ã„ã€‚", MessageType.Info);
 
                 EditorGUILayout.PropertyField(calibrationOriginProp, new GUIContent("Origin (Start Point)"));
                 EditorGUILayout.PropertyField(calibrationBoxSizeProp, new GUIContent("Box Size"));
