@@ -20,11 +20,8 @@ public class RsPointCloudRenderer : MonoBehaviour
 
     [Header("Performance Logging Settings")]
     public string logFilePrefix = "PointCloudPerfLog";
-    [Tooltip("ログ記録を開始するフレーム番号")]
     public long startFrame = 200;
-    [Tooltip("ログ記録を終了するフレーム番号")]
     public long endFrame = 1400;
-    [Tooltip("既存のログファイルに追記するかどうか")]
     public bool appendLog = false;
 
     private RealSenseDataProvider _dataProvider;
@@ -42,10 +39,7 @@ public class RsPointCloudRenderer : MonoBehaviour
     private MeshRenderer _renderer;
 
     private RsIntegratedPointCloud _integratedPointCloud;
-    private Vector3[] _integratedPointCloudData;
-    private int _integratedPointCount = 0;
     private bool _useIntegratedPointCloud = false;
-    private readonly object _integratedLock = new object();
 
     public bool IsGlobalRangeFilterEnabled { get; set; } = true;
     public Vector3 EstimatedPoint { get; private set; } = Vector3.zero;
@@ -67,9 +61,9 @@ public class RsPointCloudRenderer : MonoBehaviour
     {
         int width = 0;
         int height = 0;
-        
+
         TryConnectIntegratedPointCloud();
-        
+
         if (_useIntegratedPointCloud)
         {
             using (var depth = profile.Streams.FirstOrDefault(s => s.Stream == Intel.RealSense.Stream.Depth && s.Format == Intel.RealSense.Format.Z16)?.As<VideoStreamProfile>())
@@ -80,7 +74,7 @@ public class RsPointCloudRenderer : MonoBehaviour
                     height = depth.Height;
                 }
             }
-            UnityEngine.Debug.Log("[RsPointCloudRenderer] Using RsIntegratedPointCloud, RealSenseDataProvider disabled");
+            UnityEngine.Debug.Log("[RsPointCloudRenderer] Using RsIntegratedPointCloud (GPU Direct Mode), RealSenseDataProvider disabled");
         }
         else
         {
@@ -89,7 +83,7 @@ public class RsPointCloudRenderer : MonoBehaviour
             height = _dataProvider.FrameHeight;
             UnityEngine.Debug.Log("[RsPointCloudRenderer] Using RsPointCloud via RealSenseDataProvider");
         }
-        
+
         int rsLength = width * height;
         if (rsLength == 0)
         {
@@ -101,10 +95,13 @@ public class RsPointCloudRenderer : MonoBehaviour
 
         _compute.InitializeBuffers(rsLength, transform.localToWorldMatrix);
 
-        _rawVertices = new Vector3[rsLength];
         _globalVertices = new Vector3[rsLength];
 
-        _rawVerticesBuffer = new ComputeBuffer(rsLength, sizeof(float) * 3);
+        if (!_useIntegratedPointCloud)
+        {
+            _rawVertices = new Vector3[rsLength];
+            _rawVerticesBuffer = new ComputeBuffer(rsLength, sizeof(float) * 3);
+        }
 
         transform.position = Vector3.zero;
         transform.rotation = Quaternion.identity;
@@ -128,13 +125,8 @@ public class RsPointCloudRenderer : MonoBehaviour
         }
     }
 
-    private void OnIntegratedPointCloudUpdated(Vector3[] points)
+    private void OnIntegratedPointCloudUpdated()
     {
-        lock (_integratedLock)
-        {
-            _integratedPointCloudData = points;
-            _integratedPointCount = points?.Length ?? 0;
-        }
     }
 
     void LateUpdate()
@@ -170,30 +162,13 @@ public class RsPointCloudRenderer : MonoBehaviour
 
     private void ProcessIntegratedPointCloud()
     {
-        Vector3[] pointData;
-        int pointCount;
+        if (_integratedPointCloud == null || _integratedPointCloud.PointCloudBuffer == null)
+            return;
 
-        lock (_integratedLock)
-        {
-            if (_integratedPointCloudData == null || _integratedPointCount == 0)
-                return;
+        int pointCount = _integratedPointCloud.LastPointCount;
+        if (pointCount == 0) return;
 
-            pointData = _integratedPointCloudData;
-            pointCount = _integratedPointCount;
-        }
-
-        if (_rawVertices == null || _rawVertices.Length < pointCount)
-        {
-            _rawVertices = new Vector3[pointCount];
-        }
-        Array.Copy(pointData, _rawVertices, pointCount);
-
-        if (_rawVerticesBuffer == null || _rawVerticesBuffer.count < pointCount)
-        {
-            _rawVerticesBuffer?.Release();
-            _rawVerticesBuffer = new ComputeBuffer(pointCount, sizeof(float) * 3);
-        }
-        _rawVerticesBuffer.SetData(_rawVertices, 0, 0, pointCount);
+        ComputeBuffer sourceBuffer = _integratedPointCloud.PointCloudBuffer;
 
         long discardedCount;
         int finalVertexCount;
@@ -201,7 +176,7 @@ public class RsPointCloudRenderer : MonoBehaviour
 
         if (IsGlobalRangeFilterEnabled)
         {
-            var result = _compute.FilterAndEstimateLine(_rawVerticesBuffer, EstimatedPoint, EstimatedDir, pointCount);
+            var result = _compute.FilterAndEstimateLine(sourceBuffer, EstimatedPoint, EstimatedDir, pointCount);
             finalVertexCount = result.finalCount;
             EstimatedPoint = result.point;
             EstimatedDir = result.dir;
@@ -210,7 +185,7 @@ public class RsPointCloudRenderer : MonoBehaviour
         }
         else
         {
-            finalVertexCount = _compute.Transform(_rawVerticesBuffer, pointCount);
+            finalVertexCount = _compute.Transform(sourceBuffer, pointCount);
             discardedCount = 0;
         }
 
@@ -314,8 +289,12 @@ public class RsPointCloudRenderer : MonoBehaviour
         _dataProvider?.Dispose();
         _compute?.Dispose();
         _logger?.Dispose();
-        _rawVerticesBuffer?.Release();
-        _rawVerticesBuffer = null;
+
+        if (_rawVerticesBuffer != null)
+        {
+            _rawVerticesBuffer.Release();
+            _rawVerticesBuffer = null;
+        }
     }
 
     public void StartPerformanceLog()

@@ -20,6 +20,8 @@ public class PointCloudCompute : IDisposable
     private int rsLength;
     private Matrix4x4 localToWorld;
 
+    private readonly List<Vector3> _sampleCache = new List<Vector3>(1000);
+
     public ComputeBuffer GetFilteredVerticesBuffer()
     {
         return filteredVerticesBuffer;
@@ -155,25 +157,27 @@ public class PointCloudCompute : IDisposable
         }
     }
 
-
     private (Vector3 point, Vector3 dir) EstimateLineCPU(Vector3[] vertices, int count)
     {
         if (count < 2) return (Vector3.zero, Vector3.forward);
 
         int sampleCount = Mathf.Clamp((int)(count * 0.01f), 100, 1000);
-        List<Vector3> sample = new List<Vector3>(sampleCount);
+
+        _sampleCache.Clear();
 
         System.Random rnd = new System.Random();
         for (int i = 0; i < sampleCount; i++)
-            sample.Add(vertices[rnd.Next(count)]);
+        {
+            _sampleCache.Add(vertices[rnd.Next(count)]);
+        }
 
         Vector3 centroid = Vector3.zero;
-        foreach (var v in sample) centroid += v;
-        centroid /= sample.Count;
+        foreach (var v in _sampleCache) centroid += v;
+        centroid /= _sampleCache.Count;
 
         float xx = 0, xy = 0, xz = 0;
         float yy = 0, yz = 0, zz = 0;
-        foreach (var v in sample)
+        foreach (var v in _sampleCache)
         {
             Vector3 r = v - centroid;
             xx += r.x * r.x;

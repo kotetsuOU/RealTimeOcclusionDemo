@@ -33,7 +33,8 @@ struct CullingParams
     int minCr, maxCr;
 };
 
-StructuredBuffer<int> _InputDepthBuffer;
+ByteAddressBuffer _InputDepthBuffer;
+
 Texture2D<float4> _InputColorTexture;
 StructuredBuffer<RsIntrinsics> _DepthIntrinsics;
 StructuredBuffer<RsIntrinsics> _ColorIntrinsics;
@@ -41,6 +42,24 @@ StructuredBuffer<RsExtrinsics> _DepthToColorExtrinsics;
 StructuredBuffer<CullingParams> _Params;
 
 AppendStructuredBuffer<float3> _OutputPointCloud;
+
+uint GetDepthValue(uint index)
+{
+    uint byteOffset = index * 2;
+    
+    uint alignedOffset = byteOffset & ~3;
+    
+    uint packed = _InputDepthBuffer.Load(alignedOffset);
+    
+    if ((byteOffset & 2) == 0)
+    {
+        return packed & 0xFFFF;
+    }
+    else
+    {
+        return packed >> 16;
+    }
+}
 
 void RgbToHsv(float r, float g, float b, out float3 hsv)
 {
@@ -101,7 +120,7 @@ void CSMain(uint3 id : SV_DispatchThreadID)
     if (index >= totalPixels)
         return;
 
-    int dVal = _InputDepthBuffer[index];
+    int dVal = (int) GetDepthValue(index);
     
     if (dVal == 0)
     {
@@ -165,7 +184,7 @@ void CSMain(uint3 id : SV_DispatchThreadID)
 
     bool isTarget = false;
 
-    if (p.mode == 0) // HSV Mode
+    if (p.mode == 0)
     {
         float3 hsv;
         RgbToHsv(r, g, b, hsv);
@@ -176,7 +195,7 @@ void CSMain(uint3 id : SV_DispatchThreadID)
             isTarget = true;
         }
     }
-    else // YCbCr Mode
+    else
     {
         int3 ycbcr;
         RgbToYCbCr(r, g, b, ycbcr);

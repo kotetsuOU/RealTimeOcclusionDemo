@@ -42,10 +42,11 @@ public class RsIntegratedPointCloud : RsProcessingBlock
 
     [NonSerialized] private RsDepthToColorCalibration _calibration;
     [NonSerialized] private RsIntegratedPointCloudProcessor _gpuProcessor;
-    [NonSerialized] private Vector3[] _lastPointCloud;
 
+    public ComputeBuffer PointCloudBuffer => _gpuProcessor?.PointCloudBuffer;
     public int LastPointCount => _gpuProcessor?.LastPointCount ?? 0;
-    public event Action<Vector3[]> OnPointCloudUpdated;
+
+    public event Action OnPointCloudUpdated;
 
     private void OnEnable()
     {
@@ -102,11 +103,11 @@ public class RsIntegratedPointCloud : RsProcessingBlock
                         SaveDebugFrames = false;
                     }
 
-                    _lastPointCloud = _gpuProcessor.Process(colorFrame, depthFrame, this);
+                    _gpuProcessor.Process(colorFrame, depthFrame, this);
 
-                    if (_lastPointCloud != null && _lastPointCloud.Length > 0)
+                    if (_gpuProcessor.HasNewPointCloud)
                     {
-                        OnPointCloudUpdated?.Invoke(_lastPointCloud);
+                        OnPointCloudUpdated?.Invoke();
                     }
                 }
             }

@@ -3,6 +3,8 @@ using System.Runtime.InteropServices;
 using UnityEngine;
 using UnityEngine.Rendering;
 using Intel.RealSense;
+using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
 
 public class RsIntegratedPointCloudProcessor : IDisposable
 {
@@ -37,22 +39,22 @@ public class RsIntegratedPointCloudProcessor : IDisposable
     private ComputeBuffer _pointCloudCountBuffer;
 
     private Texture2D _colorTexture;
-    private int[] _depthDataCache;
 
-    private Vector3[] _latestPointCloud;
-    private int _latestPointCount = 0;
-    private bool _hasNewPointCloud = false;
 
     // Async Readback State
     private bool _countReadbackPending = false;
-    private bool _pointCloudReadbackPending = false;
     private int _pendingPointCount = 0;
+
+    // Output States
+    private int _latestPointCount = 0;
+    private bool _hasNewPointCloud = false;
 
     private RsIntrinsics _dIntrin;
     private RsIntrinsics _cIntrin;
     private RsExtrinsics _extrin;
     private bool _initialized = false;
 
+    public ComputeBuffer PointCloudBuffer => _pointCloudBuffer;
     public int LastPointCount => _latestPointCount;
     public bool HasNewPointCloud => _hasNewPointCloud;
 
@@ -108,13 +110,12 @@ public class RsIntegratedPointCloudProcessor : IDisposable
         _colorTexture = new Texture2D(_cIntrin.width, _cIntrin.height, TextureFormat.RGB24, false);
 
         int depthPixelCount = _dIntrin.width * _dIntrin.height;
-        _depthDataCache = new int[depthPixelCount];
-        _inputDepthBuffer = new ComputeBuffer(depthPixelCount, sizeof(int));
+
+        int totalBytes = depthPixelCount * sizeof(ushort);
+        _inputDepthBuffer = new ComputeBuffer(totalBytes / 4, 4, ComputeBufferType.Raw);
 
         _pointCloudBuffer = new ComputeBuffer(depthPixelCount, sizeof(float) * 3, ComputeBufferType.Append);
         _pointCloudCountBuffer = new ComputeBuffer(1, sizeof(int), ComputeBufferType.Raw);
-
-        _latestPointCloud = new Vector3[depthPixelCount];
 
         _shader.SetBuffer(_kernelIndex, "_DepthIntrinsics", _depthIntrinsicsBuffer);
         _shader.SetBuffer(_kernelIndex, "_ColorIntrinsics", _colorIntrinsicsBuffer);
@@ -127,39 +128,37 @@ public class RsIntegratedPointCloudProcessor : IDisposable
     {
         if (!_initialized) return null;
 
-        unsafe
-        {
-            ushort* ptr = (ushort*)depthFrame.Data;
-            int count = _depthDataCache.Length;
-            for (int i = 0; i < count; i++) _depthDataCache[i] = ptr[i];
-        }
-
-        Vector3[] resultPointCloud = null;
-
         RsUnityMainThreadDispatcher.Instance.EnqueueAndWait(() =>
         {
             _colorTexture.LoadRawTextureData(colorFrame.Data, colorFrame.Stride * colorFrame.Height);
             _colorTexture.Apply();
             _shader.SetTexture(_kernelIndex, "_InputColorTexture", _colorTexture);
 
-            _inputDepthBuffer.SetData(_depthDataCache);
+            unsafe
+            {
+                int totalBytes = depthFrame.Stride * depthFrame.Height;
+                NativeArray<byte> rawDepthData = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<byte>(
+                    (void*)depthFrame.Data,
+                    totalBytes,
+                    Allocator.None);
+
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+                NativeArrayUnsafeUtility.SetAtomicSafetyHandle(ref rawDepthData, AtomicSafetyHandle.GetTempMemoryHandle());
+#endif
+
+                _inputDepthBuffer.SetData(rawDepthData);
+            }
+
             UpdateParams(parent);
 
             _pointCloudBuffer.SetCounterValue(0);
             int threadGroups = Mathf.CeilToInt((_dIntrin.width * _dIntrin.height) / 64.0f);
             _shader.Dispatch(_kernelIndex, threadGroups, 1, 1);
 
-            if (_hasNewPointCloud && _latestPointCount > 0)
-            {
-                resultPointCloud = new Vector3[_latestPointCount];
-                Array.Copy(_latestPointCloud, resultPointCloud, _latestPointCount);
-                _hasNewPointCloud = false;
-            }
-
             if (!_countReadbackPending) RequestAsyncReadback();
         });
 
-        return resultPointCloud;
+        return null;
     }
 
     private void RequestAsyncReadback()
@@ -178,32 +177,7 @@ public class RsIntegratedPointCloudProcessor : IDisposable
         if (countData.Length > 0)
         {
             _pendingPointCount = countData[0];
-            if (_pendingPointCount > 0 && !_pointCloudReadbackPending)
-            {
-                _pointCloudReadbackPending = true;
-                int bytesToRead = _pendingPointCount * sizeof(float) * 3;
-                AsyncGPUReadback.Request(_pointCloudBuffer, bytesToRead, 0, OnPointCloudReadbackComplete);
-            }
-            else if (_pendingPointCount == 0)
-            {
-                _latestPointCount = 0;
-                _hasNewPointCloud = true;
-            }
-        }
-    }
-
-    private void OnPointCloudReadbackComplete(AsyncGPUReadbackRequest request)
-    {
-        _pointCloudReadbackPending = false;
-        if (request.hasError) return;
-
-        var pointData = request.GetData<Vector3>();
-        int count = Mathf.Min(pointData.Length, _pendingPointCount);
-
-        if (count > 0 && _latestPointCloud != null)
-        {
-            for (int i = 0; i < count; i++) _latestPointCloud[i] = pointData[i];
-            _latestPointCount = count;
+            _latestPointCount = _pendingPointCount;
             _hasNewPointCloud = true;
         }
     }
@@ -237,7 +211,6 @@ public class RsIntegratedPointCloudProcessor : IDisposable
     private void ReleaseBuffers()
     {
         _countReadbackPending = false;
-        _pointCloudReadbackPending = false;
         if (_depthIntrinsicsBuffer != null) { _depthIntrinsicsBuffer.Release(); _depthIntrinsicsBuffer = null; }
         if (_colorIntrinsicsBuffer != null) { _colorIntrinsicsBuffer.Release(); _colorIntrinsicsBuffer = null; }
         if (_extrinsicsBuffer != null) { _extrinsicsBuffer.Release(); _extrinsicsBuffer = null; }
