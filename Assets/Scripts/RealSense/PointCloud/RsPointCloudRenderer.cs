@@ -1,6 +1,7 @@
 ﻿using Intel.RealSense;
 using System;
 using System.Diagnostics;
+using System.Linq;
 using UnityEngine;
 
 [RequireComponent(typeof(MeshRenderer))]
@@ -40,6 +41,12 @@ public class RsPointCloudRenderer : MonoBehaviour
     private MaterialPropertyBlock _props;
     private MeshRenderer _renderer;
 
+    private RsIntegratedPointCloud _integratedPointCloud;
+    private Vector3[] _integratedPointCloudData;
+    private int _integratedPointCount = 0;
+    private bool _useIntegratedPointCloud = false;
+    private readonly object _integratedLock = new object();
+
     public bool IsGlobalRangeFilterEnabled { get; set; } = true;
     public Vector3 EstimatedPoint { get; private set; } = Vector3.zero;
     public Vector3 EstimatedDir { get; private set; } = Vector3.forward;
@@ -49,7 +56,6 @@ public class RsPointCloudRenderer : MonoBehaviour
     {
         _dataProvider = new RealSenseDataProvider(processingPipe);
         _logger = new PerformanceLogger();
-        _dataProvider.Start();
 
         _renderer = GetComponent<MeshRenderer>();
         _props = new MaterialPropertyBlock();
@@ -59,9 +65,37 @@ public class RsPointCloudRenderer : MonoBehaviour
 
     private void OnStartStreaming(PipelineProfile profile)
     {
-        int width = _dataProvider.FrameWidth;
-        int height = _dataProvider.FrameHeight;
+        int width = 0;
+        int height = 0;
+        
+        TryConnectIntegratedPointCloud();
+        
+        if (_useIntegratedPointCloud)
+        {
+            using (var depth = profile.Streams.FirstOrDefault(s => s.Stream == Intel.RealSense.Stream.Depth && s.Format == Intel.RealSense.Format.Z16)?.As<VideoStreamProfile>())
+            {
+                if (depth != null)
+                {
+                    width = depth.Width;
+                    height = depth.Height;
+                }
+            }
+            UnityEngine.Debug.Log("[RsPointCloudRenderer] Using RsIntegratedPointCloud, RealSenseDataProvider disabled");
+        }
+        else
+        {
+            _dataProvider.Start();
+            width = _dataProvider.FrameWidth;
+            height = _dataProvider.FrameHeight;
+            UnityEngine.Debug.Log("[RsPointCloudRenderer] Using RsPointCloud via RealSenseDataProvider");
+        }
+        
         int rsLength = width * height;
+        if (rsLength == 0)
+        {
+            UnityEngine.Debug.LogError("[RsPointCloudRenderer] Failed to get depth stream dimensions");
+            return;
+        }
 
         _compute = new PointCloudCompute(pointCloudFilterShader, pointCloudTransformerShader, rsDeviceController.RealSenseScanRange, rsDeviceController.FrameWidth, maxPlaneDistance);
 
@@ -77,17 +111,50 @@ public class RsPointCloudRenderer : MonoBehaviour
         transform.localScale = Vector3.one;
     }
 
+    private void TryConnectIntegratedPointCloud()
+    {
+        if (processingPipe == null || processingPipe.profile == null) return;
+
+        foreach (var block in processingPipe.profile._processingBlocks)
+        {
+            if (block is RsIntegratedPointCloud integrated)
+            {
+                _integratedPointCloud = integrated;
+                _integratedPointCloud.OnPointCloudUpdated += OnIntegratedPointCloudUpdated;
+                _useIntegratedPointCloud = true;
+                UnityEngine.Debug.Log("[RsPointCloudRenderer] Connected to RsIntegratedPointCloud");
+                return;
+            }
+        }
+    }
+
+    private void OnIntegratedPointCloudUpdated(Vector3[] points)
+    {
+        lock (_integratedLock)
+        {
+            _integratedPointCloudData = points;
+            _integratedPointCount = points?.Length ?? 0;
+        }
+    }
+
     void LateUpdate()
     {
         if (_logger.IsLogging) _stopwatch.Restart();
 
         _frameCounter++;
 
-        if (_dataProvider.PollForFrame(out var points))
+        if (_useIntegratedPointCloud)
         {
-            using (points)
+            ProcessIntegratedPointCloud();
+        }
+        else
+        {
+            if (_dataProvider.PollForFrame(out var points))
             {
-                ProcessFrame(points);
+                using (points)
+                {
+                    ProcessFrame(points);
+                }
             }
         }
 
@@ -99,6 +166,61 @@ public class RsPointCloudRenderer : MonoBehaviour
         }
 
         UpdateProceduralMesh(_finalVertexCount);
+    }
+
+    private void ProcessIntegratedPointCloud()
+    {
+        Vector3[] pointData;
+        int pointCount;
+
+        lock (_integratedLock)
+        {
+            if (_integratedPointCloudData == null || _integratedPointCount == 0)
+                return;
+
+            pointData = _integratedPointCloudData;
+            pointCount = _integratedPointCount;
+        }
+
+        if (_rawVertices == null || _rawVertices.Length < pointCount)
+        {
+            _rawVertices = new Vector3[pointCount];
+        }
+        Array.Copy(pointData, _rawVertices, pointCount);
+
+        if (_rawVerticesBuffer == null || _rawVerticesBuffer.count < pointCount)
+        {
+            _rawVerticesBuffer?.Release();
+            _rawVerticesBuffer = new ComputeBuffer(pointCount, sizeof(float) * 3);
+        }
+        _rawVerticesBuffer.SetData(_rawVertices, 0, 0, pointCount);
+
+        long discardedCount;
+        int finalVertexCount;
+        long totalCount = pointCount;
+
+        if (IsGlobalRangeFilterEnabled)
+        {
+            var result = _compute.FilterAndEstimateLine(_rawVerticesBuffer, EstimatedPoint, EstimatedDir, pointCount);
+            finalVertexCount = result.finalCount;
+            EstimatedPoint = result.point;
+            EstimatedDir = result.dir;
+            discardedCount = result.discardedCount;
+            totalCount = result.sampledCount;
+        }
+        else
+        {
+            finalVertexCount = _compute.Transform(_rawVerticesBuffer, pointCount);
+            discardedCount = 0;
+        }
+
+        _finalVertexCount = finalVertexCount;
+
+        if (_logger.IsLogging)
+        {
+            _stopwatch.Stop();
+            _logger.LogFrame(_frameCounter, _stopwatch.Elapsed.TotalMilliseconds, discardedCount, totalCount, IsGlobalRangeFilterEnabled);
+        }
     }
 
     private void ProcessFrame(Points points)
@@ -182,6 +304,12 @@ public class RsPointCloudRenderer : MonoBehaviour
 
     private void Dispose()
     {
+        if (_integratedPointCloud != null)
+        {
+            _integratedPointCloud.OnPointCloudUpdated -= OnIntegratedPointCloudUpdated;
+            _integratedPointCloud = null;
+        }
+
         processingPipe.OnStart -= OnStartStreaming;
         _dataProvider?.Dispose();
         _compute?.Dispose();

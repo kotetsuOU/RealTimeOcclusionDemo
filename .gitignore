@@ -9,3 +9,6 @@
 
 # Custom data
 /Assets/HandTrackingData/
+
+# Visual Studio cache directory
+.vs/

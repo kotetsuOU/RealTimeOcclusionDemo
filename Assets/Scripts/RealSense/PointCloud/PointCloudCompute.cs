@@ -52,6 +52,11 @@ public class PointCloudCompute : IDisposable
 
     public (int finalCount, Vector3 point, Vector3 dir, int discardedCount, int sampledCount, float discardPercentage) FilterAndEstimateLine(ComputeBuffer rawVerticesBuffer, Vector3 previousLinePoint, Vector3 previousLineDir)
     {
+        return FilterAndEstimateLine(rawVerticesBuffer, previousLinePoint, previousLineDir, rsLength);
+    }
+
+    public (int finalCount, Vector3 point, Vector3 dir, int discardedCount, int sampledCount, float discardPercentage) FilterAndEstimateLine(ComputeBuffer rawVerticesBuffer, Vector3 previousLinePoint, Vector3 previousLineDir, int vertexCount)
+    {
         filteredVerticesBuffer.SetCounterValue(0);
         samplingBuffer.SetCounterValue(0);
         distanceDiscardBuffer.SetCounterValue(0);
@@ -66,12 +71,12 @@ public class PointCloudCompute : IDisposable
         filterShader.SetMatrix("localToWorld", localToWorld);
         filterShader.SetVector("globalThreshold1", globalThreshold1);
         filterShader.SetVector("globalThreshold2", globalThreshold2);
-        filterShader.SetInt("vertexCount", rsLength);
+        filterShader.SetInt("vertexCount", vertexCount);
         filterShader.SetFloat("maxDistance", maxPlaneDistance);
         filterShader.SetVector("linePoint", previousLinePoint);
         filterShader.SetVector("lineDir", previousLineDir);
 
-        int threadGroups = Mathf.CeilToInt(rsLength / 256.0f);
+        int threadGroups = Mathf.CeilToInt(vertexCount / 256.0f);
         filterShader.Dispatch(kernel, threadGroups, 1, 1);
 
 
@@ -111,6 +116,11 @@ public class PointCloudCompute : IDisposable
 
     public int Transform(ComputeBuffer rawVerticesBuffer)
     {
+        return Transform(rawVerticesBuffer, rsLength);
+    }
+
+    public int Transform(ComputeBuffer rawVerticesBuffer, int vertexCount)
+    {
         filteredVerticesBuffer.SetCounterValue(0);
 
         int kernel = transformShader.FindKernel("CSMain");
@@ -118,12 +128,12 @@ public class PointCloudCompute : IDisposable
         transformShader.SetBuffer(kernel, "rawVertices", rawVerticesBuffer);
         transformShader.SetBuffer(kernel, "filteredVertices", filteredVerticesBuffer);
         transformShader.SetMatrix("localToWorld", localToWorld);
-        transformShader.SetInt("vertexCount", rsLength);
+        transformShader.SetInt("vertexCount", vertexCount);
 
         transformShader.SetVector("globalThreshold1", globalThreshold1);
         transformShader.SetVector("globalThreshold2", globalThreshold2);
 
-        int threadGroups = Mathf.CeilToInt(rsLength / 256.0f);
+        int threadGroups = Mathf.CeilToInt(vertexCount / 256.0f);
         transformShader.Dispatch(kernel, threadGroups, 1, 1);
 
         ComputeBuffer.CopyCount(filteredVerticesBuffer, countBuffer, 0);

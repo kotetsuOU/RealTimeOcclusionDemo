@@ -83,6 +83,10 @@ public class RsProcessingPipe : RsFrameProvider
                 {
                     colorCulling.SetCalibration(_calibration);
                 }
+                else if (pb is RsIntegratedPointCloud integratedPointCloud)
+                {
+                    integratedPointCloud.SetCalibration(_calibration);
+                }
             }
         }
 

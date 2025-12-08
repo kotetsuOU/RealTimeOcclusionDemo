@@ -1,0 +1,195 @@
+#pragma kernel CSMain
+
+struct RsIntrinsics
+{
+    int width;
+    int height;
+    float ppx;
+    float ppy;
+    float fx;
+    float fy;
+};
+
+struct RsExtrinsics
+{
+    float r0, r1, r2;
+    float r3, r4, r5;
+    float r6, r7, r8;
+    float t0, t1, t2;
+};
+
+struct CullingParams
+{
+    int width;
+    int height;
+    int mode;
+    float minDistance;
+    float maxDistance;
+    float minHue, maxHue;
+    float minSat, maxSat;
+    float minVal, maxVal;
+    int minY, maxY;
+    int minCb, maxCb;
+    int minCr, maxCr;
+};
+
+StructuredBuffer<int> _InputDepthBuffer;
+Texture2D<float4> _InputColorTexture;
+StructuredBuffer<RsIntrinsics> _DepthIntrinsics;
+StructuredBuffer<RsIntrinsics> _ColorIntrinsics;
+StructuredBuffer<RsExtrinsics> _DepthToColorExtrinsics;
+StructuredBuffer<CullingParams> _Params;
+
+AppendStructuredBuffer<float3> _OutputPointCloud;
+
+void RgbToHsv(float r, float g, float b, out float3 hsv)
+{
+    float maxC = max(r, max(g, b));
+    float minC = min(r, min(g, b));
+    float delta = maxC - minC;
+
+    float h = 0.0f;
+    float s = (maxC == 0.0f) ? 0.0f : (delta / maxC);
+    float v = maxC;
+
+    if (delta != 0.0f)
+    {
+        if (maxC == r)
+        {
+            h = (g - b) / delta;
+            if (h < 0.0f)
+                h += 6.0f;
+        }
+        else if (maxC == g)
+        {
+            h = (b - r) / delta + 2.0f;
+        }
+        else
+        {
+            h = (r - g) / delta + 4.0f;
+        }
+        h /= 6.0f;
+    }
+
+    hsv = float3(h, s, v);
+}
+
+void RgbToYCbCr(float r, float g, float b, out int3 ycbcr)
+{
+    float fr = r * 255.0f;
+    float fg = g * 255.0f;
+    float fb = b * 255.0f;
+
+    int y = (int) (0.2990f * fr + 0.5870f * fg + 0.1140f * fb);
+    int cb = (int) (-0.1687f * fr - 0.3313f * fg + 0.5000f * fb + 128);
+    int cr = (int) (0.5000f * fr - 0.4187f * fg - 0.0813f * fb + 128);
+
+    ycbcr = int3(
+        clamp(y, 0, 255),
+        clamp(cb, 0, 255),
+        clamp(cr, 0, 255)
+    );
+}
+
+[numthreads(64, 1, 1)]
+void CSMain(uint3 id : SV_DispatchThreadID)
+{
+    uint index = id.x;
+    RsIntrinsics dIntrin = _DepthIntrinsics[0];
+    uint totalPixels = dIntrin.width * dIntrin.height;
+
+    if (index >= totalPixels)
+        return;
+
+    int dVal = _InputDepthBuffer[index];
+    
+    if (dVal == 0)
+    {
+        return;
+    }
+
+    uint dWidth = dIntrin.width;
+    uint dx_uint = index % dWidth;
+    uint dy_uint = index / dWidth;
+    
+    float depthM = (float) dVal / 1000.0f;
+    
+    CullingParams p = _Params[0];
+    
+    if (depthM < p.minDistance || depthM > p.maxDistance)
+    {
+        return;
+    }
+    
+    float x = ((float) dx_uint - dIntrin.ppx) / dIntrin.fx;
+    float y = ((float) dy_uint - dIntrin.ppy) / dIntrin.fy;
+
+    float3 point3d = float3(x * depthM, y * depthM, depthM);
+    
+    RsExtrinsics ext = _DepthToColorExtrinsics[0];
+    float3 rotated;
+    rotated.x = ext.r0 * point3d.x + ext.r1 * point3d.y + ext.r2 * point3d.z;
+    rotated.y = ext.r3 * point3d.x + ext.r4 * point3d.y + ext.r5 * point3d.z;
+    rotated.z = ext.r6 * point3d.x + ext.r7 * point3d.y + ext.r8 * point3d.z;
+    float3 colorPoint3d = rotated + float3(ext.t0, ext.t1, ext.t2);
+
+    RsIntrinsics cIntrin = _ColorIntrinsics[0];
+    int cx = 0;
+    int cy = 0;
+    bool inBounds = false;
+
+    if (colorPoint3d.z > 0)
+    {
+        float u = colorPoint3d.x / colorPoint3d.z;
+        float v = colorPoint3d.y / colorPoint3d.z;
+        
+        cx = (int) (u * cIntrin.fx + cIntrin.ppx);
+        cy = (int) (v * cIntrin.fy + cIntrin.ppy);
+
+        if (cx >= 0 && cx < cIntrin.width && cy >= 0 && cy < cIntrin.height)
+        {
+            inBounds = true;
+        }
+    }
+
+    if (!inBounds)
+    {
+        return;
+    }
+
+    float4 colorPixel = _InputColorTexture.Load(int3(cx, cy, 0));
+    
+    float r = colorPixel.x;
+    float g = colorPixel.y;
+    float b = colorPixel.z;
+
+    bool isTarget = false;
+
+    if (p.mode == 0) // HSV Mode
+    {
+        float3 hsv;
+        RgbToHsv(r, g, b, hsv);
+        if (hsv.x >= p.minHue && hsv.x <= p.maxHue &&
+            hsv.y >= p.minSat && hsv.y <= p.maxSat &&
+            hsv.z >= p.minVal && hsv.z <= p.maxVal)
+        {
+            isTarget = true;
+        }
+    }
+    else // YCbCr Mode
+    {
+        int3 ycbcr;
+        RgbToYCbCr(r, g, b, ycbcr);
+        if (ycbcr.x >= p.minY && ycbcr.x <= p.maxY &&
+            ycbcr.y >= p.minCb && ycbcr.y <= p.maxCb &&
+            ycbcr.z >= p.minCr && ycbcr.z <= p.maxCr)
+        {
+            isTarget = true;
+        }
+    }
+
+    if (isTarget)
+    {
+        _OutputPointCloud.Append(float3(point3d.x, -point3d.y, point3d.z));
+    }
+}
