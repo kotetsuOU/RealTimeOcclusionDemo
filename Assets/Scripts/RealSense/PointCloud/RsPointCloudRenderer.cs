@@ -24,6 +24,9 @@ public class RsPointCloudRenderer : MonoBehaviour
     public long endFrame = 1400;
     public bool appendLog = false;
 
+    [Header("Debug")]
+    public bool showDebugMatrix = false;
+
     private RealSenseDataProvider _dataProvider;
     private PointCloudCompute _compute;
     private PerformanceLogger _logger;
@@ -33,7 +36,6 @@ public class RsPointCloudRenderer : MonoBehaviour
     private Vector3[] _globalVertices;
     private ComputeBuffer _rawVerticesBuffer;
     private int _frameCounter = 0;
-    private int _finalVertexCount = 0;
 
     private MaterialPropertyBlock _props;
     private MeshRenderer _renderer;
@@ -74,7 +76,7 @@ public class RsPointCloudRenderer : MonoBehaviour
                     height = depth.Height;
                 }
             }
-            UnityEngine.Debug.Log("[RsPointCloudRenderer] Using RsIntegratedPointCloud (GPU Direct Mode), RealSenseDataProvider disabled");
+            UnityEngine.Debug.Log("[RsPointCloudRenderer] Using RsIntegratedPointCloud (GPU Direct Mode)");
         }
         else
         {
@@ -103,9 +105,11 @@ public class RsPointCloudRenderer : MonoBehaviour
             _rawVerticesBuffer = new ComputeBuffer(rsLength, sizeof(float) * 3);
         }
 
+        /*
         transform.position = Vector3.zero;
         transform.rotation = Quaternion.identity;
         transform.localScale = Vector3.one;
+        */
     }
 
     private void TryConnectIntegratedPointCloud()
@@ -133,11 +137,24 @@ public class RsPointCloudRenderer : MonoBehaviour
     {
         if (_logger.IsLogging) _stopwatch.Restart();
 
+        if (showDebugMatrix)
+        {
+            UnityEngine.Debug.Log($"[RsPointCloudRenderer] LocalToWorld Matrix:\n{transform.localToWorldMatrix}");
+        }
+
+        // Update matrix in compute shader if transform changed
+        if (transform.hasChanged)
+        {
+            _compute?.UpdateLocalToWorldMatrix(transform.localToWorldMatrix);
+            transform.hasChanged = false;
+        }
+
         _frameCounter++;
+        ComputeBuffer argsBuffer = null;
 
         if (_useIntegratedPointCloud)
         {
-            ProcessIntegratedPointCloud();
+            argsBuffer = ProcessIntegratedPointCloud();
         }
         else
         {
@@ -145,125 +162,115 @@ public class RsPointCloudRenderer : MonoBehaviour
             {
                 using (points)
                 {
-                    ProcessFrame(points);
+                    argsBuffer = ProcessFrame(points);
                 }
             }
         }
 
         if (_stopwatch.IsRunning) _stopwatch.Stop();
 
-        if (_finalVertexCount <= 0 || _compute == null)
+        if (argsBuffer != null)
         {
-            return;
+            UpdateProceduralMesh(argsBuffer);
         }
-
-        UpdateProceduralMesh(_finalVertexCount);
     }
 
-    private void ProcessIntegratedPointCloud()
+    private ComputeBuffer ProcessIntegratedPointCloud()
     {
         if (_integratedPointCloud == null || _integratedPointCloud.PointCloudBuffer == null)
-            return;
+            return null;
 
         int pointCount = _integratedPointCloud.LastPointCount;
-        if (pointCount == 0) return;
+        if (pointCount == 0) return null;
 
         ComputeBuffer sourceBuffer = _integratedPointCloud.PointCloudBuffer;
 
-        long discardedCount;
-        int finalVertexCount;
+        long discardedCount = 0;
         long totalCount = pointCount;
+        ComputeBuffer argsBuffer;
 
         if (IsGlobalRangeFilterEnabled)
         {
             var result = _compute.FilterAndEstimateLine(sourceBuffer, EstimatedPoint, EstimatedDir, pointCount);
-            finalVertexCount = result.finalCount;
             EstimatedPoint = result.point;
             EstimatedDir = result.dir;
             discardedCount = result.discardedCount;
             totalCount = result.sampledCount;
+
+            argsBuffer = _compute.GetArgsBuffer();
         }
         else
         {
-            finalVertexCount = _compute.Transform(sourceBuffer, pointCount);
+            argsBuffer = _compute.TransformIndirect(sourceBuffer, pointCount);
             discardedCount = 0;
         }
-
-        _finalVertexCount = finalVertexCount;
 
         if (_logger.IsLogging)
         {
             _stopwatch.Stop();
             _logger.LogFrame(_frameCounter, _stopwatch.Elapsed.TotalMilliseconds, discardedCount, totalCount, IsGlobalRangeFilterEnabled);
         }
+
+        return argsBuffer;
     }
 
-    private void ProcessFrame(Points points)
+    private ComputeBuffer ProcessFrame(Points points)
     {
-        if (points.VertexData != IntPtr.Zero)
+        if (points.VertexData == IntPtr.Zero) return null;
+
+        points.CopyVertices(_rawVertices);
+
+        if (_rawVerticesBuffer != null)
         {
-            points.CopyVertices(_rawVertices);
-
-            if (_rawVerticesBuffer != null)
-            {
-                _rawVerticesBuffer.SetData(_rawVertices);
-            }
-
-            long discardedCount;
-            int finalVertexCount;
-            long totalCount = 0;
-
-            if (IsGlobalRangeFilterEnabled)
-            {
-                var result = _compute.FilterAndEstimateLine(_rawVerticesBuffer, EstimatedPoint, EstimatedDir);
-                finalVertexCount = result.finalCount;
-                EstimatedPoint = result.point;
-                EstimatedDir = result.dir;
-                discardedCount = result.discardedCount;
-                totalCount = result.sampledCount;
-            }
-            else
-            {
-                finalVertexCount = _compute.Transform(_rawVerticesBuffer);
-                discardedCount = 0;
-                totalCount = _rawVertices.Length;
-            }
-
-            _finalVertexCount = finalVertexCount;
-
-            if (_logger.IsLogging)
-            {
-                _stopwatch.Stop();
-                _logger.LogFrame(_frameCounter, _stopwatch.Elapsed.TotalMilliseconds, discardedCount, totalCount, IsGlobalRangeFilterEnabled);
-            }
+            _rawVerticesBuffer.SetData(_rawVertices);
         }
+
+        long discardedCount = 0;
+        long totalCount = _rawVertices.Length;
+        ComputeBuffer argsBuffer;
+
+        if (IsGlobalRangeFilterEnabled)
+        {
+            var result = _compute.FilterAndEstimateLine(_rawVerticesBuffer, EstimatedPoint, EstimatedDir);
+            EstimatedPoint = result.point;
+            EstimatedDir = result.dir;
+            discardedCount = result.discardedCount;
+            totalCount = result.sampledCount;
+
+            argsBuffer = _compute.GetArgsBuffer();
+        }
+        else
+        {
+            argsBuffer = _compute.TransformIndirect(_rawVerticesBuffer);
+            discardedCount = 0;
+        }
+
+        if (_logger.IsLogging)
+        {
+            _stopwatch.Stop();
+            _logger.LogFrame(_frameCounter, _stopwatch.Elapsed.TotalMilliseconds, discardedCount, totalCount, IsGlobalRangeFilterEnabled);
+        }
+        return argsBuffer;
     }
 
-    private void UpdateProceduralMesh(int vertexCount)
+    private void UpdateProceduralMesh(ComputeBuffer argsBuffer)
     {
-        if (vertexCount == 0 || _compute == null || _renderer == null || _renderer.sharedMaterial == null)
+        if (_compute == null || _renderer == null || _renderer.sharedMaterial == null)
         {
             return;
         }
 
-        ComputeBuffer verticesBuffer = _compute.GetFilteredVerticesBuffer();
-        if (verticesBuffer == null)
-        {
-            UnityEngine.Debug.LogWarning("Filtered vertices buffer is null.");
-            return;
-        }
-
-        _props.SetBuffer("_Vertices", verticesBuffer);
+        _props.SetBuffer("_Vertices", _compute.GetFilteredVerticesBuffer());
         _props.SetColor("_Color", pointCloudColor);
 
         Bounds bounds = new Bounds(transform.position, Vector3.one * 30f);
 
-        Graphics.DrawProcedural(
+        Graphics.DrawProceduralIndirect(
             _renderer.material,
             bounds,
             MeshTopology.Points,
-            vertexCount,
-            1,
+            argsBuffer,
+            0,
             null,
             _props,
             UnityEngine.Rendering.ShadowCastingMode.Off,
@@ -306,13 +313,6 @@ public class RsPointCloudRenderer : MonoBehaviour
 
     public Vector3[] GetFilteredVertices()
     {
-        if (_finalVertexCount > 0 && _compute != null)
-        {
-            _compute.GetFilteredVerticesData(_globalVertices, _finalVertexCount);
-        }
-
-        Vector3[] result = new Vector3[_finalVertexCount];
-        Array.Copy(_globalVertices, result, _finalVertexCount);
-        return result;
+        return new Vector3[0];
     }
 }

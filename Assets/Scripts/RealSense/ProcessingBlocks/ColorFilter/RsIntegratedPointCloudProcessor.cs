@@ -29,7 +29,6 @@ public class RsIntegratedPointCloudProcessor : IDisposable
     private ComputeShader _shader;
     private int _kernelIndex;
 
-    // Buffers
     private ComputeBuffer _depthIntrinsicsBuffer;
     private ComputeBuffer _colorIntrinsicsBuffer;
     private ComputeBuffer _extrinsicsBuffer;
@@ -40,12 +39,9 @@ public class RsIntegratedPointCloudProcessor : IDisposable
 
     private Texture2D _colorTexture;
 
-
-    // Async Readback State
     private bool _countReadbackPending = false;
     private int _pendingPointCount = 0;
 
-    // Output States
     private int _latestPointCount = 0;
     private bool _hasNewPointCloud = false;
 
@@ -53,6 +49,8 @@ public class RsIntegratedPointCloudProcessor : IDisposable
     private RsIntrinsics _cIntrin;
     private RsExtrinsics _extrin;
     private bool _initialized = false;
+
+    private readonly CullingParams[] _cullingParamsCache = new CullingParams[1];
 
     public ComputeBuffer PointCloudBuffer => _pointCloudBuffer;
     public int LastPointCount => _latestPointCount;
@@ -110,7 +108,6 @@ public class RsIntegratedPointCloudProcessor : IDisposable
         _colorTexture = new Texture2D(_cIntrin.width, _cIntrin.height, TextureFormat.RGB24, false);
 
         int depthPixelCount = _dIntrin.width * _dIntrin.height;
-
         int totalBytes = depthPixelCount * sizeof(ushort);
         _inputDepthBuffer = new ComputeBuffer(totalBytes / 4, 4, ComputeBufferType.Raw);
 
@@ -184,7 +181,7 @@ public class RsIntegratedPointCloudProcessor : IDisposable
 
     private void UpdateParams(RsIntegratedPointCloud p)
     {
-        CullingParams cParams = new CullingParams
+        _cullingParamsCache[0] = new CullingParams
         {
             width = _dIntrin.width,
             height = _dIntrin.height,
@@ -204,7 +201,7 @@ public class RsIntegratedPointCloudProcessor : IDisposable
             minCr = p._minCr,
             maxCr = p._maxCr
         };
-        _paramsBuffer.SetData(new CullingParams[] { cParams });
+        _paramsBuffer.SetData(_cullingParamsCache);
         _shader.SetBuffer(_kernelIndex, "_Params", _paramsBuffer);
     }
 

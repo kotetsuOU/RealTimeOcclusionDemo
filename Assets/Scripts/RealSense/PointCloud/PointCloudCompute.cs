@@ -12,6 +12,9 @@ public class PointCloudCompute : IDisposable
     private ComputeBuffer samplingBuffer;
     private ComputeBuffer distanceDiscardBuffer;
 
+    private ComputeBuffer argsBuffer;
+    private readonly int[] argsData = new int[] { 0, 1, 0, 0 };
+
     private Vector3 rsScanRange;
     private float frameWidth;
     private float maxPlaneDistance;
@@ -21,10 +24,16 @@ public class PointCloudCompute : IDisposable
     private Matrix4x4 localToWorld;
 
     private readonly List<Vector3> _sampleCache = new List<Vector3>(1000);
+    private readonly int[] _countCache = new int[1];
 
     public ComputeBuffer GetFilteredVerticesBuffer()
     {
         return filteredVerticesBuffer;
+    }
+
+    public ComputeBuffer GetArgsBuffer()
+    {
+        return argsBuffer;
     }
 
     public PointCloudCompute(ComputeShader filterShader, ComputeShader transformShader, Vector3 rsScanRange, float frameWidth, float maxPlaneDistance)
@@ -45,16 +54,21 @@ public class PointCloudCompute : IDisposable
         this.rsLength = rsLength;
         this.localToWorld = localToWorld;
 
+        UnityEngine.Debug.Log($"[Compute] {localToWorld}");
+
         ReleaseBuffers();
         filteredVerticesBuffer = new ComputeBuffer(rsLength, sizeof(float) * 3, ComputeBufferType.Append);
         countBuffer = new ComputeBuffer(1, sizeof(int), ComputeBufferType.Raw);
         samplingBuffer = new ComputeBuffer(rsLength, sizeof(float) * 3, ComputeBufferType.Append);
         distanceDiscardBuffer = new ComputeBuffer(rsLength, sizeof(float) * 3, ComputeBufferType.Append);
+
+        argsBuffer = new ComputeBuffer(1, sizeof(int) * 4, ComputeBufferType.IndirectArguments);
+        argsBuffer.SetData(argsData);
     }
 
-    public (int finalCount, Vector3 point, Vector3 dir, int discardedCount, int sampledCount, float discardPercentage) FilterAndEstimateLine(ComputeBuffer rawVerticesBuffer, Vector3 previousLinePoint, Vector3 previousLineDir)
+    public void UpdateLocalToWorldMatrix(Matrix4x4 localToWorld)
     {
-        return FilterAndEstimateLine(rawVerticesBuffer, previousLinePoint, previousLineDir, rsLength);
+        this.localToWorld = localToWorld;
     }
 
     public (int finalCount, Vector3 point, Vector3 dir, int discardedCount, int sampledCount, float discardPercentage) FilterAndEstimateLine(ComputeBuffer rawVerticesBuffer, Vector3 previousLinePoint, Vector3 previousLineDir, int vertexCount)
@@ -81,11 +95,11 @@ public class PointCloudCompute : IDisposable
         int threadGroups = Mathf.CeilToInt(vertexCount / 256.0f);
         filterShader.Dispatch(kernel, threadGroups, 1, 1);
 
+        ComputeBuffer.CopyCount(filteredVerticesBuffer, argsBuffer, 0);
 
         ComputeBuffer.CopyCount(samplingBuffer, countBuffer, 0);
-        int[] sampledCountArr = new int[1];
-        countBuffer.GetData(sampledCountArr);
-        int sampledCount = sampledCountArr[0];
+        countBuffer.GetData(_countCache);
+        int sampledCount = _countCache[0];
 
         Vector3 point = previousLinePoint;
         Vector3 dir = previousLineDir;
@@ -98,9 +112,8 @@ public class PointCloudCompute : IDisposable
         }
 
         ComputeBuffer.CopyCount(distanceDiscardBuffer, countBuffer, 0);
-        int[] discardedCountArr = new int[1];
-        countBuffer.GetData(discardedCountArr);
-        int discardedCount = discardedCountArr[0];
+        countBuffer.GetData(_countCache);
+        int discardedCount = _countCache[0];
 
         float discardPercentage = 0f;
         if (sampledCount > 0)
@@ -109,19 +122,18 @@ public class PointCloudCompute : IDisposable
         }
 
         ComputeBuffer.CopyCount(filteredVerticesBuffer, countBuffer, 0);
-        int[] finalCountArr = new int[1];
-        countBuffer.GetData(finalCountArr);
-        int finalCount = finalCountArr[0];
+        countBuffer.GetData(_countCache);
+        int finalCount = _countCache[0];
 
         return (finalCount, point, dir, discardedCount, sampledCount, discardPercentage);
     }
 
-    public int Transform(ComputeBuffer rawVerticesBuffer)
+    public (int finalCount, Vector3 point, Vector3 dir, int discardedCount, int sampledCount, float discardPercentage) FilterAndEstimateLine(ComputeBuffer rawVerticesBuffer, Vector3 previousLinePoint, Vector3 previousLineDir)
     {
-        return Transform(rawVerticesBuffer, rsLength);
+        return FilterAndEstimateLine(rawVerticesBuffer, previousLinePoint, previousLineDir, rsLength);
     }
 
-    public int Transform(ComputeBuffer rawVerticesBuffer, int vertexCount)
+    public ComputeBuffer TransformIndirect(ComputeBuffer rawVerticesBuffer, int vertexCount)
     {
         filteredVerticesBuffer.SetCounterValue(0);
 
@@ -138,11 +150,23 @@ public class PointCloudCompute : IDisposable
         int threadGroups = Mathf.CeilToInt(vertexCount / 256.0f);
         transformShader.Dispatch(kernel, threadGroups, 1, 1);
 
+        ComputeBuffer.CopyCount(filteredVerticesBuffer, argsBuffer, 0);
+
+        return argsBuffer;
+    }
+
+    public ComputeBuffer TransformIndirect(ComputeBuffer rawVerticesBuffer)
+    {
+        return TransformIndirect(rawVerticesBuffer, rsLength);
+    }
+
+    public int Transform(ComputeBuffer rawVerticesBuffer) { return Transform(rawVerticesBuffer, rsLength); }
+    public int Transform(ComputeBuffer rawVerticesBuffer, int vertexCount)
+    {
+        TransformIndirect(rawVerticesBuffer, vertexCount);
         ComputeBuffer.CopyCount(filteredVerticesBuffer, countBuffer, 0);
-        int[] countArr = new int[1];
-        countBuffer.GetData(countArr);
-        int newCount = countArr[0];
-        return newCount;
+        countBuffer.GetData(_countCache);
+        return _countCache[0];
     }
 
     public void GetFilteredVerticesData(Vector3[] outVertices, int count)
@@ -227,5 +251,6 @@ public class PointCloudCompute : IDisposable
         countBuffer?.Release();
         samplingBuffer?.Release();
         distanceDiscardBuffer?.Release();
+        argsBuffer?.Release();
     }
 }

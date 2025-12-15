@@ -18,7 +18,6 @@ Shader "Custom/PointCloudSprite"
             #include "UnityCG.cginc"
 
             StructuredBuffer<float3> _Vertices;
-
             float _PointSize;
             float4 _Color;
 
@@ -42,7 +41,6 @@ Shader "Custom/PointCloudSprite"
             fixed4 frag (v2f i) : SV_Target
             {
                 if (i.color.a < 0.5) discard;
-
                 return i.color * _Color;
             }
             ENDCG

@@ -34,7 +34,6 @@ struct CullingParams
 };
 
 ByteAddressBuffer _InputDepthBuffer;
-
 Texture2D<float4> _InputColorTexture;
 StructuredBuffer<RsIntrinsics> _DepthIntrinsics;
 StructuredBuffer<RsIntrinsics> _ColorIntrinsics;
@@ -46,9 +45,7 @@ AppendStructuredBuffer<float3> _OutputPointCloud;
 uint GetDepthValue(uint index)
 {
     uint byteOffset = index * 2;
-    
     uint alignedOffset = byteOffset & ~3;
-    
     uint packed = _InputDepthBuffer.Load(alignedOffset);
     
     if ((byteOffset & 2) == 0)
