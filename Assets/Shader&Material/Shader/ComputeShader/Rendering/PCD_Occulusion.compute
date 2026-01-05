@@ -12,6 +12,7 @@
 #pragma kernel ApplyAdaptiveGradientCorrection
 #pragma kernel OcclusionAndFilter
 #pragma kernel Interpolate
+#pragma kernel MergeBuffer
 
 // --- Data Structures ---
 struct Point
@@ -56,6 +57,13 @@ Texture2D<uint> _DepthPyramidL4;
 Texture2D<uint> _OriginTypeMap;
 Texture2D<int> _FinalNeighborhoodSizeMap;
 Texture2D<float4> _OcclusionResultMap;
+
+// --- Merge Buffers (New) ---
+StructuredBuffer<Point> _MergeSrcBuffer;
+RWStructuredBuffer<Point> _MergeDstBuffer;
+int _MergeSrcOffset;
+int _MergeDstOffset;
+int _MergeCopyCount;
 
 // --- Uniforms ---
 uint _PointCount;
@@ -112,6 +120,16 @@ float SobelOnPyramid(Texture2D<uint> pyramidTex, uint2 uv)
 
 // --- Kernels ---
 
+// 0. Merge Buffer
+[numthreads(256, 1, 1)]
+void MergeBuffer(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint) _MergeCopyCount)
+        return;
+    
+    _MergeDstBuffer[_MergeDstOffset + id.x] = _MergeSrcBuffer[_MergeSrcOffset + id.x];
+}
+
 // 1. Clear Maps
 [numthreads(8, 8, 1)]
 void ClearMaps(uint3 id : SV_DispatchThreadID)
@@ -123,7 +141,7 @@ void ClearMaps(uint3 id : SV_DispatchThreadID)
     _OcclusionResultMap_RW[id.xy] = float4(0, 0, 0, 0);
     _FinalImage_RW[id.xy] = float4(0, 0, 0, 0);
 
-    _OriginMap_RW[id.xy] = float4(0, 0, 0, 1); //color
+    _OriginMap_RW[id.xy] = float4(0, 0, 0, 1);
     _OriginTypeMap_RW[id.xy] = 2u;
 }
 
@@ -210,7 +228,6 @@ void CalculateGridLevel(uint3 id : SV_DispatchThreadID)
     _DensityMap.GetDimensions(dim.x, dim.y);
     if (id.x >= dim.x || id.y >= dim.y)
         return;
-        
     float density = _DensityMap[id.xy];
     int level = 0;
     if (density > 0.001)
@@ -231,7 +248,6 @@ void GridMedianFilter(uint3 id : SV_DispatchThreadID)
         return;
 
     int values[9];
-    
     values[0] = _GridLevelMap[clamp(id.xy + int2(-1, -1), 0, dim - 1)];
     values[1] = _GridLevelMap[clamp(id.xy + int2(0, -1), 0, dim - 1)];
     values[2] = _GridLevelMap[clamp(id.xy + int2(1, -1), 0, dim - 1)];
@@ -241,9 +257,11 @@ void GridMedianFilter(uint3 id : SV_DispatchThreadID)
     values[6] = _GridLevelMap[clamp(id.xy + int2(-1, 1), 0, dim - 1)];
     values[7] = _GridLevelMap[clamp(id.xy + int2(0, 1), 0, dim - 1)];
     values[8] = _GridLevelMap[clamp(id.xy + int2(1, 1), 0, dim - 1)];
-
+    
+    [unroll]
     for (int i = 0; i < 9; ++i)
     {
+        [unroll]
         for (int j = i + 1; j < 9; ++j)
         {
             if (values[i] > values[j])
@@ -381,7 +399,6 @@ void OcclusionAndFilter(uint3 id : SV_DispatchThreadID)
 
     float occlusionSum = 0.0;
     uint neighborCount = 0u;
-
     for (uint y = 0u; y <= radius * 2u; y++)
     {
         for (uint x = 0u; x <= radius * 2u; x++)
@@ -430,7 +447,6 @@ void OcclusionAndFilter(uint3 id : SV_DispatchThreadID)
     else
     {
         _OcclusionResultMap_RW[id.xy] = _ColorMap[id.xy];
-    
         uint originType = _OriginTypeMap[id.xy];
         if (originType == 0u)
         {
@@ -441,42 +457,6 @@ void OcclusionAndFilter(uint3 id : SV_DispatchThreadID)
             _OriginMap_RW[id.xy] = float4(1, 1, 1, 1);
         }
     }
-    
-    /*
-    uint originType = _OriginTypeMap[id.xy];
-    if (isOccluded)
-    {
-        if (originType == 0u)
-        {
-            _OcclusionResultMap_RW[id.xy] = float4(0, 0, 0, 1);
-            _OriginMap_RW[id.xy] = float4(1.0, 192.0 / 255.0, 128.0 / 255.0, 1.0);
-        }
-        else
-        {
-            _OcclusionResultMap_RW[id.xy] = float4(0, 0, 0, 0);
-            if (originType == 1u)
-            {
-                _OriginMap_RW[id.xy] = float4(1.0, 1.0, 1.0, 1.0);
-            }
-        }
-    }
-    else
-    {
-        if (originType == 0u)
-        {
-            _OcclusionResultMap_RW[id.xy] = float4(0, 0, 0, 1);
-            _OriginMap_RW[id.xy] = float4(1.0, 192.0 / 255.0, 128.0 / 255.0, 1.0);
-        }
-        else
-        {
-            _OcclusionResultMap_RW[id.xy] = float4(0, 0, 0, 0);
-            if (originType == 1u)
-            {
-                _OriginMap_RW[id.xy] = float4(1.0, 1.0, 1.0, 1.0);
-            }
-        }
-    }
-    */
 }
 
 // 10. Interpolate (Simple Dilation)

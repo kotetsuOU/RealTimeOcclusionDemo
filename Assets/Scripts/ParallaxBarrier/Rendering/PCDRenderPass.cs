@@ -34,7 +34,7 @@ public class PCDRenderPass : ScriptableRenderPass
     private float _occlusionThreshold;
     private bool _enableOriginDebugMap;
 
-    // --- Internal Buffer Management ---
+    // --- Internal Buffer Management (Static Meshes & CPU PointCloud) ---
     private ComputeBuffer _pointBuffer;
     private int _pointCount = 0;
     private Point[] _pointsCache;
@@ -45,13 +45,17 @@ public class PCDRenderPass : ScriptableRenderPass
     private int _externalPointCount = 0;
     private bool _useExternalBuffer = false;
 
+    // --- Combined Buffer (External + Internal) ---
+    private ComputeBuffer _combinedBuffer;
+
     private int _kernelClear, _kernelProject, _kernelCalcGridZMin, _kernelCalcDensity,
                 _kernelCalcGridLevel, _kernelGridMedianFilter,
                 _kernelCalcNeighborhoodSize,
                 _kernelBuildDepthPyramidL1, _kernelBuildDepthPyramidL2,
                 _kernelBuildDepthPyramidL3, _kernelBuildDepthPyramidL4,
                 _kernelApplyGradient,
-                _kernelOcclusion, _kernelInterpolate;
+                _kernelOcclusion, _kernelInterpolate,
+                _kernelMerge; // Added Merge Kernel
 
     private RTHandle _originDebugMapHandle;
 
@@ -59,7 +63,7 @@ public class PCDRenderPass : ScriptableRenderPass
 
     private PCV_Data _dynamicData;
     private List<MeshTransformPair> _staticMeshes = new List<MeshTransformPair>();
-
+    private const int STRIDE = 28; // sizeof(float)*3 + sizeof(float)*3 + sizeof(uint)
 
     public PCDRenderPass(PCDRendererFeature settings, Material blendMaterial, bool enableAlphaBlend)
     {
@@ -83,18 +87,24 @@ public class PCDRenderPass : ScriptableRenderPass
 
     public void SetExternalBuffer(ComputeBuffer buffer, int count)
     {
+        bool prevUse = _useExternalBuffer;
+
         if (buffer != null && buffer.IsValid())
         {
             _externalPointBuffer = buffer;
             _externalPointCount = count;
             _useExternalBuffer = true;
-            _isDataDirty = false;
         }
         else
         {
             _useExternalBuffer = false;
             _externalPointBuffer = null;
             _externalPointCount = 0;
+        }
+
+        if (prevUse != _useExternalBuffer)
+        {
+            _isDataDirty = true;
         }
     }
 
@@ -139,10 +149,8 @@ public class PCDRenderPass : ScriptableRenderPass
 
     private void MergeAndCachePoints()
     {
-        if (_useExternalBuffer) return;
-
         int dataPointCount = 0;
-        if (_dynamicData != null && _dynamicData.PointCount > 0)
+        if (!_useExternalBuffer && _dynamicData != null && _dynamicData.PointCount > 0)
         {
             dataPointCount = _dynamicData.PointCount;
         }
@@ -151,12 +159,7 @@ public class PCDRenderPass : ScriptableRenderPass
         foreach (var pair in _staticMeshes)
         {
             if (pair.mesh == null || pair.transform == null) continue;
-
-            if (!pair.mesh.isReadable)
-            {
-                UnityEngine.Debug.LogError($"[PCDRenderPass] Additional Mesh '{pair.mesh.name}' is not marked as Read/Write Enabled in Import Settings. Static mesh will be ignored.");
-                continue;
-            }
+            if (!pair.mesh.isReadable) continue;
             totalMeshPointCount += pair.mesh.vertexCount;
         }
 
@@ -175,7 +178,6 @@ public class PCDRenderPass : ScriptableRenderPass
 
         int cacheIndex = 0;
 
-        // Dynamic data
         if (dataPointCount > 0)
         {
             for (int i = 0; i < dataPointCount; i++)
@@ -184,14 +186,13 @@ public class PCDRenderPass : ScriptableRenderPass
                 {
                     position = _dynamicData.Vertices[i],
                     color = new Vector3(_dynamicData.Colors[i].r, _dynamicData.Colors[i].g, _dynamicData.Colors[i].b),
-                    originType = 0 // 0 = PointCloud
+                    originType = 0
                 };
                 cacheIndex++;
             }
         }
 
         Vector3 defaultColor = new Vector3(1.0f, 1.0f, 1.0f);
-        // Static mesh data
         foreach (var pair in _staticMeshes)
         {
             if (pair.mesh == null || !pair.mesh.isReadable || pair.transform == null) continue;
@@ -214,7 +215,7 @@ public class PCDRenderPass : ScriptableRenderPass
                 {
                     position = worldPos,
                     color = color,
-                    originType = 1 // 1 = StaticMesh
+                    originType = 1
                 };
                 cacheIndex++;
             }
@@ -222,7 +223,8 @@ public class PCDRenderPass : ScriptableRenderPass
 
         if (_isDataDirty)
         {
-            UnityEngine.Debug.Log($"[PCDRenderPass] Merged points - Dynamic: {dataPointCount}, Static Meshes: {totalMeshPointCount}, Total: {_pointCount}");
+            string mode = _useExternalBuffer ? "External(GPU) + Static" : "Internal(CPU) + Static";
+            UnityEngine.Debug.Log($"[PCDRenderPass] Merged points [{mode}] - Dynamic(CPU): {dataPointCount}, Static Meshes: {totalMeshPointCount}, InternalTotal: {_pointCount}");
         }
     }
 
@@ -254,14 +256,13 @@ public class PCDRenderPass : ScriptableRenderPass
 
         _kernelOcclusion = pointCloudCompute.FindKernel("OcclusionAndFilter");
         _kernelInterpolate = pointCloudCompute.FindKernel("Interpolate");
+        _kernelMerge = pointCloudCompute.FindKernel("MergeBuffer");
 
         _isInitialized = true;
     }
 
     private void UpdateComputeBuffer()
     {
-        if (_useExternalBuffer) return;
-
         if (_pointCount == 0 || _pointsCache == null)
         {
             _pointBuffer?.Release();
@@ -273,13 +274,13 @@ public class PCDRenderPass : ScriptableRenderPass
         if (_pointBuffer == null || !_pointBuffer.IsValid() || _pointBuffer.count != _pointCount)
         {
             _pointBuffer?.Release();
-            _pointBuffer = new ComputeBuffer(_pointCount, sizeof(float) * 6 + sizeof(uint));
+            _pointBuffer = new ComputeBuffer(_pointCount, STRIDE);
         }
 
         _pointBuffer.SetData(_pointsCache);
         if (_pointCount > 0 && _isDataDirty)
         {
-            UnityEngine.Debug.Log($"[PCDRenderPass] ComputeBuffer updated with {_pointCount} points.");
+            UnityEngine.Debug.Log($"[PCDRenderPass] ComputeBuffer updated with {_pointCount} points (Static/Internal).");
         }
         _isDataDirty = false;
     }
@@ -304,8 +305,18 @@ public class PCDRenderPass : ScriptableRenderPass
                      kernelBuildDepthPyramidL1, kernelBuildDepthPyramidL2,
                      kernelBuildDepthPyramidL3, kernelBuildDepthPyramidL4,
                      kernelApplyGradient,
-                     kernelOcclusion, kernelInterpolate;
+                     kernelOcclusion, kernelInterpolate,
+                     kernelMerge;
 
+        // Buffers for Copy
+        internal bool useExternal;
+        internal ComputeBuffer externalBuffer;
+        internal ComputeBuffer internalBuffer;
+        internal int externalCount;
+        internal int internalCount;
+        internal ComputeBuffer combinedBuffer; // Target buffer
+
+        // yC³z: missing definition fixed
         internal ComputeBuffer pointBuffer;
 
         internal TextureHandle colorMap;
@@ -348,16 +359,8 @@ public class PCDRenderPass : ScriptableRenderPass
     public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData)
     {
         if (!_isInitialized) Initialize();
-        if (!_isInitialized)
-        {
-            UnityEngine.Debug.Log("PCDRenderPass is not initialized properly. Skipping rendering pass.");
-            return;
-        }
-
-        if (!UnityEngine.Application.isPlaying)
-        {
-            return;
-        }
+        if (!_isInitialized) return;
+        if (!UnityEngine.Application.isPlaying) return;
 
         bool shouldUseExternal = PCDRendererFeature.Instance.IsGlobalBufferMode;
 
@@ -372,14 +375,34 @@ public class PCDRenderPass : ScriptableRenderPass
             SetExternalBuffer(null, 0);
         }
 
-        if (!_useExternalBuffer && _isDataDirty)
+        if (_isDataDirty)
         {
             MergeAndCachePoints();
             UpdateComputeBuffer();
         }
 
-        ComputeBuffer activeBuffer = _useExternalBuffer ? _externalPointBuffer : _pointBuffer;
-        int activeCount = _useExternalBuffer ? _externalPointCount : _pointCount;
+        ComputeBuffer activeBuffer = null;
+        int activeCount = 0;
+
+        if (_useExternalBuffer)
+        {
+            int totalCount = _externalPointCount + _pointCount;
+            if (totalCount > 0)
+            {
+                if (_combinedBuffer == null || _combinedBuffer.count < totalCount || !_combinedBuffer.IsValid())
+                {
+                    _combinedBuffer?.Release();
+                    _combinedBuffer = new ComputeBuffer(totalCount, STRIDE);
+                }
+                activeBuffer = _combinedBuffer;
+                activeCount = totalCount;
+            }
+        }
+        else
+        {
+            activeBuffer = _pointBuffer;
+            activeCount = _pointCount;
+        }
 
         if (activeBuffer == null || activeCount == 0 || !activeBuffer.IsValid())
         {
@@ -451,6 +474,14 @@ public class PCDRenderPass : ScriptableRenderPass
             data.kernelApplyGradient = _kernelApplyGradient;
             data.kernelOcclusion = _kernelOcclusion;
             data.kernelInterpolate = _kernelInterpolate;
+            data.kernelMerge = _kernelMerge; // Kernel index
+
+            data.useExternal = _useExternalBuffer;
+            data.externalBuffer = _externalPointBuffer;
+            data.internalBuffer = _pointBuffer;
+            data.externalCount = _externalPointCount;
+            data.internalCount = _pointCount;
+            data.combinedBuffer = _combinedBuffer;
 
             data.pointBuffer = activeBuffer;
 
@@ -523,11 +554,40 @@ public class PCDRenderPass : ScriptableRenderPass
 
             finalImageHandle = data.finalImage;
 
-            // --- RenderFunc ---
             builder.SetRenderFunc((ComputePassData passData, ComputeGraphContext context) =>
             {
                 var cmd = context.cmd;
                 var cs = pointCloudCompute;
+
+                // --- 1. Buffer Merge using Compute Shader ---
+                // GPU Copy (External + Internal -> Combined)
+                if (passData.useExternal && passData.combinedBuffer != null)
+                {
+                    // Copy External (RealSense)
+                    if (passData.externalBuffer != null && passData.externalCount > 0)
+                    {
+                        cmd.SetComputeBufferParam(cs, passData.kernelMerge, "_MergeSrcBuffer", passData.externalBuffer);
+                        cmd.SetComputeBufferParam(cs, passData.kernelMerge, "_MergeDstBuffer", passData.combinedBuffer);
+                        cmd.SetComputeIntParam(cs, "_MergeSrcOffset", 0);
+                        cmd.SetComputeIntParam(cs, "_MergeDstOffset", 0);
+                        cmd.SetComputeIntParam(cs, "_MergeCopyCount", passData.externalCount);
+                        int groups = Mathf.CeilToInt(passData.externalCount / 256.0f);
+                        cmd.DispatchCompute(cs, passData.kernelMerge, groups, 1, 1);
+                    }
+
+                    // Copy Internal (Static Mesh)
+                    if (passData.internalBuffer != null && passData.internalCount > 0)
+                    {
+                        cmd.SetComputeBufferParam(cs, passData.kernelMerge, "_MergeSrcBuffer", passData.internalBuffer);
+                        cmd.SetComputeBufferParam(cs, passData.kernelMerge, "_MergeDstBuffer", passData.combinedBuffer);
+                        cmd.SetComputeIntParam(cs, "_MergeSrcOffset", 0);
+                        cmd.SetComputeIntParam(cs, "_MergeDstOffset", passData.externalCount);
+                        cmd.SetComputeIntParam(cs, "_MergeCopyCount", passData.internalCount);
+                        int groups = Mathf.CeilToInt(passData.internalCount / 256.0f);
+                        cmd.DispatchCompute(cs, passData.kernelMerge, groups, 1, 1);
+                    }
+                }
+                // ------------------------------------------------
 
                 cmd.SetComputeIntParam(cs, "_PointCount", passData.pointCount);
                 cmd.SetComputeVectorParam(cs, "_ScreenParams", passData.screenParams);
@@ -611,7 +671,6 @@ public class PCDRenderPass : ScriptableRenderPass
                     cmd.SetComputeTextureParam(cs, passData.kernelBuildDepthPyramidL3, "_DepthPyramidL2", passData.depthPyramidL2);
                     cmd.SetComputeTextureParam(cs, passData.kernelBuildDepthPyramidL3, "_DepthPyramidL3_RW", passData.depthPyramidL3);
                     cmd.DispatchCompute(cs, passData.kernelBuildDepthPyramidL3, l3_tgX, l3_tgY, 1);
-
 
                     int l4_tgX = Mathf.CeilToInt(l4_Width / 8.0f);
                     int l4_tgY = Mathf.CeilToInt(l4_Height / 8.0f);
@@ -697,6 +756,9 @@ public class PCDRenderPass : ScriptableRenderPass
     {
         _pointBuffer?.Release();
         _pointBuffer = null;
+
+        _combinedBuffer?.Release();
+        _combinedBuffer = null;
 
         _originDebugMapHandle?.Release();
         _originDebugMapHandle = null;
