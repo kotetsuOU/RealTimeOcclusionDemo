@@ -1,0 +1,37 @@
+#pragma kernel MergePoints
+
+struct PointInput
+{
+    float3 position;
+};
+
+struct PointOutput
+{
+    float3 position;
+    float3 color;
+    uint originType; // 0 = PointCloud
+};
+
+StructuredBuffer<float3> _SourceBuffer;
+RWStructuredBuffer<PointOutput> _DestinationBuffer;
+
+int _SrcOffset;
+int _DstOffset;
+int _CopyCount;
+float4 _Color;
+
+[numthreads(256, 1, 1)]
+void MergePoints(uint3 id : SV_DispatchThreadID)
+{
+    if ((int) id.x >= _CopyCount)
+        return;
+
+    float3 pos = _SourceBuffer[id.x];
+
+    PointOutput p;
+    p.position = pos;
+    p.color = _Color.rgb;
+    p.originType = 0;
+
+    _DestinationBuffer[_DstOffset + id.x] = p;
+}

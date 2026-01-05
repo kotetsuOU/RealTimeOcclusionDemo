@@ -31,6 +31,9 @@ struct CullingParams
     int minY, maxY;
     int minCb, maxCb;
     int minCr, maxCr;
+    float4x4 transformMatrix;
+    int applyTransform;
+    int coordinateConversion;
 };
 
 ByteAddressBuffer _InputDepthBuffer;
@@ -206,6 +209,36 @@ void CSMain(uint3 id : SV_DispatchThreadID)
 
     if (isTarget)
     {
-        _OutputPointCloud.Append(float3(point3d.x, -point3d.y, point3d.z));
+        float3 finalPoint;
+        
+        // Coordinate Conversion Logic
+        if (p.coordinateConversion == 0) // None
+        {
+            finalPoint = point3d;
+        }
+        else if (p.coordinateConversion == 1) // FlipY (Standard Unity from RealSense)
+        {
+            finalPoint = float3(point3d.x, -point3d.y, point3d.z);
+        }
+        else if (p.coordinateConversion == 2) // FlipYAndZ
+        {
+            finalPoint = float3(point3d.x, -point3d.y, -point3d.z);
+        }
+        else if (p.coordinateConversion == 3) // FlipX
+        {
+            finalPoint = float3(-point3d.x, point3d.y, point3d.z);
+        }
+        else // Raw
+        {
+            finalPoint = point3d;
+        }
+
+        if (p.applyTransform != 0)
+        {
+            float4 transformed = mul(p.transformMatrix, float4(finalPoint, 1.0));
+            finalPoint = transformed.xyz;
+        }
+
+        _OutputPointCloud.Append(finalPoint);
     }
 }

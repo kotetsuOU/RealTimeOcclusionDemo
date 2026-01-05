@@ -2,11 +2,16 @@ using Intel.RealSense;
 using System;
 using UnityEngine;
 
+#if UNITY_EDITOR
+using UnityEditor;
+#endif
+
 [ProcessingBlockData(typeof(RsIntegratedPointCloud))]
 public class RsIntegratedPointCloud : RsProcessingBlock
 {
     public enum ConversionMode { HSV = 0, YCbCr = 1 }
     public enum ColorVisualizationMode { Palette16, Grayscale }
+    public enum CoordinateConversion { None = 0, FlipY = 1, FlipYAndZ = 2, FlipX = 3, Raw = 4 }
 
     [Header("Compute Shader")]
     public ComputeShader _integratedShader;
@@ -19,6 +24,11 @@ public class RsIntegratedPointCloud : RsProcessingBlock
     [Header("Debug Visualization")]
     public ColorVisualizationMode _debugMode = ColorVisualizationMode.Palette16;
     public string DebugSavePath = "Assets/RealSenseDebug";
+
+    [Header("Debug Matrix")]
+    public bool _applyTransform = false;
+    public Matrix4x4 _transformMatrix = Matrix4x4.identity;
+    public CoordinateConversion _coordinateConversion = CoordinateConversion.FlipY;
 
     [Header("Thresholds")]
     [Range(0f, 16f)] public float _minDistance = 0.1f;
@@ -53,6 +63,29 @@ public class RsIntegratedPointCloud : RsProcessingBlock
         if (_integratedShader == null)
         {
             _integratedShader = Resources.Load<ComputeShader>(COMPUTE_SHADER_RESOURCES_PATH);
+        }
+
+        if (!Application.isPlaying) return;
+
+        if (RsUnityMainThreadDispatcher.Instance == null)
+        {
+            var _ = RsUnityMainThreadDispatcher.Instance;
+        }
+    }
+
+    public void UpdateTransformMatrix(Matrix4x4 matrix)
+    {
+        _transformMatrix = matrix;
+        _applyTransform = true;
+        if (_gpuProcessor != null)
+        {
+            _gpuProcessor.UpdateTransformMatrix(matrix);
+        }
+        
+        // Debug log to verify matrix update
+        if (SaveDebugFrames)
+        {
+            Debug.Log($"[RsIntegratedPointCloud] Updated Transform Matrix:\n{matrix}");
         }
     }
 

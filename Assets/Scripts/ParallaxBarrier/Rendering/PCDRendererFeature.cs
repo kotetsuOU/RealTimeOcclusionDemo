@@ -39,6 +39,14 @@ public class PCDRendererFeature : ScriptableRendererFeature
 
     private PCDRenderPass _scriptablePass;
 
+    private bool _useGlobalBufferMode = false;
+    public bool IsGlobalBufferMode => _useGlobalBufferMode;
+
+    public void SetUseGlobalBuffer(bool enable)
+    {
+        _useGlobalBufferMode = enable;
+    }
+
     public override void Create()
     {
         Instance = this;

@@ -1,3 +1,4 @@
+#if UNITY_EDITOR
 using System.IO;
 using UnityEditor;
 using UnityEngine;
@@ -9,9 +10,45 @@ public class NewRsPointCloudRendererEditor : Editor
     private bool isVerticesSaved = false;
     private SerializedProperty exportFileNameProp;
 
+    SerializedProperty pointCloudFilterShaderProp;
+    SerializedProperty pointCloudTransformerShaderProp;
+    SerializedProperty maxPlaneDistanceProp;
+    SerializedProperty pointCloudColorProp;
+    SerializedProperty logFilePrefixProp;
+    SerializedProperty startFrameProp;
+    SerializedProperty endFrameProp;
+    SerializedProperty appendLogProp;
+    SerializedProperty rsDeviceControllerProp;
+    SerializedProperty processingPipeProp;
+
+    SerializedProperty useSyntheticDataProp;
+    SerializedProperty syntheticShapeProp;
+    SerializedProperty syntheticPointCountProp;
+    SerializedProperty syntheticScaleProp;
+    SerializedProperty debugFilteredPointsProp;
+    SerializedProperty debugPointCountProp;
+
     void OnEnable()
     {
         exportFileNameProp = serializedObject.FindProperty("exportFileName");
+
+        pointCloudFilterShaderProp = serializedObject.FindProperty("pointCloudFilterShader");
+        pointCloudTransformerShaderProp = serializedObject.FindProperty("pointCloudTransformerShader");
+        maxPlaneDistanceProp = serializedObject.FindProperty("maxPlaneDistance");
+        pointCloudColorProp = serializedObject.FindProperty("pointCloudColor");
+        logFilePrefixProp = serializedObject.FindProperty("logFilePrefix");
+        startFrameProp = serializedObject.FindProperty("startFrame");
+        endFrameProp = serializedObject.FindProperty("endFrame");
+        appendLogProp = serializedObject.FindProperty("appendLog");
+        rsDeviceControllerProp = serializedObject.FindProperty("rsDeviceController");
+        processingPipeProp = serializedObject.FindProperty("processingPipe");
+
+        useSyntheticDataProp = serializedObject.FindProperty("useSyntheticData");
+        syntheticShapeProp = serializedObject.FindProperty("syntheticShape");
+        syntheticPointCountProp = serializedObject.FindProperty("syntheticPointCount");
+        syntheticScaleProp = serializedObject.FindProperty("syntheticScale");
+        debugFilteredPointsProp = serializedObject.FindProperty("debugFilteredPoints");
+        debugPointCountProp = serializedObject.FindProperty("debugPointCount");
     }
 
     public override void OnInspectorGUI()
@@ -24,10 +61,38 @@ public class NewRsPointCloudRendererEditor : Editor
         serializedObject.Update();
         base.OnInspectorGUI();
 
-        var renderer = (NewRsPointCloudRenderer)target;
+        NewRsPointCloudRenderer renderer = (NewRsPointCloudRenderer)target;
+
+        EditorGUILayout.LabelField("Dependencies", EditorStyles.boldLabel);
+        EditorGUILayout.PropertyField(rsDeviceControllerProp);
+        EditorGUILayout.PropertyField(processingPipeProp);
+        EditorGUILayout.PropertyField(pointCloudFilterShaderProp);
+        EditorGUILayout.PropertyField(pointCloudTransformerShaderProp);
 
         EditorGUILayout.Space();
-        EditorGUILayout.LabelField("Debug Tools", EditorStyles.boldLabel);
+        EditorGUILayout.LabelField("Debug Synthetic Data", EditorStyles.boldLabel);
+        EditorGUILayout.PropertyField(useSyntheticDataProp);
+        if (useSyntheticDataProp.boolValue)
+        {
+            EditorGUI.indentLevel++;
+            EditorGUILayout.PropertyField(syntheticShapeProp);
+            EditorGUILayout.PropertyField(syntheticPointCountProp);
+            EditorGUILayout.PropertyField(syntheticScaleProp);
+            EditorGUI.indentLevel--;
+        }
+
+        EditorGUILayout.Space();
+        EditorGUILayout.LabelField("Debug Output", EditorStyles.boldLabel);
+        EditorGUILayout.PropertyField(debugFilteredPointsProp);
+        if (debugFilteredPointsProp.boolValue)
+        {
+            EditorGUI.indentLevel++;
+            EditorGUILayout.PropertyField(debugPointCountProp);
+            EditorGUI.indentLevel--;
+        }
+
+        EditorGUILayout.Space();
+        EditorGUILayout.LabelField("PointCloud Settings", EditorStyles.boldLabel);
 
         if (exportFileNameProp != null)
         {
@@ -181,3 +246,4 @@ public class NewRsPointCloudRendererEditor : Editor
         AssetDatabase.Refresh();
     }
 }
+#endif

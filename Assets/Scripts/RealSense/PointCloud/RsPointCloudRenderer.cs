@@ -18,6 +18,17 @@ public class RsPointCloudRenderer : MonoBehaviour
     public Color pointCloudColor = new Color(241f / 255f, 187f / 255f, 147f / 255f, 1f);
     [SerializeField, HideInInspector] private string exportFileName = "currentGlobalVertices.txt";
 
+    [Header("Debug Synthetic")]
+    public bool useSyntheticData = false;
+    public enum SyntheticShape { Cylinder, Cube, Sphere }
+    public SyntheticShape syntheticShape = SyntheticShape.Cylinder;
+    [Range(100, 100000)] public int syntheticPointCount = 10000;
+    public float syntheticScale = 1.0f;
+
+    [Header("Debug Output")]
+    public bool debugFilteredPoints = false;
+    [Range(1, 20)] public int debugPointCount = 5;
+
     [Header("Performance Logging Settings")]
     public string logFilePrefix = "PointCloudPerfLog";
     public long startFrame = 200;
@@ -50,17 +61,80 @@ public class RsPointCloudRenderer : MonoBehaviour
 
     void Start()
     {
-        _dataProvider = new RealSenseDataProvider(processingPipe);
         _logger = new PerformanceLogger();
-
         _renderer = GetComponent<MeshRenderer>();
         _props = new MaterialPropertyBlock();
 
-        processingPipe.OnStart += OnStartStreaming;
+        if (useSyntheticData)
+        {
+            InitializeSyntheticData();
+        }
+        else
+        {
+            _dataProvider = new RealSenseDataProvider(processingPipe);
+            processingPipe.OnStart += OnStartStreaming;
+        }
+    }
+
+    private void InitializeSyntheticData()
+    {
+        UnityEngine.Debug.Log("[RsPointCloudRenderer] Initializing Synthetic Data...");
+
+        int width = 640; // Dummy width
+        int height = 480; // Dummy height
+        int rsLength = syntheticPointCount;
+
+        // Initialize Compute with dummy values
+        Vector3 scanRange = new Vector3(10f, 10f, 10f);
+        _compute = new PointCloudCompute(pointCloudFilterShader, pointCloudTransformerShader, scanRange, width, maxPlaneDistance);
+
+        _compute.InitializeBuffers(rsLength, transform.localToWorldMatrix);
+
+        _globalVertices = new Vector3[rsLength];
+        _rawVertices = new Vector3[rsLength];
+        _rawVerticesBuffer = new ComputeBuffer(rsLength, sizeof(float) * 3);
+
+        GenerateSyntheticPoints();
+        _rawVerticesBuffer.SetData(_rawVertices);
+
+        UnityEngine.Debug.Log($"[RsPointCloudRenderer] Synthetic Data Initialized with {rsLength} points.");
+    }
+
+    private void GenerateSyntheticPoints()
+    {
+        UnityEngine.Random.InitState(12345); // Fixed seed for reproducibility
+
+        for (int i = 0; i < _rawVertices.Length; i++)
+        {
+            Vector3 pt = Vector3.zero;
+            switch (syntheticShape)
+            {
+                case SyntheticShape.Cylinder:
+                    float angle = UnityEngine.Random.Range(0f, Mathf.PI * 2f);
+                    float r = syntheticScale * 0.5f; // Radius
+                    float h = UnityEngine.Random.Range(0f, syntheticScale);
+                    // Cylinder along Y axis
+                    pt = new Vector3(Mathf.Cos(angle) * r, h, Mathf.Sin(angle) * r);
+                    break;
+                case SyntheticShape.Cube:
+                    pt = new Vector3(
+                        UnityEngine.Random.Range(-0.5f, 0.5f),
+                        UnityEngine.Random.Range(-0.5f, 0.5f),
+                        UnityEngine.Random.Range(-0.5f, 0.5f)
+                    ) * syntheticScale;
+                    break;
+                case SyntheticShape.Sphere:
+                    pt = UnityEngine.Random.onUnitSphere * (syntheticScale * 0.5f);
+                    break;
+            }
+            _rawVertices[i] = pt;
+        }
     }
 
     private void OnStartStreaming(PipelineProfile profile)
     {
+        if (useSyntheticData) return;
+
         int width = 0;
         int height = 0;
 
@@ -95,7 +169,7 @@ public class RsPointCloudRenderer : MonoBehaviour
 
         _compute = new PointCloudCompute(pointCloudFilterShader, pointCloudTransformerShader, rsDeviceController.RealSenseScanRange, rsDeviceController.FrameWidth, maxPlaneDistance);
 
-        _compute.InitializeBuffers(rsLength, transform.localToWorldMatrix);
+        _compute.InitializeBuffers(rsLength, Matrix4x4.identity);
 
         _globalVertices = new Vector3[rsLength];
 
@@ -104,12 +178,6 @@ public class RsPointCloudRenderer : MonoBehaviour
             _rawVertices = new Vector3[rsLength];
             _rawVerticesBuffer = new ComputeBuffer(rsLength, sizeof(float) * 3);
         }
-
-        /*
-        transform.position = Vector3.zero;
-        transform.rotation = Quaternion.identity;
-        transform.localScale = Vector3.one;
-        */
     }
 
     private void TryConnectIntegratedPointCloud()
@@ -123,6 +191,10 @@ public class RsPointCloudRenderer : MonoBehaviour
                 _integratedPointCloud = integrated;
                 _integratedPointCloud.OnPointCloudUpdated += OnIntegratedPointCloudUpdated;
                 _useIntegratedPointCloud = true;
+
+                // Pass initial transform only
+                _integratedPointCloud.UpdateTransformMatrix(transform.localToWorldMatrix);
+
                 UnityEngine.Debug.Log("[RsPointCloudRenderer] Connected to RsIntegratedPointCloud");
                 return;
             }
@@ -139,26 +211,37 @@ public class RsPointCloudRenderer : MonoBehaviour
 
         if (showDebugMatrix)
         {
-            UnityEngine.Debug.Log($"[RsPointCloudRenderer] LocalToWorld Matrix:\n{transform.localToWorldMatrix}");
+            UnityEngine.Debug.Log($"[RsPointCloudRenderer] Current Transform Matrix (Ignored by Compute):\n{transform.localToWorldMatrix}");
         }
 
-        // Update matrix in compute shader if transform changed
+        /*
         if (transform.hasChanged)
         {
             _compute?.UpdateLocalToWorldMatrix(transform.localToWorldMatrix);
+            
+            if (_useIntegratedPointCloud && _integratedPointCloud != null)
+            {
+                _integratedPointCloud.UpdateTransformMatrix(transform.localToWorldMatrix);
+            }
+
             transform.hasChanged = false;
         }
+        */
 
         _frameCounter++;
         ComputeBuffer argsBuffer = null;
 
-        if (_useIntegratedPointCloud)
+        if (useSyntheticData)
+        {
+            argsBuffer = ProcessSyntheticFrame();
+        }
+        else if (_useIntegratedPointCloud)
         {
             argsBuffer = ProcessIntegratedPointCloud();
         }
         else
         {
-            if (_dataProvider.PollForFrame(out var points))
+            if (_dataProvider != null && _dataProvider.PollForFrame(out var points))
             {
                 using (points)
                 {
@@ -171,8 +254,55 @@ public class RsPointCloudRenderer : MonoBehaviour
 
         if (argsBuffer != null)
         {
+            if (debugFilteredPoints)
+            {
+                DebugLogFilteredPoints();
+            }
             UpdateProceduralMesh(argsBuffer);
         }
+    }
+
+    private ComputeBuffer ProcessSyntheticFrame()
+    {
+        if (_compute == null || _rawVerticesBuffer == null) return null;
+
+        long discardedCount = 0;
+        long totalCount = _rawVertices.Length;
+        ComputeBuffer argsBuffer;
+
+        if (IsGlobalRangeFilterEnabled)
+        {
+            var result = _compute.FilterAndEstimateLine(_rawVerticesBuffer, EstimatedPoint, EstimatedDir, (int)totalCount);
+            EstimatedPoint = result.point;
+            EstimatedDir = result.dir;
+            discardedCount = result.discardedCount;
+            totalCount = result.sampledCount;
+
+            argsBuffer = _compute.GetArgsBuffer();
+        }
+        else
+        {
+            argsBuffer = _compute.TransformIndirect(_rawVerticesBuffer, (int)totalCount);
+            discardedCount = 0;
+        }
+
+        return argsBuffer;
+    }
+
+    private void DebugLogFilteredPoints()
+    {
+        if (_compute == null) return;
+
+        Vector3[] debugPoints = new Vector3[debugPointCount];
+        _compute.GetFilteredVerticesData(debugPoints, debugPointCount);
+
+        System.Text.StringBuilder sb = new System.Text.StringBuilder();
+        sb.AppendLine($"[RsPointCloudRenderer] First {debugPointCount} Filtered Points (Global):");
+        for (int i = 0; i < debugPointCount; i++)
+        {
+            sb.AppendLine($"  [{i}]: {debugPoints[i].ToString("F4")}");
+        }
+        UnityEngine.Debug.Log(sb.ToString());
     }
 
     private ComputeBuffer ProcessIntegratedPointCloud()
@@ -263,7 +393,7 @@ public class RsPointCloudRenderer : MonoBehaviour
         _props.SetBuffer("_Vertices", _compute.GetFilteredVerticesBuffer());
         _props.SetColor("_Color", pointCloudColor);
 
-        Bounds bounds = new Bounds(transform.position, Vector3.one * 30f);
+        Bounds bounds = new Bounds(Vector3.zero, Vector3.one * 50f);
 
         Graphics.DrawProceduralIndirect(
             _renderer.material,
@@ -313,6 +443,33 @@ public class RsPointCloudRenderer : MonoBehaviour
 
     public Vector3[] GetFilteredVertices()
     {
-        return new Vector3[0];
+        if (_compute == null)
+        {
+            UnityEngine.Debug.LogWarning("[RsPointCloudRenderer] Compute instance is null.");
+            return new Vector3[0];
+        }
+
+        int count = _compute.GetLastFilteredCount();
+
+        if (count <= 0)
+        {
+            UnityEngine.Debug.LogWarning($"[RsPointCloudRenderer] Vertex count is {count}.");
+            return new Vector3[0];
+        }
+
+        Vector3[] result = new Vector3[count];
+        _compute.GetFilteredVerticesData(result, count);
+
+        return result;
+    }
+
+    public ComputeBuffer GetRawBuffer()
+    {
+        return _compute?.GetFilteredVerticesBuffer();
+    }
+
+    public int GetLastVertexCount()
+    {
+        return _compute?.GetLastFilteredCount() ?? 0;
     }
 }

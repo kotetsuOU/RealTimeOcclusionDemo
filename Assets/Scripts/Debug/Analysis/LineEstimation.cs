@@ -58,10 +58,12 @@ public class LineEstimation : MonoBehaviour
             Renderer renderer = lastCylinder.GetComponent<Renderer>();
             if (!UnityEngine.Application.isPlaying && renderer != null && renderer.material != null)
             {
+#if UNITY_EDITOR
                 if (!EditorUtility.IsPersistent(renderer.material))
                 {
                     DestroyImmediate(renderer.material);
                 }
+#endif
             }
 
             if (UnityEngine.Application.isPlaying)

@@ -15,7 +15,27 @@ public class RsUnityMainThreadDispatcher : MonoBehaviour
         {
             if (_instance == null)
             {
-                _instance = FindFirstObjectByType<RsUnityMainThreadDispatcher>();
+                // Check if we are on the main thread before calling FindFirstObjectByType
+                if (Thread.CurrentThread.ManagedThreadId == 1)
+                {
+                    _instance = FindFirstObjectByType<RsUnityMainThreadDispatcher>();
+                    
+                    if (_instance == null)
+                    {
+                        var go = new GameObject("RsUnityMainThreadDispatcher");
+                        _instance = go.AddComponent<RsUnityMainThreadDispatcher>();
+                        DontDestroyOnLoad(go);
+                    }
+                }
+                else
+                {
+                    // If called from a background thread and instance is null, we can't find or create it safely.
+                    // However, usually this should be initialized in Awake/Start of some main thread object.
+                    // We will return null here, and the caller should handle it.
+                    // Or we could throw an exception, but returning null is safer if the caller checks.
+                    // The error log shows it's called from RsIntegratedPointCloudProcessor.Process which is on a background thread.
+                    return null;
+                }
             }
             return _instance;
         }

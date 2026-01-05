@@ -58,11 +58,14 @@ public class PCV_Controller : MonoBehaviour
     {
         yield return null;
         RebuildPointCloud();
+        ApplyRenderingSourceSettings();
     }
 
     private void Update()
     {
         if (!UnityEngine.Application.isPlaying) return;
+
+        bool sourceChanged = settings.HasRenderingSourceChanged();
 
         if (settings.HasFileSettingsChanged() || settings.HasProcessingSettingsChanged())
         {
@@ -75,8 +78,35 @@ public class PCV_Controller : MonoBehaviour
             pointCloudRenderer.InitializeOutline(settings.outline, settings.outlineColor);
             settings.SaveInspectorState();
         }
+
+        if (sourceChanged)
+        {
+            ApplyRenderingSourceSettings();
+            if (settings.renderingSource == PointCloudSource.PCV_File_CPU)
+            {
+                OnDataUpdated(dataManager.CurrentData);
+            }
+            settings.SaveInspectorState();
+        }
     }
     #endregion
+
+    private void ApplyRenderingSourceSettings()
+    {
+        if (pcdRendererFeature == null) FindPCDRendererFeature();
+        if (pcdRendererFeature == null) return;
+
+        if (settings.renderingSource == PointCloudSource.RealSense_GPU_Global)
+        {
+            pcdRendererFeature.SetUseGlobalBuffer(true);
+            UnityEngine.Debug.Log("[PCV] Switched to RealSense (GPU Global Buffer) Mode.");
+        }
+        else
+        {
+            pcdRendererFeature.SetUseGlobalBuffer(false);
+            UnityEngine.Debug.Log("[PCV] Switched to PCV File (CPU) Mode.");
+        }
+    }
 
     private void InitializeComponentsAndSubscribe()
     {
@@ -118,7 +148,10 @@ public class PCV_Controller : MonoBehaviour
 
         if (pcdRendererFeature != null)
         {
-            pcdRendererFeature.SetPointCloudData(data);
+            if (settings.renderingSource == PointCloudSource.PCV_File_CPU)
+            {
+                pcdRendererFeature.SetPointCloudData(data);
+            }
         }
         else
         {
@@ -133,10 +166,6 @@ public class PCV_Controller : MonoBehaviour
         if (pcdRendererFeature == null)
         {
             UnityEngine.Debug.LogWarning("PCDRendererFeatureのインスタンスが見つかりません。アクティブなURPレンダラーにPCDRendererFeatureが追加されているか確認してください。");
-        }
-        else
-        {
-            UnityEngine.Debug.Log("PCDRendererFeatureのインスタンスを発見しました。");
         }
     }
 

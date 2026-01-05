@@ -13,6 +13,7 @@ public class PCV_ControllerEditor : Editor
     private bool showProfileSettings = false;
 
     // Properties
+    private SerializedProperty renderingSourceProp;
     private SerializedProperty fileSettingsProp;
     private SerializedProperty pointSizeProp;
     private SerializedProperty outlineProp, outlineColorProp;
@@ -51,6 +52,9 @@ public class PCV_ControllerEditor : Editor
         if (settingsComponent != null)
         {
             settingsObject = new SerializedObject(settingsComponent);
+
+            renderingSourceProp = settingsObject.FindProperty("renderingSource"); // ’Ç‰Á
+
             fileSettingsProp = settingsObject.FindProperty("fileSettings");
             pointSizeProp = settingsObject.FindProperty("pointSize");
             outlineProp = settingsObject.FindProperty("outline");
@@ -87,6 +91,11 @@ public class PCV_ControllerEditor : Editor
             return;
         }
         settingsObject.Update();
+
+        EditorGUILayout.Space();
+        EditorGUILayout.LabelField("General Settings", EditorStyles.boldLabel);
+        EditorGUILayout.PropertyField(renderingSourceProp);
+        EditorGUILayout.Space();
 
         EditorGUILayout.Space();
         showProfileSettings = EditorGUILayout.Foldout(showProfileSettings, "Profile Management (JSON)", true, EditorStyles.foldoutHeader);
@@ -135,7 +144,7 @@ public class PCV_ControllerEditor : Editor
 
             EditorGUILayout.BeginHorizontal();
 
-            GUI.backgroundColor = new Color(1f, 0.7f, 0.4f); // ƒIƒŒƒ“ƒWŒn
+            GUI.backgroundColor = new Color(1f, 0.7f, 0.4f);
             if (GUILayout.Button("Apply Rotation Only"))
             {
                 if (EditorUtility.DisplayDialog("Apply Rotation",
@@ -145,7 +154,7 @@ public class PCV_ControllerEditor : Editor
                 }
             }
 
-            GUI.backgroundColor = new Color(0.4f, 1f, 0.6f); // —ÎŒn
+            GUI.backgroundColor = new Color(0.4f, 1f, 0.6f);
             if (GUILayout.Button("Apply Position Only"))
             {
                 if (EditorUtility.DisplayDialog("Apply Position",

@@ -1,5 +1,11 @@
 using UnityEngine;
 
+public enum PointCloudSource
+{
+    PCV_File_CPU,          // PCVでロードしたファイルデータを使用
+    RealSense_GPU_Global   // PointCloudRenderer (GlobalManager) の統合データを使用
+}
+
 [System.Serializable]
 public struct FileSettings
 {
@@ -21,6 +27,10 @@ public struct FileSettings
 
 public class PCV_Settings : MonoBehaviour
 {
+    [Header("Rendering Source")]
+    [Tooltip("PCDRendererFeatureに送るデータのソースを選択します")]
+    public PointCloudSource renderingSource = PointCloudSource.PCV_File_CPU;
+
     public FileSettings[] fileSettings = new FileSettings[4]
     {
         new FileSettings { useFile = true,  filePath = "Assets/HandTrackingData/PointCloudData/currentGlobalVerticesRight.txt",  color = Color.red },
@@ -80,6 +90,7 @@ public class PCV_Settings : MonoBehaviour
     [Tooltip("密度補完にGPUを使用する")]
     public bool useGpuDensityComplementation = true;
 
+    private PointCloudSource lastRenderingSource;
     private FileSettings[] lastFileSettings;
     private float lastPointSize;
     private GameObject lastOutline;
@@ -116,6 +127,8 @@ public class PCV_Settings : MonoBehaviour
 
     public void SaveInspectorState()
     {
+        lastRenderingSource = renderingSource;
+
         lastFileSettings = new FileSettings[fileSettings.Length];
         for (int i = 0; i < fileSettings.Length; i++)
         {
@@ -147,6 +160,11 @@ public class PCV_Settings : MonoBehaviour
         lastUseGpuNoiseFilter = useGpuNoiseFilter;
         lastUseGpuDensityFilter = useGpuDensityFilter;
         lastUseGpuDensityComplementation = useGpuDensityComplementation;
+    }
+
+    public bool HasRenderingSourceChanged()
+    {
+        return renderingSource != lastRenderingSource;
     }
 
     public bool HasFileSettingsChanged()

@@ -1,8 +1,9 @@
 using UnityEngine;
-using UnityEditor;
-using System.Collections.Generic;
 using System.IO;
 using System.Text;
+#if UNITY_EDITOR
+using UnityEditor;
+#endif
 
 public static class PCV_VoxelCountExporter
 {
@@ -14,11 +15,15 @@ public static class PCV_VoxelCountExporter
             return;
         }
 
+#if UNITY_EDITOR
         string path = EditorUtility.SaveFilePanel(
             "VoxelÇ≤Ç∆ÇÃì_åQêîÇCSVÇ∆ÇµÇƒï€ë∂",
             "",
             "voxel_counts.csv",
             "csv");
+#else
+        string path = "";
+#endif
 
         if (string.IsNullOrEmpty(path))
         {

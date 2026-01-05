@@ -24,6 +24,9 @@ public class RsIntegratedPointCloudProcessor : IDisposable
         public int width, height, mode;
         public float minDist, maxDist, minHue, maxHue, minSat, maxSat, minVal, maxVal;
         public int minY, maxY, minCb, maxCb, minCr, maxCr;
+        public Matrix4x4 transformMatrix;
+        public int applyTransform;
+        public int coordinateConversion;
     }
 
     private ComputeShader _shader;
@@ -125,7 +128,14 @@ public class RsIntegratedPointCloudProcessor : IDisposable
     {
         if (!_initialized) return null;
 
-        RsUnityMainThreadDispatcher.Instance.EnqueueAndWait(() =>
+        var dispatcher = RsUnityMainThreadDispatcher.Instance;
+        if (dispatcher == null)
+        {
+            // If dispatcher is not available (e.g. not initialized on main thread yet), skip this frame
+            return null;
+        }
+
+        dispatcher.EnqueueAndWait(() =>
         {
             _colorTexture.LoadRawTextureData(colorFrame.Data, colorFrame.Stride * colorFrame.Height);
             _colorTexture.Apply();
@@ -199,10 +209,19 @@ public class RsIntegratedPointCloudProcessor : IDisposable
             minCb = p._minCb,
             maxCb = p._maxCb,
             minCr = p._minCr,
-            maxCr = p._maxCr
+            maxCr = p._maxCr,
+            transformMatrix = p._transformMatrix,
+            applyTransform = p._applyTransform ? 1 : 0,
+            coordinateConversion = (int)p._coordinateConversion
         };
         _paramsBuffer.SetData(_cullingParamsCache);
         _shader.SetBuffer(_kernelIndex, "_Params", _paramsBuffer);
+    }
+
+    public void UpdateTransformMatrix(Matrix4x4 matrix)
+    {
+        // This will be picked up in the next UpdateParams call during Process
+        // We can also force an update here if needed, but Process is called every frame anyway
     }
 
     private void ReleaseBuffers()

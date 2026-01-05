@@ -173,6 +173,11 @@ public class PointCloudCompute : IDisposable
     {
         if (count > 0 && count <= outVertices.Length)
         {
+            // Ensure we don't read more than the buffer size
+            // Note: This reads from the beginning of the AppendBuffer. 
+            // Since it's an AppendBuffer, we can't easily read random access without a CopyBuffer, 
+            // but for debugging the first N points, this might work if the buffer structure allows.
+            // However, AppendBuffers have a hidden counter. GetData might return data from index 0.
             filteredVerticesBuffer.GetData(outVertices, 0, 0, count);
         }
         else if (count > outVertices.Length)
@@ -180,6 +185,18 @@ public class PointCloudCompute : IDisposable
             UnityEngine.Debug.LogWarning($"Buffer count ({count}) exceeds array length ({outVertices.Length}). GetData skipped.");
         }
     }
+
+    public int GetLastFilteredCount()
+    {
+        if (filteredVerticesBuffer == null || countBuffer == null) return 0;
+
+        ComputeBuffer.CopyCount(filteredVerticesBuffer, countBuffer, 0);
+
+        countBuffer.GetData(_countCache);
+
+        return _countCache[0];
+    }
+
 
     private (Vector3 point, Vector3 dir) EstimateLineCPU(Vector3[] vertices, int count)
     {

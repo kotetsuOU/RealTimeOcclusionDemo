@@ -34,10 +34,16 @@ public class PCDRenderPass : ScriptableRenderPass
     private float _occlusionThreshold;
     private bool _enableOriginDebugMap;
 
+    // --- Internal Buffer Management ---
     private ComputeBuffer _pointBuffer;
     private int _pointCount = 0;
     private Point[] _pointsCache;
     private bool _isDataDirty = false;
+
+    // --- External Buffer Management (GPU Integration) ---
+    private ComputeBuffer _externalPointBuffer;
+    private int _externalPointCount = 0;
+    private bool _useExternalBuffer = false;
 
     private int _kernelClear, _kernelProject, _kernelCalcGridZMin, _kernelCalcDensity,
                 _kernelCalcGridLevel, _kernelGridMedianFilter,
@@ -73,6 +79,23 @@ public class PCDRenderPass : ScriptableRenderPass
     public void SetDebugFlag(bool enableDebugMap)
     {
         this._enableOriginDebugMap = enableDebugMap;
+    }
+
+    public void SetExternalBuffer(ComputeBuffer buffer, int count)
+    {
+        if (buffer != null && buffer.IsValid())
+        {
+            _externalPointBuffer = buffer;
+            _externalPointCount = count;
+            _useExternalBuffer = true;
+            _isDataDirty = false;
+        }
+        else
+        {
+            _useExternalBuffer = false;
+            _externalPointBuffer = null;
+            _externalPointCount = 0;
+        }
     }
 
     public void SetPointCloudData(PCV_Data data)
@@ -116,6 +139,8 @@ public class PCDRenderPass : ScriptableRenderPass
 
     private void MergeAndCachePoints()
     {
+        if (_useExternalBuffer) return;
+
         int dataPointCount = 0;
         if (_dynamicData != null && _dynamicData.PointCount > 0)
         {
@@ -235,6 +260,8 @@ public class PCDRenderPass : ScriptableRenderPass
 
     private void UpdateComputeBuffer()
     {
+        if (_useExternalBuffer) return;
+
         if (_pointCount == 0 || _pointsCache == null)
         {
             _pointBuffer?.Release();
@@ -332,13 +359,29 @@ public class PCDRenderPass : ScriptableRenderPass
             return;
         }
 
-        if (_isDataDirty)
+        bool shouldUseExternal = PCDRendererFeature.Instance.IsGlobalBufferMode;
+
+        if (shouldUseExternal && GlobalPointCloudManager.Instance != null)
+        {
+            var globalBuffer = GlobalPointCloudManager.Instance.GetGlobalBuffer();
+            var globalCount = GlobalPointCloudManager.Instance.CurrentTotalCount;
+            SetExternalBuffer(globalBuffer, globalCount);
+        }
+        else
+        {
+            SetExternalBuffer(null, 0);
+        }
+
+        if (!_useExternalBuffer && _isDataDirty)
         {
             MergeAndCachePoints();
             UpdateComputeBuffer();
         }
 
-        if (_pointBuffer == null || _pointCount == 0)
+        ComputeBuffer activeBuffer = _useExternalBuffer ? _externalPointBuffer : _pointBuffer;
+        int activeCount = _useExternalBuffer ? _externalPointCount : _pointCount;
+
+        if (activeBuffer == null || activeCount == 0 || !activeBuffer.IsValid())
         {
             return;
         }
@@ -378,12 +421,11 @@ public class PCDRenderPass : ScriptableRenderPass
         }
 
         TextureHandle finalImageHandle;
-
         TextureHandle originDebugMapHandle_RG = default;
 
         using (var builder = renderGraph.AddComputePass<ComputePassData>(PROFILER_TAG, out var data))
         {
-            data.pointCount = _pointCount;
+            data.pointCount = activeCount;
             data.screenParams = new Vector4(screenWidth, screenHeight, 0, 0);
             data.viewMatrix = camera.worldToCameraMatrix;
             data.projectionMatrix = camera.projectionMatrix;
@@ -410,7 +452,7 @@ public class PCDRenderPass : ScriptableRenderPass
             data.kernelOcclusion = _kernelOcclusion;
             data.kernelInterpolate = _kernelInterpolate;
 
-            data.pointBuffer = _pointBuffer;
+            data.pointBuffer = activeBuffer;
 
             var desc = new TextureDesc(screenWidth, screenHeight) { enableRandomWrite = true };
             desc.colorFormat = GraphicsFormatUtility.GetGraphicsFormat(RenderTextureFormat.ARGBFloat, false);
@@ -641,29 +683,12 @@ public class PCDRenderPass : ScriptableRenderPass
             {
                 if (!passData.enableOriginDebugMap)
                 {
-                    // 0.0f, false は「ブレンドしない」設定です。
                     Blitter.BlitTexture(context.cmd, passData.sourceImage, new Vector4(1, 1, 0, 0), 0.0f, false);
                 }
                 else
                 {
-                    // DebugMap が有効な場合は、そちらを優先して表示します。
                     Blitter.BlitTexture(context.cmd, passData.sourceImage, new Vector4(1, 1, 0, 0), 0.0f, false);
                 }
-
-                /*
-                if (passData.enableOriginDebugMap)
-                {
-                    Blitter.BlitTexture(context.cmd, passData.sourceImage, new Vector4(1, 1, 0, 0), 0.0f, false);
-                }
-                else if (passData.enableAlphaBlend && passData.blendMaterial != null)
-                {
-                    Blitter.BlitTexture(context.cmd, passData.sourceImage, new Vector4(1, 1, 0, 0), passData.blendMaterial, 0);
-                }
-                else
-                {
-                    Blitter.BlitTexture(context.cmd, passData.sourceImage, new Vector4(1, 1, 0, 0), 0.0f, false);
-                }
-                */
             });
         }
     }
@@ -680,5 +705,8 @@ public class PCDRenderPass : ScriptableRenderPass
         _pointsCache = null;
         _dynamicData = null;
         _staticMeshes.Clear();
+
+        _externalPointBuffer = null;
+        _useExternalBuffer = false;
     }
 }
