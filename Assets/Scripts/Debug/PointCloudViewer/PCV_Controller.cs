@@ -235,32 +235,42 @@ public class PCV_Controller : MonoBehaviour
         operationHandler.ExecuteDensityComplementation(dataManager);
     }
 
-    public void ApplyRotationCorrection()
+    public void ApplyTransformCorrection()
     {
         if (settings == null || settings.fileSettings == null) return;
         int appliedCount = 0;
+
+        Matrix4x4 deltaMatrix = this.transform.localToWorldMatrix;
 
         foreach (var file in settings.fileSettings)
         {
             if (file.useFile && file.targetObject != null)
             {
                 Transform targetT = file.targetObject.transform;
+
 #if UNITY_EDITOR
-                Undo.RecordObject(targetT, "Apply PCV Rotation");
+                Undo.RecordObject(targetT, "Apply PCV Transform");
 #endif
-                targetT.rotation *= this.transform.rotation;
+                Matrix4x4 targetMatrix = targetT.localToWorldMatrix;
+
+                Matrix4x4 newMatrix = deltaMatrix * targetMatrix;
+
+                targetT.SetPositionAndRotation(GetPositionFromMatrix(newMatrix), newMatrix.rotation);
+
                 appliedCount++;
-                UnityEngine.Debug.Log($"[Calibration] Rotation applied to '{file.targetObject.name}'. Added: {this.transform.rotation.eulerAngles}");
+                UnityEngine.Debug.Log($"[Calibration] Applied Transform Matrix to '{file.targetObject.name}'.");
             }
         }
 
         if (appliedCount > 0)
         {
 #if UNITY_EDITOR
-            Undo.RecordObject(this.transform, "Reset Viewer Rotation");
+            Undo.RecordObject(this.transform, "Reset Viewer Transform");
 #endif
+            this.transform.position = Vector3.zero;
             this.transform.rotation = Quaternion.identity;
-            UnityEngine.Debug.Log($"[Calibration] {appliedCount} 件の回転を反映しました。Viewerの回転をリセットしました。");
+            this.transform.localScale = Vector3.one;
+            UnityEngine.Debug.Log($"[Calibration] {appliedCount} 件のTransformを反映しました。Viewerをリセットしました。");
         }
         else
         {
@@ -268,37 +278,9 @@ public class PCV_Controller : MonoBehaviour
         }
     }
 
-    public void ApplyPositionCorrection()
+    private Vector3 GetPositionFromMatrix(Matrix4x4 m)
     {
-        if (settings == null || settings.fileSettings == null) return;
-        int appliedCount = 0;
-
-        foreach (var file in settings.fileSettings)
-        {
-            if (file.useFile && file.targetObject != null)
-            {
-                Transform targetT = file.targetObject.transform;
-#if UNITY_EDITOR
-                Undo.RecordObject(targetT, "Apply PCV Position");
-#endif
-                targetT.position += this.transform.position;
-                appliedCount++;
-                UnityEngine.Debug.Log($"[Calibration] Position applied to '{file.targetObject.name}'. Added: {this.transform.position}");
-            }
-        }
-
-        if (appliedCount > 0)
-        {
-#if UNITY_EDITOR
-            Undo.RecordObject(this.transform, "Reset Viewer Position");
-#endif
-            this.transform.position = Vector3.zero;
-            UnityEngine.Debug.Log($"[Calibration] {appliedCount} 件の位置を反映しました。Viewerの位置をリセットしました。");
-        }
-        else
-        {
-            UnityEngine.Debug.LogWarning("[Calibration] 反映対象が見つかりませんでした。");
-        }
+        return m.GetColumn(3);
     }
 
     public void HandleInteraction()

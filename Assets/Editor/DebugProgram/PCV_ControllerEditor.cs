@@ -138,35 +138,18 @@ public class PCV_ControllerEditor : Editor
 
         if (showDataFiles)
         {
-            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-            EditorGUILayout.LabelField("Manual Calibration", EditorStyles.boldLabel);
-            EditorGUILayout.HelpBox("1. Viewerを回転させて [Apply Rotation] を押す\n2. Viewerを移動させて [Apply Position] を押す\n※実行後、ViewerのTransformはリセットされます。", MessageType.Info);
-
             EditorGUILayout.BeginHorizontal();
-
-            GUI.backgroundColor = new Color(1f, 0.7f, 0.4f);
-            if (GUILayout.Button("Apply Rotation Only"))
+            GUI.backgroundColor = new Color(1f, 0.8f, 0.4f);
+            if (GUILayout.Button("Apply Transform (Rot & Pos)"))
             {
-                if (EditorUtility.DisplayDialog("Apply Rotation",
-                    "現在のViewerの【回転】のみをターゲットに反映します。\n反映後、Viewerの回転はリセットされます。\nよろしいですか？", "Yes", "Cancel"))
+                if (EditorUtility.DisplayDialog("Apply Transform",
+                    "現在のViewerの【位置と回転】をターゲットに反映します。\n行列演算により、回転に伴う位置ずれも補正されます。\n反映後、Viewerはリセットされます。\nよろしいですか？", "Yes", "Cancel"))
                 {
-                    controller.ApplyRotationCorrection();
+                    controller.ApplyTransformCorrection();
                 }
             }
-
-            GUI.backgroundColor = new Color(0.4f, 1f, 0.6f);
-            if (GUILayout.Button("Apply Position Only"))
-            {
-                if (EditorUtility.DisplayDialog("Apply Position",
-                    "現在のViewerの【位置】のみをターゲットに反映します。\n反映後、Viewerの位置はリセットされます。\nよろしいですか？", "Yes", "Cancel"))
-                {
-                    controller.ApplyPositionCorrection();
-                }
-            }
-
             GUI.backgroundColor = Color.white;
             EditorGUILayout.EndHorizontal();
-            EditorGUILayout.EndVertical();
         }
 
         EditorGUILayout.BeginHorizontal();
