@@ -34,10 +34,19 @@ public class PCDRenderPass : ScriptableRenderPass
     private float _occlusionThreshold;
     private bool _enableOriginDebugMap;
 
+    // --- Internal Buffer Management (Static Meshes & CPU PointCloud) ---
     private ComputeBuffer _pointBuffer;
     private int _pointCount = 0;
     private Point[] _pointsCache;
     private bool _isDataDirty = false;
+
+    // --- External Buffer Management (GPU Integration) ---
+    private ComputeBuffer _externalPointBuffer;
+    private int _externalPointCount = 0;
+    private bool _useExternalBuffer = false;
+
+    // --- Combined Buffer (External + Internal) ---
+    private ComputeBuffer _combinedBuffer;
 
     private int _kernelClear, _kernelProject, _kernelCalcGridZMin, _kernelCalcDensity,
                 _kernelCalcGridLevel, _kernelGridMedianFilter,
@@ -45,7 +54,8 @@ public class PCDRenderPass : ScriptableRenderPass
                 _kernelBuildDepthPyramidL1, _kernelBuildDepthPyramidL2,
                 _kernelBuildDepthPyramidL3, _kernelBuildDepthPyramidL4,
                 _kernelApplyGradient,
-                _kernelOcclusion, _kernelInterpolate;
+                _kernelOcclusion, _kernelInterpolate,
+                _kernelMerge; // Added Merge Kernel
 
     private RTHandle _originDebugMapHandle;
 
@@ -53,7 +63,7 @@ public class PCDRenderPass : ScriptableRenderPass
 
     private PCV_Data _dynamicData;
     private List<MeshTransformPair> _staticMeshes = new List<MeshTransformPair>();
-
+    private const int STRIDE = 28; // sizeof(float)*3 + sizeof(float)*3 + sizeof(uint)
 
     public PCDRenderPass(PCDRendererFeature settings, Material blendMaterial, bool enableAlphaBlend)
     {
@@ -73,6 +83,29 @@ public class PCDRenderPass : ScriptableRenderPass
     public void SetDebugFlag(bool enableDebugMap)
     {
         this._enableOriginDebugMap = enableDebugMap;
+    }
+
+    public void SetExternalBuffer(ComputeBuffer buffer, int count)
+    {
+        bool prevUse = _useExternalBuffer;
+
+        if (buffer != null && buffer.IsValid())
+        {
+            _externalPointBuffer = buffer;
+            _externalPointCount = count;
+            _useExternalBuffer = true;
+        }
+        else
+        {
+            _useExternalBuffer = false;
+            _externalPointBuffer = null;
+            _externalPointCount = 0;
+        }
+
+        if (prevUse != _useExternalBuffer)
+        {
+            _isDataDirty = true;
+        }
     }
 
     public void SetPointCloudData(PCV_Data data)
@@ -117,7 +150,7 @@ public class PCDRenderPass : ScriptableRenderPass
     private void MergeAndCachePoints()
     {
         int dataPointCount = 0;
-        if (_dynamicData != null && _dynamicData.PointCount > 0)
+        if (!_useExternalBuffer && _dynamicData != null && _dynamicData.PointCount > 0)
         {
             dataPointCount = _dynamicData.PointCount;
         }
@@ -126,12 +159,7 @@ public class PCDRenderPass : ScriptableRenderPass
         foreach (var pair in _staticMeshes)
         {
             if (pair.mesh == null || pair.transform == null) continue;
-
-            if (!pair.mesh.isReadable)
-            {
-                UnityEngine.Debug.LogError($"[PCDRenderPass] Additional Mesh '{pair.mesh.name}' is not marked as Read/Write Enabled in Import Settings. Static mesh will be ignored.");
-                continue;
-            }
+            if (!pair.mesh.isReadable) continue;
             totalMeshPointCount += pair.mesh.vertexCount;
         }
 
@@ -150,7 +178,6 @@ public class PCDRenderPass : ScriptableRenderPass
 
         int cacheIndex = 0;
 
-        // Dynamic data
         if (dataPointCount > 0)
         {
             for (int i = 0; i < dataPointCount; i++)
@@ -159,14 +186,13 @@ public class PCDRenderPass : ScriptableRenderPass
                 {
                     position = _dynamicData.Vertices[i],
                     color = new Vector3(_dynamicData.Colors[i].r, _dynamicData.Colors[i].g, _dynamicData.Colors[i].b),
-                    originType = 0 // 0 = PointCloud
+                    originType = 0
                 };
                 cacheIndex++;
             }
         }
 
         Vector3 defaultColor = new Vector3(1.0f, 1.0f, 1.0f);
-        // Static mesh data
         foreach (var pair in _staticMeshes)
         {
             if (pair.mesh == null || !pair.mesh.isReadable || pair.transform == null) continue;
@@ -189,7 +215,7 @@ public class PCDRenderPass : ScriptableRenderPass
                 {
                     position = worldPos,
                     color = color,
-                    originType = 1 // 1 = StaticMesh
+                    originType = 1
                 };
                 cacheIndex++;
             }
@@ -197,7 +223,8 @@ public class PCDRenderPass : ScriptableRenderPass
 
         if (_isDataDirty)
         {
-            UnityEngine.Debug.Log($"[PCDRenderPass] Merged points - Dynamic: {dataPointCount}, Static Meshes: {totalMeshPointCount}, Total: {_pointCount}");
+            string mode = _useExternalBuffer ? "External(GPU) + Static" : "Internal(CPU) + Static";
+            UnityEngine.Debug.Log($"[PCDRenderPass] Merged points [{mode}] - Dynamic(CPU): {dataPointCount}, Static Meshes: {totalMeshPointCount}, InternalTotal: {_pointCount}");
         }
     }
 
@@ -229,6 +256,7 @@ public class PCDRenderPass : ScriptableRenderPass
 
         _kernelOcclusion = pointCloudCompute.FindKernel("OcclusionAndFilter");
         _kernelInterpolate = pointCloudCompute.FindKernel("Interpolate");
+        _kernelMerge = pointCloudCompute.FindKernel("MergeBuffer");
 
         _isInitialized = true;
     }
@@ -246,13 +274,13 @@ public class PCDRenderPass : ScriptableRenderPass
         if (_pointBuffer == null || !_pointBuffer.IsValid() || _pointBuffer.count != _pointCount)
         {
             _pointBuffer?.Release();
-            _pointBuffer = new ComputeBuffer(_pointCount, sizeof(float) * 6 + sizeof(uint));
+            _pointBuffer = new ComputeBuffer(_pointCount, STRIDE);
         }
 
         _pointBuffer.SetData(_pointsCache);
         if (_pointCount > 0 && _isDataDirty)
         {
-            UnityEngine.Debug.Log($"[PCDRenderPass] ComputeBuffer updated with {_pointCount} points.");
+            UnityEngine.Debug.Log($"[PCDRenderPass] ComputeBuffer updated with {_pointCount} points (Static/Internal).");
         }
         _isDataDirty = false;
     }
@@ -277,8 +305,18 @@ public class PCDRenderPass : ScriptableRenderPass
                      kernelBuildDepthPyramidL1, kernelBuildDepthPyramidL2,
                      kernelBuildDepthPyramidL3, kernelBuildDepthPyramidL4,
                      kernelApplyGradient,
-                     kernelOcclusion, kernelInterpolate;
+                     kernelOcclusion, kernelInterpolate,
+                     kernelMerge;
 
+        // Buffers for Copy
+        internal bool useExternal;
+        internal ComputeBuffer externalBuffer;
+        internal ComputeBuffer internalBuffer;
+        internal int externalCount;
+        internal int internalCount;
+        internal ComputeBuffer combinedBuffer; // Target buffer
+
+        // 【修正】: missing definition fixed
         internal ComputeBuffer pointBuffer;
 
         internal TextureHandle colorMap;
@@ -321,15 +359,20 @@ public class PCDRenderPass : ScriptableRenderPass
     public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData)
     {
         if (!_isInitialized) Initialize();
-        if (!_isInitialized)
-        {
-            UnityEngine.Debug.Log("PCDRenderPass is not initialized properly. Skipping rendering pass.");
-            return;
-        }
+        if (!_isInitialized) return;
+        if (!UnityEngine.Application.isPlaying) return;
 
-        if (!UnityEngine.Application.isPlaying)
+        bool shouldUseExternal = PCDRendererFeature.Instance.IsGlobalBufferMode;
+
+        if (shouldUseExternal && GlobalPointCloudManager.Instance != null)
         {
-            return;
+            var globalBuffer = GlobalPointCloudManager.Instance.GetGlobalBuffer();
+            var globalCount = GlobalPointCloudManager.Instance.CurrentTotalCount;
+            SetExternalBuffer(globalBuffer, globalCount);
+        }
+        else
+        {
+            SetExternalBuffer(null, 0);
         }
 
         if (_isDataDirty)
@@ -338,7 +381,30 @@ public class PCDRenderPass : ScriptableRenderPass
             UpdateComputeBuffer();
         }
 
-        if (_pointBuffer == null || _pointCount == 0)
+        ComputeBuffer activeBuffer = null;
+        int activeCount = 0;
+
+        if (_useExternalBuffer)
+        {
+            int totalCount = _externalPointCount + _pointCount;
+            if (totalCount > 0)
+            {
+                if (_combinedBuffer == null || _combinedBuffer.count < totalCount || !_combinedBuffer.IsValid())
+                {
+                    _combinedBuffer?.Release();
+                    _combinedBuffer = new ComputeBuffer(totalCount, STRIDE);
+                }
+                activeBuffer = _combinedBuffer;
+                activeCount = totalCount;
+            }
+        }
+        else
+        {
+            activeBuffer = _pointBuffer;
+            activeCount = _pointCount;
+        }
+
+        if (activeBuffer == null || activeCount == 0 || !activeBuffer.IsValid())
         {
             return;
         }
@@ -378,12 +444,11 @@ public class PCDRenderPass : ScriptableRenderPass
         }
 
         TextureHandle finalImageHandle;
-
         TextureHandle originDebugMapHandle_RG = default;
 
         using (var builder = renderGraph.AddComputePass<ComputePassData>(PROFILER_TAG, out var data))
         {
-            data.pointCount = _pointCount;
+            data.pointCount = activeCount;
             data.screenParams = new Vector4(screenWidth, screenHeight, 0, 0);
             data.viewMatrix = camera.worldToCameraMatrix;
             data.projectionMatrix = camera.projectionMatrix;
@@ -409,8 +474,16 @@ public class PCDRenderPass : ScriptableRenderPass
             data.kernelApplyGradient = _kernelApplyGradient;
             data.kernelOcclusion = _kernelOcclusion;
             data.kernelInterpolate = _kernelInterpolate;
+            data.kernelMerge = _kernelMerge; // Kernel index
 
-            data.pointBuffer = _pointBuffer;
+            data.useExternal = _useExternalBuffer;
+            data.externalBuffer = _externalPointBuffer;
+            data.internalBuffer = _pointBuffer;
+            data.externalCount = _externalPointCount;
+            data.internalCount = _pointCount;
+            data.combinedBuffer = _combinedBuffer;
+
+            data.pointBuffer = activeBuffer;
 
             var desc = new TextureDesc(screenWidth, screenHeight) { enableRandomWrite = true };
             desc.colorFormat = GraphicsFormatUtility.GetGraphicsFormat(RenderTextureFormat.ARGBFloat, false);
@@ -481,11 +554,40 @@ public class PCDRenderPass : ScriptableRenderPass
 
             finalImageHandle = data.finalImage;
 
-            // --- RenderFunc ---
             builder.SetRenderFunc((ComputePassData passData, ComputeGraphContext context) =>
             {
                 var cmd = context.cmd;
                 var cs = pointCloudCompute;
+
+                // --- 1. Buffer Merge using Compute Shader ---
+                // GPU Copy (External + Internal -> Combined)
+                if (passData.useExternal && passData.combinedBuffer != null)
+                {
+                    // Copy External (RealSense)
+                    if (passData.externalBuffer != null && passData.externalCount > 0)
+                    {
+                        cmd.SetComputeBufferParam(cs, passData.kernelMerge, "_MergeSrcBuffer", passData.externalBuffer);
+                        cmd.SetComputeBufferParam(cs, passData.kernelMerge, "_MergeDstBuffer", passData.combinedBuffer);
+                        cmd.SetComputeIntParam(cs, "_MergeSrcOffset", 0);
+                        cmd.SetComputeIntParam(cs, "_MergeDstOffset", 0);
+                        cmd.SetComputeIntParam(cs, "_MergeCopyCount", passData.externalCount);
+                        int groups = Mathf.CeilToInt(passData.externalCount / 256.0f);
+                        cmd.DispatchCompute(cs, passData.kernelMerge, groups, 1, 1);
+                    }
+
+                    // Copy Internal (Static Mesh)
+                    if (passData.internalBuffer != null && passData.internalCount > 0)
+                    {
+                        cmd.SetComputeBufferParam(cs, passData.kernelMerge, "_MergeSrcBuffer", passData.internalBuffer);
+                        cmd.SetComputeBufferParam(cs, passData.kernelMerge, "_MergeDstBuffer", passData.combinedBuffer);
+                        cmd.SetComputeIntParam(cs, "_MergeSrcOffset", 0);
+                        cmd.SetComputeIntParam(cs, "_MergeDstOffset", passData.externalCount);
+                        cmd.SetComputeIntParam(cs, "_MergeCopyCount", passData.internalCount);
+                        int groups = Mathf.CeilToInt(passData.internalCount / 256.0f);
+                        cmd.DispatchCompute(cs, passData.kernelMerge, groups, 1, 1);
+                    }
+                }
+                // ------------------------------------------------
 
                 cmd.SetComputeIntParam(cs, "_PointCount", passData.pointCount);
                 cmd.SetComputeVectorParam(cs, "_ScreenParams", passData.screenParams);
@@ -531,27 +633,27 @@ public class PCDRenderPass : ScriptableRenderPass
                 cmd.SetComputeTextureParam(cs, passData.kernelCalcDensity, "_DensityMap_RW", passData.densityMap);
                 cmd.DispatchCompute(cs, passData.kernelCalcDensity, gridGroupsX, gridGroupsY, 1);
 
-                // 4.5. CalculateGridLevel
+                // 5. CalculateGridLevel
                 int gridKernelGroupsX = Mathf.CeilToInt(gridGroupsX / 16.0f);
                 int gridKernelGroupsY = Mathf.CeilToInt(gridGroupsY / 16.0f);
                 cmd.SetComputeTextureParam(cs, passData.kernelCalcGridLevel, "_DensityMap", passData.densityMap);
                 cmd.SetComputeTextureParam(cs, passData.kernelCalcGridLevel, "_GridLevelMap_RW", passData.gridLevelMap);
                 cmd.DispatchCompute(cs, passData.kernelCalcGridLevel, gridKernelGroupsX, gridKernelGroupsY, 1);
 
-                // 4.7. GridMedianFilter
+                // 6. GridMedianFilter
                 cmd.SetComputeTextureParam(cs, passData.kernelGridMedianFilter, "_GridLevelMap", passData.gridLevelMap);
                 cmd.SetComputeTextureParam(cs, passData.kernelGridMedianFilter, "_FilteredGridLevelMap_RW", passData.filteredGridLevelMap);
                 cmd.DispatchCompute(cs, passData.kernelGridMedianFilter, gridKernelGroupsX, gridKernelGroupsY, 1);
 
-                // 5. CalculateNeighborhoodSize
+                // 7. CalculateNeighborhoodSize
                 cmd.SetComputeTextureParam(cs, passData.kernelCalcNeighborhoodSize, "_FilteredGridLevelMap", passData.filteredGridLevelMap);
                 cmd.SetComputeTextureParam(cs, passData.kernelCalcNeighborhoodSize, "_NeighborhoodSizeMap_RW", passData.neighborhoodSizeMap);
                 cmd.DispatchCompute(cs, passData.kernelCalcNeighborhoodSize, threadGroupsX, threadGroupsY, 1);
 
-                // 7. Gradient Correction Path
+                // 8. Gradient Correction Path
                 if (passData.enableGradientCorrection)
                 {
-                    // 7a. Build Z-Min Depth Pyramid
+                    // 8a. Build Z-Min Depth Pyramid
                     int l1_tgX = Mathf.CeilToInt(l1_Width / 8.0f);
                     int l1_tgY = Mathf.CeilToInt(l1_Height / 8.0f);
                     cmd.SetComputeTextureParam(cs, passData.kernelBuildDepthPyramidL1, "_DepthMap", passData.depthMap);
@@ -570,14 +672,13 @@ public class PCDRenderPass : ScriptableRenderPass
                     cmd.SetComputeTextureParam(cs, passData.kernelBuildDepthPyramidL3, "_DepthPyramidL3_RW", passData.depthPyramidL3);
                     cmd.DispatchCompute(cs, passData.kernelBuildDepthPyramidL3, l3_tgX, l3_tgY, 1);
 
-
                     int l4_tgX = Mathf.CeilToInt(l4_Width / 8.0f);
                     int l4_tgY = Mathf.CeilToInt(l4_Height / 8.0f);
                     cmd.SetComputeTextureParam(cs, passData.kernelBuildDepthPyramidL4, "_DepthPyramidL3", passData.depthPyramidL3);
                     cmd.SetComputeTextureParam(cs, passData.kernelBuildDepthPyramidL4, "_DepthPyramidL4_RW", passData.depthPyramidL4);
                     cmd.DispatchCompute(cs, passData.kernelBuildDepthPyramidL4, l4_tgX, l4_tgY, 1);
 
-                    // 7b+7c. ApplyAdaptiveGradientCorrection
+                    // 8b+8c. ApplyAdaptiveGradientCorrection
                     cmd.SetComputeTextureParam(cs, passData.kernelApplyGradient, "_NeighborhoodSizeMap", passData.neighborhoodSizeMap);
                     cmd.SetComputeTextureParam(cs, passData.kernelApplyGradient, "_DepthPyramidL1", passData.depthPyramidL1);
                     cmd.SetComputeTextureParam(cs, passData.kernelApplyGradient, "_DepthPyramidL2", passData.depthPyramidL2);
@@ -587,7 +688,7 @@ public class PCDRenderPass : ScriptableRenderPass
                     cmd.DispatchCompute(cs, passData.kernelApplyGradient, threadGroupsX, threadGroupsY, 1);
                 }
 
-                // 8. OcclusionAndFilter
+                // 9. OcclusionAndFilter
                 cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, "_ColorMap", passData.colorMap);
                 cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, "_DepthMap", passData.depthMap);
                 cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, "_ViewPositionMap", passData.viewPositionMap);
@@ -606,7 +707,7 @@ public class PCDRenderPass : ScriptableRenderPass
                 cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, "_OriginMap_RW", passData.originDebugMap);
                 cmd.DispatchCompute(cs, passData.kernelOcclusion, threadGroupsX, threadGroupsY, 1);
 
-                // 9. Interpolate
+                // 10. Interpolate
                 cmd.SetComputeTextureParam(cs, passData.kernelInterpolate, "_OcclusionResultMap", passData.occlusionResultMap);
                 cmd.SetComputeTextureParam(cs, passData.kernelInterpolate, "_OriginTypeMap", passData.originTypeMap);
                 cmd.SetComputeTextureParam(cs, passData.kernelInterpolate, "_FinalImage_RW", passData.finalImage);
@@ -641,29 +742,12 @@ public class PCDRenderPass : ScriptableRenderPass
             {
                 if (!passData.enableOriginDebugMap)
                 {
-                    // 0.0f, false は「ブレンドしない」設定です。
                     Blitter.BlitTexture(context.cmd, passData.sourceImage, new Vector4(1, 1, 0, 0), 0.0f, false);
                 }
                 else
                 {
-                    // DebugMap が有効な場合は、そちらを優先して表示します。
                     Blitter.BlitTexture(context.cmd, passData.sourceImage, new Vector4(1, 1, 0, 0), 0.0f, false);
                 }
-
-                /*
-                if (passData.enableOriginDebugMap)
-                {
-                    Blitter.BlitTexture(context.cmd, passData.sourceImage, new Vector4(1, 1, 0, 0), 0.0f, false);
-                }
-                else if (passData.enableAlphaBlend && passData.blendMaterial != null)
-                {
-                    Blitter.BlitTexture(context.cmd, passData.sourceImage, new Vector4(1, 1, 0, 0), passData.blendMaterial, 0);
-                }
-                else
-                {
-                    Blitter.BlitTexture(context.cmd, passData.sourceImage, new Vector4(1, 1, 0, 0), 0.0f, false);
-                }
-                */
             });
         }
     }
@@ -673,6 +757,9 @@ public class PCDRenderPass : ScriptableRenderPass
         _pointBuffer?.Release();
         _pointBuffer = null;
 
+        _combinedBuffer?.Release();
+        _combinedBuffer = null;
+
         _originDebugMapHandle?.Release();
         _originDebugMapHandle = null;
 
@@ -680,5 +767,8 @@ public class PCDRenderPass : ScriptableRenderPass
         _pointsCache = null;
         _dynamicData = null;
         _staticMeshes.Clear();
+
+        _externalPointBuffer = null;
+        _useExternalBuffer = false;
     }
 }

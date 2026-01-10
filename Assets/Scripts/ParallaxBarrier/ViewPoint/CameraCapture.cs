@@ -10,11 +10,11 @@ public class CameraCapture : MonoBehaviour
     public int captureHeight = 1440;
 
     [Header("Single Capture Settings")]
-    public string singleCaptureFolder = "HandTrakingData/RecordedViewPointPicture/Pictures";
+    public string singleCaptureFolder = "HandTrackingData/RecordedViewPointPicture/Pictures";
 
     [Header("Video Recording Settings")]
     public int frameRate = 30;
-    public string videoFramesFolder = "HandTrakingData/RecordedViewPointPicture/VideoFrames";
+    public string videoFramesFolder = "HandTrackingData/RecordedViewPointPicture/VideoFrames";
 
     [Header("Frame Control")]
     [Tooltip("録画を開始するフレーム番号 (カウントは0から)。")]

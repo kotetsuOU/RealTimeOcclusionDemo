@@ -29,7 +29,9 @@ uint HashVoxelIndex(int3 voxelIndex, uint hashTableSize)
     const uint p1 = 73856093;
     const uint p2 = 19349663;
     const uint p3 = 83492791;
-    uint hash = ((uint)voxelIndex.x * p1) ^ ((uint)voxelIndex.y * p2) ^ ((uint)voxelIndex.z * p3);
+    
+    uint hash = (asuint(voxelIndex.x) * p1) ^ (asuint(voxelIndex.y) * p2) ^ (asuint(voxelIndex.z) * p3);
+    
     return hash % hashTableSize;
 }
 
@@ -42,7 +44,7 @@ int FindVoxelDataFast(int3 voxelIndex,
     uint hash = HashVoxelIndex(voxelIndex, hashTableSize);
     int idx = hashTable[hash];
     
-    while (idx != -1 && idx != 0x7FFFFFFF)
+    while (idx != -1 && idx != (int)0x7FFFFFFF)
     {
         if (all(voxelData[idx].index == voxelIndex))
         {

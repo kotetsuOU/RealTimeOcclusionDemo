@@ -1,12 +1,7 @@
 using Intel.RealSense;
 using System;
-using System.Collections;
 using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
 using UnityEngine;
-using UnityEngine.SceneManagement;
-using UnityEngine.UI;
 
 [System.AttributeUsage(System.AttributeTargets.Class, AllowMultiple = false)]
 public sealed class ProcessingBlockDataAttribute : System.Attribute
@@ -21,82 +16,114 @@ public sealed class ProcessingBlockDataAttribute : System.Attribute
     }
 }
 
-
 [Serializable]
 public class RsProcessingPipe : RsFrameProvider
 {
     public RsFrameProvider Source;
     public RsProcessingProfile profile;
+
     public override event Action<PipelineProfile> OnStart;
     public override event Action OnStop;
     public override event Action<Frame> OnNewSample;
-    private CustomProcessingBlock _block;
 
+    private CustomProcessingBlock _block;
+    private RsDepthToColorCalibration _calibration;
     private int _frameCounter = 0;
-    [SerializeField] private int _processIntervalFrames = 2;
+
+    [SerializeField] private int _processIntervalFrames = 1;
 
     void Awake()
     {
-        Source.OnStart += OnSourceStart;
-        Source.OnStop += OnSourceStop;
+        // 【修正点】プロファイルと内部ブロックのディープコピー（インスタンス化）
+        // これを行わないと、複数のカメラで同一のScriptableObject（メモリ）を共有してしまい、
+        // キャリブレーション情報やGPUバッファが混線する。
+        if (profile != null)
+        {
+            // 1. Profile自体を複製（これでこのPipe専用のProfileになる）
+            profile = Instantiate(profile);
+
+            // 2. Profile内の各ブロックも複製（中身のScriptableObjectもユニークにする）
+            for (int i = 0; i < profile._processingBlocks.Count; i++)
+            {
+                if (profile._processingBlocks[i] != null)
+                {
+                    // ScriptableObject.Instantiateにより、独立したメモリ領域を確保
+                    profile._processingBlocks[i] = Instantiate(profile._processingBlocks[i]);
+                }
+            }
+        }
+        else
+        {
+            // プロファイルがない場合は空を作成
+            profile = ScriptableObject.CreateInstance<RsProcessingProfile>();
+            profile._processingBlocks = new List<RsProcessingBlock>();
+        }
+
+        if (Source != null)
+        {
+            Source.OnStart += OnSourceStart;
+            Source.OnStop += OnSourceStop;
+        }
 
         _block = new CustomProcessingBlock(ProcessFrame);
         _block.Start(OnFrame);
+
         if (_processIntervalFrames <= 0) { _processIntervalFrames = 1; }
     }
 
     private void OnSourceStart(PipelineProfile activeProfile)
     {
-        Source.OnNewSample += _block.Process;
+        // ブロックのインスタンス化後にイベント購読を行うため、ここでの変更は不要
+        if (Source != null)
+        {
+            // 修正: CustomProcessingBlockのAction対応版シグネチャを使用
+            // (前回修正した CustomProcessingBlock.cs の仕様に合わせる)
+            // CustomProcessingBlock側が Process(Frame) を呼ぶため、ここでは購読のみでよいが、
+            // _blockは内部で処理を持つため、Sourceからのイベントをブリッジする必要があるか？
+
+            // CustomProcessingBlockの実装によれば、
+            // _block.Process(Frame) を呼ぶ必要がある。
+            Source.OnNewSample += _block.Process;
+        }
+
         ActiveProfile = activeProfile;
 
-        // For the L5** device, disable processing blocks in the PointCloudProcessingBlocks scene, except for Temporaral Filter
-        if (ActiveProfile != null)
-        {
-            string devName = ActiveProfile.Device.Info.GetInfo(CameraInfo.Name);
-            if (!string.IsNullOrEmpty(devName) && devName.StartsWith("Intel RealSense L5", StringComparison.OrdinalIgnoreCase))
-            {
-                GameObject pbPanel = GameObject.Find("ProcessingBlocks/ScrollRect/Viewport/Content");
-                if (pbPanel != null)
-                {
-                    foreach (Transform child in pbPanel.transform)
-                    {
-                        if (!child.name.Equals("TemporaFilter"))
-                        {
-                            child.gameObject.SetActive(false);
-                            Toggle toggle = child.transform.Find("Toggle").gameObject.GetComponent<Toggle>();
-                            if (toggle != null && toggle.isOn)
-                                toggle.isOn = false;
-                        }
-                    }
-                }
-            }
+        _calibration = new RsDepthToColorCalibration(activeProfile);
 
+        if (profile != null)
+        {
+            foreach (var pb in profile._processingBlocks)
+            {
+                // インスタンス化されたユニークなブロックに対してキャリブレーションをセット
+                if (pb is RsIntegratedPointCloud integratedPointCloud)
+                {
+                    integratedPointCloud.SetCalibration(_calibration);
+                }
+                // 不要な型チェック削除済み
+            }
         }
 
         Streaming = true;
-        var h = OnStart;
-        if (h != null)
-            h.Invoke(activeProfile);
+
+        OnStart?.Invoke(activeProfile);
     }
 
     private void OnSourceStop()
     {
         if (!Streaming)
             return;
-        if (_block != null)
+
+        if (_block != null && Source != null)
             Source.OnNewSample -= _block.Process;
+
         Streaming = false;
-        var h = OnStop;
-        if (h != null)
-            h();
+
+        OnStop?.Invoke();
     }
 
     private void OnFrame(Frame f)
     {
-        var onNewSample = OnNewSample;
-        if (onNewSample != null)
-            onNewSample.Invoke(f);
+        OnNewSample?.Invoke(f);
     }
 
     private void OnDestroy()
@@ -109,16 +136,14 @@ public class RsProcessingPipe : RsFrameProvider
         }
     }
 
-    internal void ProcessFrame(Frame frame, FrameSource src)
+    // CustomProcessingBlock (Action版) に対応したメソッドシグネチャ
+    internal void ProcessFrame(Frame frame, Action<Frame> output)
     {
-        if (frame is VideoFrame videoFrame)
-        {
-            UnityEngine.Debug.Log($"ProcessingPipe: Received frame dimension => Width={videoFrame.Width}, Height={videoFrame.Height}");
-        }
-
         _frameCounter++;
+
         if (_frameCounter % _processIntervalFrames != 0)
             return;
+
         try
         {
             if (!Streaming)
@@ -128,36 +153,40 @@ public class RsProcessingPipe : RsFrameProvider
 
             if (profile != null)
             {
-                var filters = profile._processingBlocks.AsReadOnly();
+                var filters = profile._processingBlocks;
 
                 foreach (var pb in filters)
                 {
-                    if (pb == null || !pb.Enabled)
+                    if (pb == null) continue;
+
+                    if (!pb.Enabled)
                         continue;
 
-                    var r = pb.Process(f, src);
-                    if (r != f)
+                    // FrameSource引数は使わないためdefaultでOK
+                    Frame processed = pb.Process(f, default(FrameSource));
+
+                    if (processed != f)
                     {
-                        // Prevent from disposing the original frame during post-processing
                         if (f != frame)
                         {
                             f.Dispose();
                         }
-                        f = r;
+                        f = processed;
                     }
                 }
             }
 
-            src.FrameReady(f);
+            output(f);
 
             if (f != frame)
                 f.Dispose();
         }
         catch (Exception e)
         {
-            Debug.LogException(e);
+            UnityEngine.Debug.LogException(e);
         }
     }
+
     public void SetProcessIntervalFrames(int value)
     {
         _processIntervalFrames = value;

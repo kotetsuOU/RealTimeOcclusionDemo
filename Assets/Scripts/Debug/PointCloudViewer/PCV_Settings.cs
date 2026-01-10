@@ -1,5 +1,11 @@
 using UnityEngine;
 
+public enum PointCloudSource
+{
+    PCV_File_CPU,          // PCVでロードしたファイルデータを使用
+    RealSense_GPU_Global   // PointCloudRenderer (GlobalManager) の統合データを使用
+}
+
 [System.Serializable]
 public struct FileSettings
 {
@@ -7,20 +13,30 @@ public struct FileSettings
     public string filePath;
     public Color color;
 
+    [Tooltip("位置合わせの結果を反映させる対象のゲームオブジェクト")]
+    public GameObject targetObject;
+
     public bool IsDifferent(FileSettings other)
     {
-        return useFile != other.useFile || filePath != other.filePath || color != other.color;
+        return useFile != other.useFile ||
+                       filePath != other.filePath ||
+                       color != other.color ||
+                       targetObject != other.targetObject;
     }
 }
 
 public class PCV_Settings : MonoBehaviour
 {
+    [Header("Rendering Source")]
+    [Tooltip("PCDRendererFeatureに送るデータのソースを選択します")]
+    public PointCloudSource renderingSource = PointCloudSource.PCV_File_CPU;
+
     public FileSettings[] fileSettings = new FileSettings[4]
     {
-        new FileSettings { useFile = true,  filePath = "Assets/HandTrakingData/PointCloudData/currentGlobalVerticesRight.txt",  color = Color.red },
-        new FileSettings { useFile = false, filePath = "Assets/HandTrakingData/PointCloudData/currentGlobalVerticesLeft.txt",   color = Color.green },
-        new FileSettings { useFile = false, filePath = "Assets/HandTrakingData/PointCloudData/currentGlobalVerticesBottom.txt", color = Color.blue },
-        new FileSettings { useFile = false, filePath = "Assets/HandTrakingData/PointCloudData/currentGlobalVerticesTop.txt",    color = Color.yellow }
+        new FileSettings { useFile = true,  filePath = "Assets/HandTrackingData/PointCloudData/currentGlobalVerticesRight.txt",  color = Color.red },
+        new FileSettings { useFile = false, filePath = "Assets/HandTrackingData/PointCloudData/currentGlobalVerticesLeft.txt",   color = Color.green },
+        new FileSettings { useFile = false, filePath = "Assets/HandTrackingData/PointCloudData/currentGlobalVerticesBottom.txt", color = Color.blue },
+        new FileSettings { useFile = false, filePath = "Assets/HandTrackingData/PointCloudData/currentGlobalVerticesTop.txt",    color = Color.yellow }
     };
 
     public float pointSize = 0.01f;
@@ -56,8 +72,8 @@ public class PCV_Settings : MonoBehaviour
     public bool useCoroutine = false;
 
     [Header("GPU Acceleration")]
-    [Tooltip("点群フィルタリングに使用するCompute Shader")]
-    public ComputeShader pointCloudFilterShader;
+    [Tooltip("近傍探索ノイズ除去に使用するCompute Shader")]
+    public ComputeShader neighborNoiseFilterShader;
     [Tooltip("形態学的操作に使用するCompute Shader")]
     public ComputeShader morpologyOperationShader;
     [Tooltip("ボクセル密度フィルタリングに使用するCompute Shader")]
@@ -74,6 +90,7 @@ public class PCV_Settings : MonoBehaviour
     [Tooltip("密度補完にGPUを使用する")]
     public bool useGpuDensityComplementation = true;
 
+    private PointCloudSource lastRenderingSource;
     private FileSettings[] lastFileSettings;
     private float lastPointSize;
     private GameObject lastOutline;
@@ -92,7 +109,7 @@ public class PCV_Settings : MonoBehaviour
     private Color lastComplementationPointColor;
     private bool lastComplementationRandomPlacement;
 
-    private ComputeShader lastPointCloudFilterShader;
+    private ComputeShader lastNeighborNoiseFilterShader;
     private ComputeShader lastMorpologyOperationShader;
     private ComputeShader lastDensityFilterShader;
     private ComputeShader lastDensityComplementationShader;
@@ -110,6 +127,8 @@ public class PCV_Settings : MonoBehaviour
 
     public void SaveInspectorState()
     {
+        lastRenderingSource = renderingSource;
+
         lastFileSettings = new FileSettings[fileSettings.Length];
         for (int i = 0; i < fileSettings.Length; i++)
         {
@@ -132,7 +151,7 @@ public class PCV_Settings : MonoBehaviour
         lastComplementationPointColor = complementationPointColor;
         lastComplementationRandomPlacement = complementationRandomPlacement;
 
-        lastPointCloudFilterShader = pointCloudFilterShader;
+        lastNeighborNoiseFilterShader = neighborNoiseFilterShader;
         lastMorpologyOperationShader = morpologyOperationShader;
         lastDensityFilterShader = densityFilterShader;
         lastDensityComplementationShader = densityComplementationShader;
@@ -141,6 +160,11 @@ public class PCV_Settings : MonoBehaviour
         lastUseGpuNoiseFilter = useGpuNoiseFilter;
         lastUseGpuDensityFilter = useGpuDensityFilter;
         lastUseGpuDensityComplementation = useGpuDensityComplementation;
+    }
+
+    public bool HasRenderingSourceChanged()
+    {
+        return renderingSource != lastRenderingSource;
     }
 
     public bool HasFileSettingsChanged()
@@ -180,7 +204,7 @@ public class PCV_Settings : MonoBehaviour
         bool densityShadersChanged = (morpologyOperationShader != lastMorpologyOperationShader) ||
                                      (densityFilterShader != lastDensityFilterShader) ||
                                      (densityComplementationShader != lastDensityComplementationShader) ||
-                                     (pointCloudFilterShader != lastPointCloudFilterShader) ||
+                                     (neighborNoiseFilterShader != lastNeighborNoiseFilterShader) ||
                                      (voxelGridBuilderShader != lastVoxelGridBuilderShader);
 
         bool processingParamsChanged = voxelSize != lastVoxelSize ||

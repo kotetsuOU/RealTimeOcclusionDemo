@@ -27,7 +27,7 @@ public class FolderAverager : MonoBehaviour
     public FileType fileTypeToProcess = FileType.CSV;
 
     [Tooltip("ファイルが格納されているフォルダのパスを指定します。")]
-    public string folderPath = "Assets/HandTrakingData/Filter";
+    public string folderPath = "Assets/HandTrackingData/Filter";
 
     [Header("【TXT用 閾値設定】")]
     [Tooltip("TXTファイル処理時に閾値フィルタを有効にするか。")]

@@ -8,10 +8,10 @@ using UnityEditor;
 
 public class LineEstimation : MonoBehaviour
 {
-    public string filePath1 = "Assets/HandTrakingData/currentGlobalVerticesRight.txt";
-    public string filePath2 = "Assets/HandTrakingData/currentGlobalVerticesLeft.txt";
-    public string filePath3 = "Assets/HandTrakingData/currentGlobalVerticesBottom.txt";
-    public string filePath4 = "Assets/HandTrakingData/currentGlobalVerticesTop.txt";
+    public string filePath1 = "Assets/HandTrackingData/currentGlobalVerticesRight.txt";
+    public string filePath2 = "Assets/HandTrackingData/currentGlobalVerticesLeft.txt";
+    public string filePath3 = "Assets/HandTrackingData/currentGlobalVerticesBottom.txt";
+    public string filePath4 = "Assets/HandTrackingData/currentGlobalVerticesTop.txt";
     public string outputFilePath = "LineDistanceHistogram.csv";
 
     public bool useFile1 = true;
@@ -58,10 +58,12 @@ public class LineEstimation : MonoBehaviour
             Renderer renderer = lastCylinder.GetComponent<Renderer>();
             if (!UnityEngine.Application.isPlaying && renderer != null && renderer.material != null)
             {
+#if UNITY_EDITOR
                 if (!EditorUtility.IsPersistent(renderer.material))
                 {
                     DestroyImmediate(renderer.material);
                 }
+#endif
             }
 
             if (UnityEngine.Application.isPlaying)
