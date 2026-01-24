@@ -76,11 +76,11 @@
     <Compile Include="Assets\Scripts\RealSense\RsPoseStreamTransformer.cs" />
     <Compile Include="Assets\Scripts\RealSense\PointCloud\RsPointCloudVisualization.cs" />
     <Compile Include="Assets\Scripts\RealSense\RsProcessingPipe.cs" />
+    <Compile Include="Assets\Scripts\RealSense\PointCloud\RsPointCloudPCA.cs" />
     <Compile Include="Assets\Scripts\RealSense\PointCloud\RsTransformController.cs" />
     <Compile Include="Assets\Scripts\RealSense\ProcessingBlocks\ColorFilter\RsYCbCrConverter.cs" />
     <Compile Include="Assets\Scripts\RealSense\RsUnityMainThreadDispatcher.cs" />
     <Compile Include="Assets\Scripts\RealSense\Device\RsDeviceController.cs" />
-    <Compile Include="Assets\Scripts\RealSense\PointCloud\RsSyntheticPointCloudGenerator.cs" />
     <Compile Include="Assets\Scripts\RealSense\ProcessingBlocks\ColorFilter\RsColorBasedDepthCulling.cs" />
     <Compile Include="Assets\Scripts\RealSense\ProcessingBlocks\RsDisparityTransform.cs" />
     <Compile Include="Assets\Scripts\RealSense\ProcessingBlocks\RsTemporalFilter.cs" />
@@ -90,6 +90,7 @@
     <Compile Include="Assets\Scripts\RealSense\ProcessingBlocks\CustomProcessingBlock.cs" />
     <Compile Include="Assets\Scripts\RealSense\PointCloud\RsDataProvider.cs" />
     <Compile Include="Assets\Scripts\RealSense\ProcessingBlocks\RsHoleFillingFilter.cs" />
+    <Compile Include="Assets\Scripts\RealSense\PointCloud\RsFilterShaderDispatcher.cs" />
     <Compile Include="Assets\Scripts\RealSense\ProcessingBlocks\RsDecimationFilter.cs" />
     <Compile Include="Assets\Scripts\RealSense\PointCloud\RsPointCloudFrameProcessor.cs" />
     <Compile Include="Assets\Scripts\RealSense\ProcessingBlocks\ColorFilter\RsIntegratedPointCloud.cs" />
@@ -103,6 +104,7 @@
     <Compile Include="Assets\Scripts\RealSense\ProcessingBlocks\ColorFilter\RsDepthToColorCalibration.cs" />
     <Compile Include="Assets\Scripts\RealSense\PointCloud\RsPointCloudCompute.cs" />
     <Compile Include="Assets\Scripts\RealSense\PointCloud\RsPointCloudGroupController.cs" />
+    <Compile Include="Assets\Scripts\RealSense\PointCloud\RsPointCloudInitializer.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\Scripts\RealSense\RealSense.asmdef" />
