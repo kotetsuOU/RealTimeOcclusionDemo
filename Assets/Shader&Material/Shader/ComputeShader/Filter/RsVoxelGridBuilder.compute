@@ -25,9 +25,9 @@ void CSClearHashTable(uint3 id : SV_DispatchThreadID)
     {
         _VoxelHashTable[id.x] = -1;
     }
-    if (id.x == 0)
+    if (id.x == 0u)
     {
-        _VoxelCounter[0] = 0;
+        _VoxelCounter[0] = 0u;
     }
 }
 
@@ -63,7 +63,7 @@ void CSBuildGrid(uint3 id : SV_DispatchThreadID)
         int voxelDataIndex = _VoxelHashTable[hash];
         int currentHead = voxelDataIndex;
         
-        while (voxelDataIndex != -1 && voxelDataIndex != 0x7FFFFFFF)
+        while (voxelDataIndex >= 0 && voxelDataIndex < (int)_MaxVoxelCount)
         {
             if (all(_VoxelData[voxelDataIndex].index == voxelIndex))
             {
@@ -73,13 +73,13 @@ void CSBuildGrid(uint3 id : SV_DispatchThreadID)
             voxelDataIndex = _VoxelHashChains[voxelDataIndex];
         }
 
-        if (foundIndex != -1)
+        if (foundIndex >= 0)
         {
             break;
         }
 
         uint newIndex;
-        InterlockedAdd(_VoxelCounter[0], 1, newIndex);
+        InterlockedAdd(_VoxelCounter[0], 1u, newIndex);
         
         if (newIndex >= _MaxVoxelCount)
             return;
@@ -97,29 +97,32 @@ void CSBuildGrid(uint3 id : SV_DispatchThreadID)
         InterlockedCompareExchange(
             _VoxelHashTable[hash],
             currentHead,
-            (int) newIndex,
+            (int)newIndex,
             originalValue
         );
 
         if (originalValue == currentHead)
         {
-            foundIndex = (int) newIndex;
+            foundIndex = (int)newIndex;
             break;
         }
     }
 
-    InterlockedAdd(_VoxelData[foundIndex].pointCount, 1);
+    if (foundIndex >= 0)
+    {
+        InterlockedAdd(_VoxelData[foundIndex].pointCount, 1);
+    }
 }
 
 [numthreads(1, 1, 1)]
 void CSScanOffsets()
 {
     uint totalVoxels = min(_VoxelCounter[0], _MaxVoxelCount);
-    uint currentOffset = 0;
+    int currentOffset = 0;
     
-    for (uint i = 0; i < totalVoxels; i++)
+    for (uint i = 0u; i < totalVoxels; i++)
     {
-        _VoxelData[i].dataOffset = (int)currentOffset;
+        _VoxelData[i].dataOffset = currentOffset;
         _VoxelData[i].writeCounter = 0;
         currentOffset += _VoxelData[i].pointCount;
     }
@@ -141,7 +144,7 @@ void CSBuildIndices(uint3 id : SV_DispatchThreadID)
     int voxelDataIndex = _VoxelHashTable[hash];
     int foundIndex = -1;
     
-    while (voxelDataIndex != -1 && voxelDataIndex != 0x7FFFFFFF)
+    while (voxelDataIndex >= 0 && voxelDataIndex < (int)_MaxVoxelCount)
     {
         if (all(_VoxelData[voxelDataIndex].index == voxelIndex))
         {
@@ -151,14 +154,14 @@ void CSBuildIndices(uint3 id : SV_DispatchThreadID)
         voxelDataIndex = _VoxelHashChains[voxelDataIndex];
     }
 
-    if (foundIndex != -1)
+    if (foundIndex >= 0)
     {
-        uint localWriteIndex;
+        int localWriteIndex;
         InterlockedAdd(_VoxelData[foundIndex].writeCounter, 1, localWriteIndex);
 
-        if (localWriteIndex < (uint)_VoxelData[foundIndex].pointCount)
+        if (localWriteIndex >= 0 && localWriteIndex < _VoxelData[foundIndex].pointCount)
         {
-            int globalIndex = _VoxelData[foundIndex].dataOffset + (int)localWriteIndex;
+            int globalIndex = _VoxelData[foundIndex].dataOffset + localWriteIndex;
             
             if (globalIndex >= 0 && globalIndex < (int)_PointCount)
             {

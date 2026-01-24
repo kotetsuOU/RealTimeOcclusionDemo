@@ -122,12 +122,12 @@ public class RsPointCloudRendererEditor : Editor
         EditorGUILayout.Space();
         EditorGUILayout.LabelField("PCA Mode Info", EditorStyles.boldLabel);
         
-        bool isIntegratedMode = GlobalPointCloudManager.Instance != null && 
-                                GlobalPointCloudManager.Instance.IsIntegratedPCAMode;
+        bool isIntegratedMode = RsGlobalPointCloudManager.Instance != null && 
+                                RsGlobalPointCloudManager.Instance.IsIntegratedPCAMode;
         
         EditorGUILayout.HelpBox(
             isIntegratedMode 
-                ? "Integrated PCA Mode: Using GlobalPointCloudManager estimation" 
+                ? "Integrated PCA Mode: Using RsGlobalPointCloudManager estimation" 
                 : "Individual PCA Mode: Using per-renderer estimation",
             isIntegratedMode ? MessageType.Info : MessageType.None
         );
@@ -139,8 +139,8 @@ public class RsPointCloudRendererEditor : Editor
     {
         RsPointCloudRenderer renderer = (RsPointCloudRenderer)target;
         
-        bool isIntegratedMode = GlobalPointCloudManager.Instance != null && 
-                                GlobalPointCloudManager.Instance.IsIntegratedPCAMode;
+        bool isIntegratedMode = RsGlobalPointCloudManager.Instance != null && 
+                                RsGlobalPointCloudManager.Instance.IsIntegratedPCAMode;
         
         Vector3 point;
         Vector3 dir;
@@ -149,8 +149,8 @@ public class RsPointCloudRendererEditor : Editor
         
         if (isIntegratedMode)
         {
-            point = GlobalPointCloudManager.Instance.IntegratedLinePoint;
-            dir = GlobalPointCloudManager.Instance.IntegratedLineDir;
+            point = RsGlobalPointCloudManager.Instance.IntegratedLinePoint;
+            dir = RsGlobalPointCloudManager.Instance.IntegratedLineDir;
             cylinderColor = new Color(1f, 0.5f, 0f, 0.1f);
             modeLabel = "[Integrated]";
         }

@@ -26,9 +26,9 @@ public class NewRsPointCloudRenderer : MonoBehaviour
     [Tooltip("既存のログファイルに追記するかどうか")]
     public bool appendLog = false;
 
-    private RealSenseDataProvider _dataProvider;
-    private PointCloudCompute _compute;
-    private PerformanceLogger _logger;
+    private RsDataProvider _dataProvider;
+    private RsPointCloudCompute _compute;
+    private RsPerformanceLogger _logger;
     private readonly Stopwatch _stopwatch = new Stopwatch();
 
     private Vector3[] _rawVertices;
@@ -50,8 +50,8 @@ public class NewRsPointCloudRenderer : MonoBehaviour
 
     void Start()
     {
-        _dataProvider = new RealSenseDataProvider(processingPipe);
-        _logger = new PerformanceLogger();
+        _dataProvider = new RsDataProvider(processingPipe);
+        _logger = new RsPerformanceLogger();
         _dataProvider.Start();
 
         _renderer = GetComponent<MeshRenderer>();
@@ -66,7 +66,7 @@ public class NewRsPointCloudRenderer : MonoBehaviour
         int height = _dataProvider.FrameHeight;
         int rsLength = width * height;
 
-        _compute = new PointCloudCompute(pointCloudFilterShader, pointCloudTransformerShader, rsDeviceController.RealSenseScanRange, rsDeviceController.FrameWidth, maxPlaneDistance);
+        _compute = new RsPointCloudCompute(pointCloudFilterShader, pointCloudTransformerShader, rsDeviceController.RealSenseScanRange, rsDeviceController.FrameWidth, maxPlaneDistance);
 
         _compute.InitializeBuffers(rsLength, transform.localToWorldMatrix);
 

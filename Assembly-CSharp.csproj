@@ -100,16 +100,17 @@
     <None Include="Assets\HandTrackingData\PointCloudData\currentGlobalVerticesTop.txt" />
     <None Include="Assets\Others\RealSenseSDK2.0\Shaders\BGSeg.shader" />
     <None Include="Assets\Shader&amp;Material\Shader\ComputeShader\Filter\ProcessingBlocks\RsColorCulling.compute" />
+    <None Include="Assets\Shader&amp;Material\Shader\ComputeShader\Filter\RsPointCloud3DFilter.compute" />
     <None Include="Assets\Shader&amp;Material\Shader\ComputeShader\Filter\PointCloudViewer\PCV_DensityFilter.compute" />
     <None Include="Assets\Scripts\Test\RSPC_CylinderFilter.compute" />
     <None Include="Assets\Shader&amp;Material\Shader\PointCloudViewer\PointCloudViewerOutline.shader" />
     <None Include="Assets\HandTrackingData\RecordedViewPointPicture\Pictures\NearestNeighborFilter\Filter.txt" />
     <None Include="Assets\Others\RealSenseSDK2.0\Shaders\UnlitTransparentShader.shader" />
     <None Include="Assets\Shader&amp;Material\Shader\ComputeShader\Rendering\PCD_Occulusion.compute" />
-    <None Include="Assets\Shader&amp;Material\Shader\ComputeShader\Filter\PointCloudMerge.compute" />
+    <None Include="Assets\Shader&amp;Material\Shader\ComputeShader\Filter\RsPointCloudMerge.compute" />
     <None Include="Assets\Shader&amp;Material\Shader\ComputeShader\Filter\PointCloudViewer\PCV_MorpologyOperation.compute" />
     <None Include="Assets\Shader&amp;Material\Shader\ParallaxBarrier\FullScreen.shader" />
-    <None Include="Assets\Shader&amp;Material\Shader\ComputeShader\Filter\PointCloudTransformer.compute" />
+    <None Include="Assets\Shader&amp;Material\Shader\ComputeShader\Filter\RsPointCloudTransformer.compute" />
     <None Include="Assets\HandTrackingData\PointCloudData\currentGlobalVerticesBottom.txt" />
     <None Include="Assets\Resources\ComputeShaders\RsIntegratedPointCloud.compute" />
     <None Include="Assets\Others\RealSenseSDK2.0\Shaders\ARBackground.shader" />
@@ -129,12 +130,11 @@
     <None Include="Assets\Others\RealSenseSDK2.0\Shaders\Grayscale.shader" />
     <None Include="Assets\Shader&amp;Material\Shader\HandTraking\PointCloudCube.shader" />
     <None Include="Assets\Others\RealSenseSDK2.0\Shaders\PointCloud.shader" />
-    <None Include="Assets\Shader&amp;Material\Shader\ComputeShader\Filter\PointCloud3DFilter.compute" />
     <None Include="Assets\Scripts\Test\RSPC_CentroidCalculator.compute" />
     <None Include="Assets\Others\RealSenseSDK2.0\Shaders\BW.shader" />
     <None Include="Assets\Shader&amp;Material\Shader\HandTraking\PointCloudSprite.shader" />
     <None Include="Assets\HandTrackingData\PointCloudData\currentGlobalVerticesLeft.txt" />
-    <None Include="Assets\Shader&amp;Material\Shader\ComputeShader\Filter\VoxelGridBuilder.compute" />
+    <None Include="Assets\Shader&amp;Material\Shader\ComputeShader\Filter\RsVoxelGridBuilder.compute" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="UnityEngine">

@@ -68,8 +68,6 @@
     <Compile Include="Assets\Scripts\RealSense\PointCloud\RsMaterialController.cs" />
     <Compile Include="Assets\Scripts\RealSense\RsDeviceInspector.cs" />
     <Compile Include="Assets\Scripts\RealSense\ProcessingBlocks\ColorFilter\RsCullingDebugExporter.cs" />
-    <Compile Include="Assets\Scripts\RealSense\PointCloud\RealSenseDataProvider.cs" />
-    <Compile Include="Assets\Scripts\RealSense\PointCloud\PerformanceLogger.cs" />
     <Compile Include="Assets\Scripts\RealSense\RsProcessingBlock.cs" />
     <Compile Include="Assets\Scripts\RealSense\RsConfiguration.cs" />
     <Compile Include="Assets\Scripts\RealSense\ProcessingBlocks\DepthCutoff.cs" />
@@ -80,24 +78,27 @@
     <Compile Include="Assets\Scripts\RealSense\ProcessingBlocks\ColorFilter\RsYCbCrConverter.cs" />
     <Compile Include="Assets\Scripts\RealSense\RsUnityMainThreadDispatcher.cs" />
     <Compile Include="Assets\Scripts\RealSense\Device\RsDeviceController.cs" />
+    <Compile Include="Assets\Scripts\RealSense\PointCloud\RsSyntheticPointCloudGenerator.cs" />
     <Compile Include="Assets\Scripts\RealSense\ProcessingBlocks\ColorFilter\RsColorBasedDepthCulling.cs" />
     <Compile Include="Assets\Scripts\RealSense\ProcessingBlocks\RsDisparityTransform.cs" />
     <Compile Include="Assets\Scripts\RealSense\ProcessingBlocks\RsTemporalFilter.cs" />
-    <Compile Include="Assets\Scripts\RealSense\PointCloud\GlobalPointCloudManager.cs" />
     <Compile Include="Assets\Scripts\RealSense\ProcessingBlocks\RsSpatialFilter.cs" />
     <Compile Include="Assets\Scripts\RealSense\ProcessingBlocks\ColorFilter\RsHsvConverter.cs" />
     <Compile Include="Assets\Scripts\RealSense\ProcessingBlocks\RsAlign.cs" />
     <Compile Include="Assets\Scripts\RealSense\ProcessingBlocks\CustomProcessingBlock.cs" />
+    <Compile Include="Assets\Scripts\RealSense\PointCloud\RsDataProvider.cs" />
     <Compile Include="Assets\Scripts\RealSense\ProcessingBlocks\RsHoleFillingFilter.cs" />
     <Compile Include="Assets\Scripts\RealSense\ProcessingBlocks\RsDecimationFilter.cs" />
     <Compile Include="Assets\Scripts\RealSense\ProcessingBlocks\ColorFilter\RsIntegratedPointCloud.cs" />
     <Compile Include="Assets\Scripts\RealSense\RsFrameProvider.cs" />
     <Compile Include="Assets\Scripts\RealSense\ProcessingBlocks\RsColorizer.cs" />
-    <Compile Include="Assets\Scripts\RealSense\PointCloud\PointCloudCompute.cs" />
     <Compile Include="Assets\Scripts\RealSense\Device\RsDevice.cs" />
     <Compile Include="Assets\Scripts\RealSense\PointCloud\RsPointCloudRenderer.cs" />
     <Compile Include="Assets\Scripts\RealSense\RsVideoStreamRequest.cs" />
+    <Compile Include="Assets\Scripts\RealSense\PointCloud\RsPerformanceLogger.cs" />
+    <Compile Include="Assets\Scripts\RealSense\PointCloud\RsGlobalPointCloudManager.cs" />
     <Compile Include="Assets\Scripts\RealSense\ProcessingBlocks\ColorFilter\RsDepthToColorCalibration.cs" />
+    <Compile Include="Assets\Scripts\RealSense\PointCloud\RsPointCloudCompute.cs" />
     <Compile Include="Assets\Scripts\RealSense\PointCloud\RsPointCloudGroupController.cs" />
   </ItemGroup>
   <ItemGroup>

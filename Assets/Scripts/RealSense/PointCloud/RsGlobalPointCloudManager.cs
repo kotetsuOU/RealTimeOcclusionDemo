@@ -1,9 +1,9 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-public class GlobalPointCloudManager : MonoBehaviour
+public class RsGlobalPointCloudManager : MonoBehaviour
 {
-    public static GlobalPointCloudManager Instance { get; private set; }
+    public static RsGlobalPointCloudManager Instance { get; private set; }
 
     public enum OutputMode
     {
@@ -42,7 +42,7 @@ public class GlobalPointCloudManager : MonoBehaviour
 
     private Vector3 _integratedLinePoint = Vector3.zero;
     private Vector3 _integratedLineDir = Vector3.forward;
-    private readonly List<SamplingResult> _samplingResults = new List<SamplingResult>();
+    private readonly List<RsSamplingResult> _samplingResults = new List<RsSamplingResult>();
 
     public int CurrentTotalCount { get; private set; } = 0;
 
@@ -156,7 +156,7 @@ public class GlobalPointCloudManager : MonoBehaviour
 
         if (_samplingResults.Count > 0)
         {
-            var (point, dir) = PointCloudCompute.EstimateLineFromMergedSamples(_samplingResults);
+            var (point, dir) = RsPointCloudCompute.EstimateLineFromMergedSamples(_samplingResults);
             _integratedLinePoint = point;
             _integratedLineDir = dir;
         }

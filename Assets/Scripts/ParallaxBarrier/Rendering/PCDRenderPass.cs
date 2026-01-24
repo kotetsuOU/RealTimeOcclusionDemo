@@ -364,10 +364,10 @@ public class PCDRenderPass : ScriptableRenderPass
 
         bool shouldUseExternal = PCDRendererFeature.Instance.IsGlobalBufferMode;
 
-        if (shouldUseExternal && GlobalPointCloudManager.Instance != null)
+        if (shouldUseExternal && RsGlobalPointCloudManager.Instance != null)
         {
-            var globalBuffer = GlobalPointCloudManager.Instance.GetGlobalBuffer();
-            var globalCount = GlobalPointCloudManager.Instance.CurrentTotalCount;
+            var globalBuffer = RsGlobalPointCloudManager.Instance.GetGlobalBuffer();
+            var globalCount = RsGlobalPointCloudManager.Instance.CurrentTotalCount;
             SetExternalBuffer(globalBuffer, globalCount);
         }
         else

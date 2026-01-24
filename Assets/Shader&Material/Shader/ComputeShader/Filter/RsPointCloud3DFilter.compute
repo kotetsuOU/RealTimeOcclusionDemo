@@ -1,3 +1,5 @@
+// RsPointCloud3DFilter.compute
+// RealSense PointCloud 3D Filter with probabilistic sampling
 #pragma kernel CSMain
 
 StructuredBuffer<float3> rawVertices;
@@ -17,7 +19,7 @@ cbuffer Params
     float maxDistance;
     float samplingRate;
     uint randomSeed;
-};
+}
 
 uint hash(uint x)
 {

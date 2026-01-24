@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 
-public struct SamplingResult
+public struct RsSamplingResult
 {
     public int SampledCount;
     public Vector3 Centroid;
@@ -12,7 +12,7 @@ public struct SamplingResult
     public bool IsValid => SampledCount > 0;
 }
 
-public class PointCloudCompute : IDisposable
+public class RsPointCloudCompute : IDisposable
 {
     private ComputeShader filterShader;
     private ComputeShader transformShader;
@@ -41,8 +41,8 @@ public class PointCloudCompute : IDisposable
     private const int TARGET_SAMPLE_COUNT = 1000;
     private uint _frameCounter = 0;
 
-    private SamplingResult _lastSamplingResult;
-    public SamplingResult LastSamplingResult => _lastSamplingResult;
+    private RsSamplingResult _lastSamplingResult;
+    public RsSamplingResult LastSamplingResult => _lastSamplingResult;
 
     public ComputeBuffer GetFilteredVerticesBuffer()
     {
@@ -54,7 +54,7 @@ public class PointCloudCompute : IDisposable
         return argsBuffer;
     }
 
-    public PointCloudCompute(ComputeShader filterShader, ComputeShader transformShader, Vector3 rsScanRange, float frameWidth, float maxPlaneDistance)
+    public RsPointCloudCompute(ComputeShader filterShader, ComputeShader transformShader, Vector3 rsScanRange, float frameWidth, float maxPlaneDistance)
     {
         this.filterShader = filterShader;
         this.transformShader = transformShader;
@@ -72,7 +72,7 @@ public class PointCloudCompute : IDisposable
         this.rsLength = rsLength;
         this.localToWorld = localToWorld;
 
-        UnityEngine.Debug.Log($"[Compute] {localToWorld}");
+        UnityEngine.Debug.Log($"[RsPointCloudCompute] {localToWorld}");
 
         ReleaseBuffers();
         filteredVerticesBuffer = new ComputeBuffer(rsLength, sizeof(float) * 3, ComputeBufferType.Append);
@@ -136,7 +136,7 @@ public class PointCloudCompute : IDisposable
         Vector3 point = previousLinePoint;
         Vector3 dir = previousLineDir;
 
-        _lastSamplingResult = new SamplingResult();
+        _lastSamplingResult = new RsSamplingResult();
 
         if (sampledCount > 0)
         {
@@ -266,7 +266,7 @@ public class PointCloudCompute : IDisposable
         countBuffer.GetData(_countCache);
         int sampledCount = Mathf.Min(_countCache[0], MAX_SAMPLE_TRANSFER);
 
-        _lastSamplingResult = new SamplingResult();
+        _lastSamplingResult = new RsSamplingResult();
 
         if (sampledCount > 0)
         {
@@ -293,11 +293,11 @@ public class PointCloudCompute : IDisposable
         return (finalCount, discardedCount, sampledCount, discardPercentage);
     }
 
-    private SamplingResult ComputeSamplingStatistics(Vector3[] vertices, int count)
+    private RsSamplingResult ComputeSamplingStatistics(Vector3[] vertices, int count)
     {
         if (count < 2)
         {
-            return new SamplingResult { SampledCount = count };
+            return new RsSamplingResult { SampledCount = count };
         }
 
         int useCount = Mathf.Min(count, TARGET_SAMPLE_COUNT);
@@ -344,7 +344,7 @@ public class PointCloudCompute : IDisposable
         cov[2, 0] = xz; cov[2, 1] = yz; cov[2, 2] = zz;
         cov[3, 3] = 1;
 
-        return new SamplingResult
+        return new RsSamplingResult
         {
             SampledCount = _sampleCache.Count,
             Centroid = centroid,
@@ -407,7 +407,7 @@ public class PointCloudCompute : IDisposable
         return (centroid, dir);
     }
 
-    public static (Vector3 point, Vector3 dir) EstimateLineFromMergedSamples(List<SamplingResult> results)
+    public static (Vector3 point, Vector3 dir) EstimateLineFromMergedSamples(List<RsSamplingResult> results)
     {
         if (results == null || results.Count == 0)
             return (Vector3.zero, Vector3.forward);

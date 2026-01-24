@@ -3,7 +3,7 @@ using System.IO;
 using System.Text;
 using UnityEngine;
 
-public class PerformanceLogger : IDisposable
+public class RsPerformanceLogger : IDisposable
 {
     private StreamWriter _csvWriter;
     private readonly StringBuilder _csvBuilder = new StringBuilder();
@@ -16,7 +16,7 @@ public class PerformanceLogger : IDisposable
     {
         if (IsLogging)
         {
-            UnityEngine.Debug.LogWarning("パフォーマンスロガーは既に実行中です。");
+            UnityEngine.Debug.LogWarning("[RsPerformanceLogger] パフォーマンスロガーは既に実行中です。");
             return;
         }
 
@@ -57,11 +57,11 @@ public class PerformanceLogger : IDisposable
             }
 
             IsLogging = true;
-            UnityEngine.Debug.Log($"パフォーマンスログを開始しました。出力先: {filePath} (記録範囲: {_startFrame}～{_endFrame}フレーム)");
+            UnityEngine.Debug.Log($"[RsPerformanceLogger] パフォーマンスログを開始しました。出力先: {filePath} (記録範囲: {_startFrame}?{_endFrame}フレーム)");
         }
         catch (Exception e)
         {
-            UnityEngine.Debug.LogError($"ログファイルの作成に失敗しました: {e.Message}");
+            UnityEngine.Debug.LogError($"[RsPerformanceLogger] ログファイルの作成に失敗しました: {e.Message}");
             IsLogging = false;
         }
     }
@@ -74,7 +74,7 @@ public class PerformanceLogger : IDisposable
         _csvWriter?.Dispose();
         _csvWriter = null;
         IsLogging = false;
-        UnityEngine.Debug.Log("パフォーマンスログを終了しました。");
+        UnityEngine.Debug.Log("[RsPerformanceLogger] パフォーマンスログを終了しました。");
     }
 
     public void LogFrame(long frame, double processingTime, long discardedCount, long totalCount, bool isFilterEnabled)

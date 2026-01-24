@@ -38,9 +38,9 @@ public class RsPointCloudRenderer : MonoBehaviour
     [Header("Debug")]
     public bool showDebugMatrix = false;
 
-    private RealSenseDataProvider _dataProvider;
-    private PointCloudCompute _compute;
-    private PerformanceLogger _logger;
+    private RsDataProvider _dataProvider;
+    private RsPointCloudCompute _compute;
+    private RsPerformanceLogger _logger;
     private readonly Stopwatch _stopwatch = new Stopwatch();
 
     private Vector3[] _rawVertices;
@@ -59,14 +59,14 @@ public class RsPointCloudRenderer : MonoBehaviour
     public Vector3 EstimatedDir { get; private set; } = Vector3.forward;
     public bool IsPerformanceLogging => UnityEngine.Application.isPlaying && _logger != null && _logger.IsLogging;
 
-    public SamplingResult GetLastSamplingResult()
+    public RsSamplingResult GetLastSamplingResult()
     {
-        return _compute?.LastSamplingResult ?? new SamplingResult();
+        return _compute?.LastSamplingResult ?? new RsSamplingResult();
     }
 
     void Start()
     {
-        _logger = new PerformanceLogger();
+        _logger = new RsPerformanceLogger();
         _renderer = GetComponent<MeshRenderer>();
         _props = new MaterialPropertyBlock();
 
@@ -76,7 +76,7 @@ public class RsPointCloudRenderer : MonoBehaviour
         }
         else
         {
-            _dataProvider = new RealSenseDataProvider(processingPipe);
+            _dataProvider = new RsDataProvider(processingPipe);
             processingPipe.OnStart += OnStartStreaming;
         }
     }
@@ -91,7 +91,7 @@ public class RsPointCloudRenderer : MonoBehaviour
 
         // Initialize Compute with dummy values
         Vector3 scanRange = new Vector3(10f, 10f, 10f);
-        _compute = new PointCloudCompute(pointCloudFilterShader, pointCloudTransformerShader, scanRange, width, maxPlaneDistance);
+        _compute = new RsPointCloudCompute(pointCloudFilterShader, pointCloudTransformerShader, scanRange, width, maxPlaneDistance);
 
         _compute.InitializeBuffers(rsLength, transform.localToWorldMatrix);
 
@@ -162,7 +162,7 @@ public class RsPointCloudRenderer : MonoBehaviour
             _dataProvider.Start();
             width = _dataProvider.FrameWidth;
             height = _dataProvider.FrameHeight;
-            UnityEngine.Debug.Log("[RsPointCloudRenderer] Using RsPointCloud via RealSenseDataProvider");
+            UnityEngine.Debug.Log("[RsPointCloudRenderer] Using RsPointCloud via RsDataProvider");
         }
 
         int rsLength = width * height;
@@ -172,7 +172,7 @@ public class RsPointCloudRenderer : MonoBehaviour
             return;
         }
 
-        _compute = new PointCloudCompute(pointCloudFilterShader, pointCloudTransformerShader, rsDeviceController.RealSenseScanRange, rsDeviceController.FrameWidth, maxPlaneDistance);
+        _compute = new RsPointCloudCompute(pointCloudFilterShader, pointCloudTransformerShader, rsDeviceController.RealSenseScanRange, rsDeviceController.FrameWidth, maxPlaneDistance);
 
         _compute.InitializeBuffers(rsLength, Matrix4x4.identity);
 
@@ -225,9 +225,9 @@ public class RsPointCloudRenderer : MonoBehaviour
         Vector3 linePoint = EstimatedPoint;
         Vector3 lineDir = EstimatedDir;
         
-        if (GlobalPointCloudManager.Instance != null && GlobalPointCloudManager.Instance.IsIntegratedPCAMode)
+        if (RsGlobalPointCloudManager.Instance != null && RsGlobalPointCloudManager.Instance.IsIntegratedPCAMode)
         {
-            (linePoint, lineDir) = GlobalPointCloudManager.Instance.GetLineEstimation();
+            (linePoint, lineDir) = RsGlobalPointCloudManager.Instance.GetLineEstimation();
         }
 
         if (useSyntheticData)
@@ -271,8 +271,8 @@ public class RsPointCloudRenderer : MonoBehaviour
 
         if (IsGlobalRangeFilterEnabled)
         {
-            bool useIntegratedPCA = GlobalPointCloudManager.Instance != null && 
-                                     GlobalPointCloudManager.Instance.IsIntegratedPCAMode;
+            bool useIntegratedPCA = RsGlobalPointCloudManager.Instance != null && 
+                                     RsGlobalPointCloudManager.Instance.IsIntegratedPCAMode;
 
             if (useIntegratedPCA)
             {
@@ -316,8 +316,8 @@ public class RsPointCloudRenderer : MonoBehaviour
 
         if (IsGlobalRangeFilterEnabled)
         {
-            bool useIntegratedPCA = GlobalPointCloudManager.Instance != null && 
-                                     GlobalPointCloudManager.Instance.IsIntegratedPCAMode;
+            bool useIntegratedPCA = RsGlobalPointCloudManager.Instance != null && 
+                                     RsGlobalPointCloudManager.Instance.IsIntegratedPCAMode;
 
             if (useIntegratedPCA)
             {
@@ -368,8 +368,8 @@ public class RsPointCloudRenderer : MonoBehaviour
 
         if (IsGlobalRangeFilterEnabled)
         {
-            bool useIntegratedPCA = GlobalPointCloudManager.Instance != null && 
-                                     GlobalPointCloudManager.Instance.IsIntegratedPCAMode;
+            bool useIntegratedPCA = RsGlobalPointCloudManager.Instance != null && 
+                                     RsGlobalPointCloudManager.Instance.IsIntegratedPCAMode;
 
             if (useIntegratedPCA)
             {

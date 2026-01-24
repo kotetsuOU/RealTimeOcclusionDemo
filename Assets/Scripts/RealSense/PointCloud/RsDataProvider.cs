@@ -1,16 +1,15 @@
 using Intel.RealSense;
 using System;
-using System.IO;
 using System.Linq;
 
-public class RealSenseDataProvider : IDisposable
+public class RsDataProvider : IDisposable
 {
     private readonly RsProcessingPipe _processingPipe;
     private FrameQueue _frameQueue;
     public int FrameWidth { get; private set; }
     public int FrameHeight { get; private set; }
 
-    public RealSenseDataProvider(RsProcessingPipe processingPipe)
+    public RsDataProvider(RsProcessingPipe processingPipe)
     {
         _processingPipe = processingPipe;
     }
