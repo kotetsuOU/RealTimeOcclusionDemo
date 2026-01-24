@@ -36,7 +36,6 @@ public class RsPointCloudCompute : IDisposable
     private readonly List<Vector3> _sampleCache = new List<Vector3>(1000);
     private readonly int[] _countCache = new int[1];
 
-    // ƒTƒ“ƒvƒŠƒ“ƒOİ’è
     private const int MAX_SAMPLE_TRANSFER = 2000;
     private const int TARGET_SAMPLE_COUNT = 1000;
     private uint _frameCounter = 0;

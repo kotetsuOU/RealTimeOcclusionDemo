@@ -1287,6 +1287,10 @@
       <Project>{42439475-8337-2C57-D653-C7660423E44C}</Project>
       <Name>Unity.Multiplayer.Center.Editor</Name>
     </ProjectReference>
+    <ProjectReference Include="RealSense.Editor.csproj">
+      <Project>{7795957C-0231-D6C3-A039-347B46EC2E26}</Project>
+      <Name>RealSense.Editor</Name>
+    </ProjectReference>
     <ProjectReference Include="Unity.ProBuilder.AssetIdRemapUtility.csproj">
       <Project>{8F0E2547-F989-14E6-88BC-060A4F9D8C45}</Project>
       <Name>Unity.ProBuilder.AssetIdRemapUtility</Name>
