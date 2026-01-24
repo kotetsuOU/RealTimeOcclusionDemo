@@ -606,8 +606,8 @@
     <Compile Include="Library\PackageCache\com.unity.shadergraph@41211273cdd1\Editor\Data\Graphs\VirtualTextureShaderProperty.cs" />
     <Compile Include="Library\PackageCache\com.unity.shadergraph@41211273cdd1\Editor\Data\Nodes\Artistic\Normal\NormalFromHeightNode.cs" />
     <Compile Include="Library\PackageCache\com.unity.shadergraph@41211273cdd1\Editor\Data\Graphs\GraphData.cs" />
-    <Compile Include="Library\PackageCache\com.unity.shadergraph@41211273cdd1\Editor\Drawing\Views\Slots\TextureSlotControlView.cs" />
     <Compile Include="Library\PackageCache\com.unity.shadergraph@41211273cdd1\Editor\Drawing\Inspector\PropertyDrawers\SubGraphOutputNodePropertyDrawer.cs" />
+    <Compile Include="Library\PackageCache\com.unity.shadergraph@41211273cdd1\Editor\Drawing\Views\Slots\TextureSlotControlView.cs" />
     <Compile Include="Library\PackageCache\com.unity.shadergraph@41211273cdd1\Editor\Data\Nodes\Input\Basic\Vector1Node.cs" />
     <Compile Include="Library\PackageCache\com.unity.shadergraph@41211273cdd1\Editor\Data\Util\Identifier.cs" />
     <Compile Include="Library\PackageCache\com.unity.shadergraph@41211273cdd1\Editor\Data\Nodes\Artistic\Normal\NormalFromTextureNode.cs" />

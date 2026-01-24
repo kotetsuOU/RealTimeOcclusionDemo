@@ -83,6 +83,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Unity.Rider.Editor", "Unity
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Unity.VisualScripting.State", "Unity.VisualScripting.State.csproj", "{4E35107E-C0B3-0B3D-DC17-A37D13B1F56D}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Unity.Performance.Profile-Analyzer.Editor", "Unity.Performance.Profile-Analyzer.Editor.csproj", "{E0685F06-B22E-4894-41A7-BF16AA0AB90D}"
+EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "UnityEditor.UI", "UnityEditor.UI.csproj", "{2A20E6B7-34FC-73B6-E638-3D637C8254EA}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Unity.Multiplayer.Center.Common", "Unity.Multiplayer.Center.Common.csproj", "{AED998F4-3F5D-DE65-6716-F4FFF0568C82}"
@@ -367,6 +369,10 @@ Global
 		{4E35107E-C0B3-0B3D-DC17-A37D13B1F56D}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{4E35107E-C0B3-0B3D-DC17-A37D13B1F56D}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{4E35107E-C0B3-0B3D-DC17-A37D13B1F56D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E0685F06-B22E-4894-41A7-BF16AA0AB90D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E0685F06-B22E-4894-41A7-BF16AA0AB90D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E0685F06-B22E-4894-41A7-BF16AA0AB90D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E0685F06-B22E-4894-41A7-BF16AA0AB90D}.Release|Any CPU.Build.0 = Release|Any CPU
 		{2A20E6B7-34FC-73B6-E638-3D637C8254EA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{2A20E6B7-34FC-73B6-E638-3D637C8254EA}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{2A20E6B7-34FC-73B6-E638-3D637C8254EA}.Release|Any CPU.ActiveCfg = Release|Any CPU

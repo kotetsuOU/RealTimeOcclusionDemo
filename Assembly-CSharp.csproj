@@ -1335,6 +1335,10 @@
       <Project>{C3581230-1AD5-7D81-2B7E-626247C0799B}</Project>
       <Name>Unity.RenderPipelines.Core.Editor.Shared</Name>
     </ProjectReference>
+    <ProjectReference Include="Unity.Performance.Profile-Analyzer.Editor.csproj">
+      <Project>{E0685F06-B22E-4894-41A7-BF16AA0AB90D}</Project>
+      <Name>Unity.Performance.Profile-Analyzer.Editor</Name>
+    </ProjectReference>
     <ProjectReference Include="Unity.Settings.Editor.csproj">
       <Project>{F2DCC898-8DA1-0D50-8FF2-277D93819F04}</Project>
       <Name>Unity.Settings.Editor</Name>
