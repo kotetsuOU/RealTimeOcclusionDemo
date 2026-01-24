@@ -15,7 +15,24 @@ cbuffer Params
     float3 linePoint;
     float3 lineDir;
     float maxDistance;
+    float samplingRate;
+    uint randomSeed;
 };
+
+uint hash(uint x)
+{
+    x ^= x >> 16;
+    x *= 0x85ebca6bu;
+    x ^= x >> 13;
+    x *= 0xc2b2ae35u;
+    x ^= x >> 16;
+    return x;
+}
+
+float randomFloat(uint seed)
+{
+    return float(hash(seed)) / 4294967295.0;
+}
 
 [numthreads(256, 1, 1)]
 void CSMain(uint3 id : SV_DispatchThreadID)
@@ -44,7 +61,11 @@ void CSMain(uint3 id : SV_DispatchThreadID)
     if (global.z < globalThreshold1.z || global.z > globalThreshold2.z)
         return;
 
-    samplingBuffer.Append(global);
+    float rnd = randomFloat(i ^ randomSeed);
+    if (rnd < samplingRate)
+    {
+        samplingBuffer.Append(global);
+    }
 
     if (length(lineDir) > 0.0001f)
     {

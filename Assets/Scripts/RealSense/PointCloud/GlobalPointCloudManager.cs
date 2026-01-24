@@ -12,16 +12,26 @@ public class GlobalPointCloudManager : MonoBehaviour
         None
     }
 
+    public enum PCAMode
+    {
+        Individual,
+        Integrated
+    }
+
     [Header("Settings")]
     public ComputeShader mergeComputeShader;
     public int maxTotalPoints = 3000000;
 
     [Header("Debug Options")]
-    [Tooltip("出力モードを選択します")]
+    [Tooltip("出力モードを選択")]
     public OutputMode outputMode = OutputMode.MergeAll;
 
     [Tooltip("SingleCameraモード時に表示するカメラのインデックス")]
     public int debugCameraIndex = 0;
+
+    [Header("PCA Settings")]
+    [Tooltip("PCA推定モード：Individual=各カメラ個別、Integrated=統合後")]
+    public PCAMode pcaMode = PCAMode.Integrated;
 
     [Header("References")]
     public List<RsPointCloudRenderer> renderers = new List<RsPointCloudRenderer>();
@@ -30,7 +40,17 @@ public class GlobalPointCloudManager : MonoBehaviour
     private int _kernelMerge;
     private const int STRIDE = 28; // float3 pos(12) + float3 col(12) + uint type(4)
 
+    private Vector3 _integratedLinePoint = Vector3.zero;
+    private Vector3 _integratedLineDir = Vector3.forward;
+    private readonly List<SamplingResult> _samplingResults = new List<SamplingResult>();
+
     public int CurrentTotalCount { get; private set; } = 0;
+
+    public Vector3 IntegratedLinePoint => _integratedLinePoint;
+
+    public Vector3 IntegratedLineDir => _integratedLineDir;
+
+    public bool IsIntegratedPCAMode => pcaMode == PCAMode.Integrated;
 
     private void Awake()
     {
@@ -52,6 +72,11 @@ public class GlobalPointCloudManager : MonoBehaviour
             case OutputMode.None:
                 CurrentTotalCount = 0;
                 break;
+        }
+
+        if (pcaMode == PCAMode.Integrated)
+        {
+            ComputeIntegratedPCA();
         }
     }
 
@@ -112,6 +137,34 @@ public class GlobalPointCloudManager : MonoBehaviour
         mergeComputeShader.Dispatch(_kernelMerge, threadGroups, 1, 1);
 
         return count;
+    }
+
+    private void ComputeIntegratedPCA()
+    {
+        _samplingResults.Clear();
+
+        foreach (var renderer in renderers)
+        {
+            if (renderer == null) continue;
+
+            var samplingResult = renderer.GetLastSamplingResult();
+            if (samplingResult.IsValid)
+            {
+                _samplingResults.Add(samplingResult);
+            }
+        }
+
+        if (_samplingResults.Count > 0)
+        {
+            var (point, dir) = PointCloudCompute.EstimateLineFromMergedSamples(_samplingResults);
+            _integratedLinePoint = point;
+            _integratedLineDir = dir;
+        }
+    }
+
+    public (Vector3 point, Vector3 dir) GetLineEstimation()
+    {
+        return (_integratedLinePoint, _integratedLineDir);
     }
 
     public ComputeBuffer GetGlobalBuffer()
