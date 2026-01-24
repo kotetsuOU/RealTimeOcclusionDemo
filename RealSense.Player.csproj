@@ -87,8 +87,8 @@
     <Compile Include="Assets\Scripts\RealSense\ProcessingBlocks\RsSpatialFilter.cs" />
     <Compile Include="Assets\Scripts\RealSense\ProcessingBlocks\ColorFilter\RsHsvConverter.cs" />
     <Compile Include="Assets\Scripts\RealSense\ProcessingBlocks\RsAlign.cs" />
-    <Compile Include="Assets\Scripts\RealSense\ProcessingBlocks\CustomProcessingBlock.cs" />
     <Compile Include="Assets\Scripts\RealSense\PointCloud\RsDataProvider.cs" />
+    <Compile Include="Assets\Scripts\RealSense\ProcessingBlocks\CustomProcessingBlock.cs" />
     <Compile Include="Assets\Scripts\RealSense\ProcessingBlocks\RsHoleFillingFilter.cs" />
     <Compile Include="Assets\Scripts\RealSense\PointCloud\RsFilterShaderDispatcher.cs" />
     <Compile Include="Assets\Scripts\RealSense\ProcessingBlocks\RsDecimationFilter.cs" />

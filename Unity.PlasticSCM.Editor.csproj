@@ -468,8 +468,8 @@
     <Compile Include="Library\PackageCache\com.unity.collab-proxy@ab839cc7d2ad\Editor\UI\Progress\LoadingSpinner.cs" />
     <Compile Include="Library\PackageCache\com.unity.collab-proxy@ab839cc7d2ad\Editor\Views\Labels\LabelsTab.cs" />
     <Compile Include="Library\PackageCache\com.unity.collab-proxy@ab839cc7d2ad\Editor\Configuration\TeamEdition\TeamEditionConfigurationWindow.cs" />
-    <Compile Include="Library\PackageCache\com.unity.collab-proxy@ab839cc7d2ad\Editor\UVCSToolbar\PopupWindow\ControlledPopupWindow.cs" />
     <Compile Include="Library\PackageCache\com.unity.collab-proxy@ab839cc7d2ad\Editor\Views\Changesets\ChangesetsViewMenu.cs" />
+    <Compile Include="Library\PackageCache\com.unity.collab-proxy@ab839cc7d2ad\Editor\UVCSToolbar\PopupWindow\ControlledPopupWindow.cs" />
     <Compile Include="Library\PackageCache\com.unity.collab-proxy@ab839cc7d2ad\Editor\UI\FindEditorWindow.cs" />
     <Compile Include="Library\PackageCache\com.unity.collab-proxy@ab839cc7d2ad\Editor\Configuration\ConfigurePartialWorkspace.cs" />
     <Compile Include="Library\PackageCache\com.unity.collab-proxy@ab839cc7d2ad\Editor\Hub\ParseArguments.cs" />

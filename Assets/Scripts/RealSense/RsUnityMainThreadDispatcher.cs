@@ -115,7 +115,7 @@ public class RsUnityMainThreadDispatcher : MonoBehaviour
                 });
             }
 
-            if (waitHandle.WaitOne(1000))
+            if (waitHandle.WaitOne(3000))
             {
                 if (ex != null) throw ex;
             }

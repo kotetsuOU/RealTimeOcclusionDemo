@@ -1,12 +1,6 @@
 using UnityEditor;
 using UnityEngine;
 
-/// <summary>
-/// RsPointCloudRendererのカスタムエディター
-/// 各機能は専用クラスに委譲される：
-/// - RsPointCloudExportTool: エクスポート機能
-/// - RsPointCloudSceneGizmo: SceneView描画
-/// </summary>
 [CustomEditor(typeof(RsPointCloudRenderer))]
 public class RsPointCloudRendererEditor : Editor
 {
