@@ -38,7 +38,7 @@ public class RsDeviceListener : MonoBehaviour
     {
         if (e.WaitOne(0))
         {
-            var avail = FindObjectsOfType<RsStreamAvailability>();
+            var avail = FindObjectsByType<RsStreamAvailability>(FindObjectsSortMode.None);
             int tasks = avail.Count();
             AutoResetEvent done = new AutoResetEvent(false);
             Dictionary<RsStreamAvailability, bool> resolvables = new Dictionary<RsStreamAvailability, bool>(tasks);

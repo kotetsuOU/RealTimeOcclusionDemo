@@ -2,7 +2,7 @@
 #pragma kernel CSMerge
 #pragma kernel CSBlit
 
-#include "UnifiedVoxelStructures.hlsl"
+#include "../UnifiedVoxelStructures.hlsl"
 
 int _DensityThreshold;
 float _VoxelSize;

@@ -1,6 +1,6 @@
 #pragma kernel CSDensityFilter
 
-#include "UnifiedVoxelStructures.hlsl"
+#include "../UnifiedVoxelStructures.hlsl"
 
 int _DensityThreshold;
 StructuredBuffer<VoxelData> _VoxelData;

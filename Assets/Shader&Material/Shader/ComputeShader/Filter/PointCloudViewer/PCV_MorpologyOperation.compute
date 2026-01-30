@@ -3,7 +3,7 @@
 #pragma kernel CSMerge
 #pragma kernel CSBlit
 
-#include "UnifiedVoxelStructures.hlsl"
+#include "../UnifiedVoxelStructures.hlsl"
 
 StructuredBuffer<Point> _PointsIn;
 RWStructuredBuffer<Point> _PointsOut;

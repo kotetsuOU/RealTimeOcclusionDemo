@@ -1,5 +1,5 @@
 #pragma kernel CSMain
-#include "UnifiedVoxelStructures.hlsl"
+#include "../UnifiedVoxelStructures.hlsl"
 
 StructuredBuffer<Point> _Points;
 AppendStructuredBuffer<Point> _FilteredPoints;
