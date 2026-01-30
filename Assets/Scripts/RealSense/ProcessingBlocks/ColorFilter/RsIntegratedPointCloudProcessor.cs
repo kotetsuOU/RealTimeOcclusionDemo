@@ -55,6 +55,12 @@ public class RsIntegratedPointCloudProcessor : IDisposable
 
     private readonly CullingParams[] _cullingParamsCache = new CullingParams[1];
 
+    private byte[] _colorDataCache;
+    private byte[] _depthDataCache;
+    private CullingParams _pendingParams;
+    private volatile bool _hasPendingFrame = false;
+    private readonly object _frameLock = new object();
+
     public ComputeBuffer PointCloudBuffer => _pointCloudBuffer;
     public int LastPointCount => _latestPointCount;
     public bool HasNewPointCloud => _hasNewPointCloud;
@@ -117,6 +123,9 @@ public class RsIntegratedPointCloudProcessor : IDisposable
         _pointCloudBuffer = new ComputeBuffer(depthPixelCount, sizeof(float) * 3, ComputeBufferType.Append);
         _pointCloudCountBuffer = new ComputeBuffer(1, sizeof(int), ComputeBufferType.Raw);
 
+        _colorDataCache = new byte[_cIntrin.width * _cIntrin.height * 3]; // RGB24
+        _depthDataCache = new byte[totalBytes];
+
         _shader.SetBuffer(_kernelIndex, "_DepthIntrinsics", _depthIntrinsicsBuffer);
         _shader.SetBuffer(_kernelIndex, "_ColorIntrinsics", _colorIntrinsicsBuffer);
         _shader.SetBuffer(_kernelIndex, "_DepthToColorExtrinsics", _extrinsicsBuffer);
@@ -131,41 +140,72 @@ public class RsIntegratedPointCloudProcessor : IDisposable
         var dispatcher = RsUnityMainThreadDispatcher.Instance;
         if (dispatcher == null)
         {
-            // If dispatcher is not available (e.g. not initialized on main thread yet), skip this frame
             return null;
         }
 
-        dispatcher.EnqueueAndWait(() =>
+        int colorBytes = colorFrame.Stride * colorFrame.Height;
+        int depthBytes = depthFrame.Stride * depthFrame.Height;
+
+        lock (_frameLock)
         {
-            _colorTexture.LoadRawTextureData(colorFrame.Data, colorFrame.Stride * colorFrame.Height);
+            Marshal.Copy(colorFrame.Data, _colorDataCache, 0, System.Math.Min(colorBytes, _colorDataCache.Length));
+            Marshal.Copy(depthFrame.Data, _depthDataCache, 0, System.Math.Min(depthBytes, _depthDataCache.Length));
+            
+            _pendingParams = new CullingParams
+            {
+                width = _dIntrin.width,
+                height = _dIntrin.height,
+                mode = (int)parent._mode,
+                minDist = parent._minDistance,
+                maxDist = parent._maxDistance,
+                minHue = parent._minHue,
+                maxHue = parent._maxHue,
+                minSat = parent._minSaturation,
+                maxSat = parent._maxSaturation,
+                minVal = parent._minValue,
+                maxVal = parent._maxValue,
+                minY = parent._minY,
+                maxY = parent._maxY,
+                minCb = parent._minCb,
+                maxCb = parent._maxCb,
+                minCr = parent._minCr,
+                maxCr = parent._maxCr,
+                transformMatrix = parent._transformMatrix,
+                applyTransform = parent._applyTransform ? 1 : 0,
+                coordinateConversion = (int)parent._coordinateConversion
+            };
+            _hasPendingFrame = true;
+        }
+
+        dispatcher.Enqueue(ProcessPendingFrame);
+
+        return null;
+    }
+
+    private void ProcessPendingFrame()
+    {
+        if (!_hasPendingFrame) return;
+
+        lock (_frameLock)
+        {
+            _hasPendingFrame = false;
+
+            _colorTexture.LoadRawTextureData(_colorDataCache);
             _colorTexture.Apply();
             _shader.SetTexture(_kernelIndex, "_InputColorTexture", _colorTexture);
 
-            unsafe
-            {
-                int totalBytes = depthFrame.Stride * depthFrame.Height;
-                NativeArray<byte> rawDepthData = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<byte>(
-                    (void*)depthFrame.Data,
-                    totalBytes,
-                    Allocator.None);
+            _inputDepthBuffer.SetData(_depthDataCache);
 
-#if ENABLE_UNITY_COLLECTIONS_CHECKS
-                NativeArrayUnsafeUtility.SetAtomicSafetyHandle(ref rawDepthData, AtomicSafetyHandle.GetTempMemoryHandle());
-#endif
-
-                _inputDepthBuffer.SetData(rawDepthData);
-            }
-
-            UpdateParams(parent);
+            _cullingParamsCache[0] = _pendingParams;
+            _paramsBuffer.SetData(_cullingParamsCache);
+            _shader.SetBuffer(_kernelIndex, "_Params", _paramsBuffer);
 
             _pointCloudBuffer.SetCounterValue(0);
             int threadGroups = Mathf.CeilToInt((_dIntrin.width * _dIntrin.height) / 64.0f);
             _shader.Dispatch(_kernelIndex, threadGroups, 1, 1);
 
             if (!_countReadbackPending) RequestAsyncReadback();
-        });
-
-        return null;
+        }
     }
 
     private void RequestAsyncReadback()

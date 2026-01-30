@@ -15,7 +15,6 @@ public class RsUnityMainThreadDispatcher : MonoBehaviour
         {
             if (_instance == null)
             {
-                // Check if we are on the main thread before calling FindFirstObjectByType
                 if (Thread.CurrentThread.ManagedThreadId == 1)
                 {
                     _instance = FindFirstObjectByType<RsUnityMainThreadDispatcher>();

@@ -178,18 +178,32 @@ public class RsDevice : RsFrameProvider
     /// </summary>
     private void WaitForFrames()
     {
+        int consecutiveErrors = 0;
+        const int maxConsecutiveErrors = 10;
+        const int retryDelayMs = 500;
+
         while (!stopEvent.WaitOne(0))
         {
             try
             {
                 using (var frames = m_pipeline.WaitForFrames())
                 {
+                    consecutiveErrors = 0;
                     RaiseSampleEvent(frames);
                 }
             }
             catch (Exception ex)
             {
-                UnityEngine.Debug.LogError("RealSense WaitForFrames error: " + ex.Message);
+                consecutiveErrors++;
+                UnityEngine.Debug.LogWarning($"RealSense WaitForFrames error ({consecutiveErrors}/{maxConsecutiveErrors}): {ex.Message}");
+                
+                if (consecutiveErrors >= maxConsecutiveErrors)
+                {
+                    UnityEngine.Debug.LogError("RealSense: Too many consecutive errors. Device may be disconnected or unresponsive.");
+                    break;
+                }
+                
+                Thread.Sleep(retryDelayMs);
             }
         }
     }

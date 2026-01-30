@@ -1,19 +1,19 @@
 {
     "fileSettings": [
         {
-            "filePath": "Assets/HandTrakingData/PointCloudData/currentGlobalVerticesRight.txt",
+            "filePath": "Assets/HandTrackingData/PointCloudData\\currentGlobalVerticesRight.txt",
+            "useFile": false
+        },
+        {
+            "filePath": "Assets/HandTrackingData/PointCloudData/currentGlobalVerticesLeft.txt",
             "useFile": true
         },
         {
-            "filePath": "Assets/HandTrakingData/PointCloudData/currentGlobalVerticesLeft.txt",
-            "useFile": true
+            "filePath": "Assets/HandTrackingData/PointCloudData/currentGlobalVerticesBottom.txt",
+            "useFile": false
         },
         {
-            "filePath": "Assets/HandTrakingData/PointCloudData/currentGlobalVerticesBottom.txt",
-            "useFile": true
-        },
-        {
-            "filePath": "Assets/HandTrakingData/PointCloudData/currentGlobalVerticesTop.txt",
+            "filePath": "Assets/HandTrackingData/PointCloudData/currentGlobalVerticesTop.txt",
             "useFile": true
         }
     ],
@@ -40,9 +40,9 @@
     "complementationRandomPlacement": true,
     "pointSize": 0.009999999776482582,
     "outlineColor": {
-        "r": 0.28301888704299929,
-        "g": 0.28301888704299929,
-        "b": 0.28301888704299929,
+        "r": 1.0,
+        "g": 0.0,
+        "b": 0.0,
         "a": 0.545098066329956
     },
     "useGpuNoiseFilter": true,

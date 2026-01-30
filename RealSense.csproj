@@ -66,6 +66,7 @@
     <Compile Include="Assets\Scripts\RealSense\ProcessingBlocks\RsThresholdFilter.cs" />
     <Compile Include="Assets\Scripts\RealSense\ProcessingBlocks\ColorFilter\RsGpuCullingProcessor.cs" />
     <Compile Include="Assets\Scripts\RealSense\PointCloud\RsMaterialController.cs" />
+    <Compile Include="Assets\Scripts\RealSense\Debug\RsAsyncStatsLogger.cs" />
     <Compile Include="Assets\Scripts\RealSense\RsDeviceInspector.cs" />
     <Compile Include="Assets\Scripts\RealSense\PointCloud\RsPointCloudSyntheticData.cs" />
     <Compile Include="Assets\Scripts\RealSense\ProcessingBlocks\ColorFilter\RsCullingDebugExporter.cs" />
@@ -73,6 +74,7 @@
     <Compile Include="Assets\Scripts\RealSense\RsConfiguration.cs" />
     <Compile Include="Assets\Scripts\RealSense\ProcessingBlocks\DepthCutoff.cs" />
     <Compile Include="Assets\Scripts\RealSense\ProcessingBlocks\ColorFilter\RsIntegratedPointCloudProcessor.cs" />
+    <Compile Include="Assets\Scripts\RealSense\PointCloud\RsFilterPassExecutor.cs" />
     <Compile Include="Assets\Scripts\RealSense\RsPoseStreamTransformer.cs" />
     <Compile Include="Assets\Scripts\RealSense\PointCloud\RsPointCloudVisualization.cs" />
     <Compile Include="Assets\Scripts\RealSense\RsProcessingPipe.cs" />
@@ -84,6 +86,7 @@
     <Compile Include="Assets\Scripts\RealSense\ProcessingBlocks\ColorFilter\RsColorBasedDepthCulling.cs" />
     <Compile Include="Assets\Scripts\RealSense\ProcessingBlocks\RsDisparityTransform.cs" />
     <Compile Include="Assets\Scripts\RealSense\ProcessingBlocks\RsTemporalFilter.cs" />
+    <Compile Include="Assets\Scripts\RealSense\PointCloud\RsComputeStats.cs" />
     <Compile Include="Assets\Scripts\RealSense\ProcessingBlocks\RsSpatialFilter.cs" />
     <Compile Include="Assets\Scripts\RealSense\ProcessingBlocks\ColorFilter\RsHsvConverter.cs" />
     <Compile Include="Assets\Scripts\RealSense\ProcessingBlocks\RsAlign.cs" />
@@ -104,6 +107,7 @@
     <Compile Include="Assets\Scripts\RealSense\ProcessingBlocks\ColorFilter\RsDepthToColorCalibration.cs" />
     <Compile Include="Assets\Scripts\RealSense\PointCloud\RsPointCloudCompute.cs" />
     <Compile Include="Assets\Scripts\RealSense\PointCloud\RsPointCloudGroupController.cs" />
+    <Compile Include="Assets\Scripts\RealSense\PointCloud\RsPointCloudAsyncReadback.cs" />
     <Compile Include="Assets\Scripts\RealSense\PointCloud\RsPointCloudInitializer.cs" />
   </ItemGroup>
   <ItemGroup>

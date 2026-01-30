@@ -58,6 +58,35 @@ public class RsPointCloudRenderer : MonoBehaviour
 
     #endregion
 
+    #region Cached Sampling (Non-blocking)
+
+    private RsSamplingResult _cachedSamplingResult;
+    private int _cachedSamplingFrame = -1;
+
+    public bool TryGetLatestSamplingResult(out RsSamplingResult result)
+    {
+        var current = _initializer?.Compute?.LastSamplingResult ?? new RsSamplingResult();
+        
+        if (current.IsValid)
+        {
+            _cachedSamplingResult = current;
+            _cachedSamplingFrame = _frameCounter;
+            result = current;
+            return true;
+        }
+        
+        if (_cachedSamplingResult.IsValid)
+        {
+            result = _cachedSamplingResult;
+            return true;
+        }
+        
+        result = new RsSamplingResult();
+        return false;
+    }
+
+    #endregion
+
     #region Public Methods
 
     public RsSamplingResult GetLastSamplingResult()
@@ -91,6 +120,7 @@ public class RsPointCloudRenderer : MonoBehaviour
 
     public ComputeBuffer GetRawBuffer() => _initializer?.Compute?.GetFilteredVerticesBuffer();
     public int GetLastVertexCount() => _initializer?.Compute?.GetLastFilteredCount() ?? 0;
+    public RsComputeStats GetComputeStats() => _initializer?.Compute?.Stats;
 
     #endregion
 

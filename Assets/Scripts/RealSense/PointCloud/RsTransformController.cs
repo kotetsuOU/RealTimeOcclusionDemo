@@ -10,11 +10,35 @@ using UnityEditor;
 public class RsTransformController : MonoBehaviour
 {
     [Header("Config")]
-    [Tooltip("設定ファイルの保存名 (.json)。Assets/Configフォルダに保存されます。")]
-    public string configFileName = "ChildTransforms.json";
+    [Tooltip("現在選択中のスロット番号 (0-2)")]
+    [Range(0, 2)]
+    public int currentSlotIndex = 0;
+
+    [Tooltip("スロット1の設定ファイル名 (.json)。Assets/Configフォルダに保存されます。")]
+    public string configFileNameSlot1 = "ChildTransforms_Slot1.json";
+
+    [Tooltip("スロット2の設定ファイル名 (.json)。Assets/Configフォルダに保存されます。")]
+    public string configFileNameSlot2 = "ChildTransforms_Slot2.json";
+
+    [Tooltip("スロット3の設定ファイル名 (.json)。Assets/Configフォルダに保存されます。")]
+    public string configFileNameSlot3 = "ChildTransforms_Slot3.json";
 
     [Tooltip("起動時に自動的に設定をロードするかどうか")]
     public bool loadOnStart = false;
+
+    public string CurrentConfigFileName
+    {
+        get
+        {
+            switch (currentSlotIndex)
+            {
+                case 0: return configFileNameSlot1;
+                case 1: return configFileNameSlot2;
+                case 2: return configFileNameSlot3;
+                default: return configFileNameSlot1;
+            }
+        }
+    }
 
     [Header("Calibration Box Guide")]
     [Tooltip("シーンビューに位置合わせ用のガイドボックスを表示するか")]
@@ -48,7 +72,6 @@ public class RsTransformController : MonoBehaviour
     {
         public List<TransformItem> items = new List<TransformItem>();
     }
-    // ---------------------
 
     private void Start()
     {
@@ -93,11 +116,42 @@ public class RsTransformController : MonoBehaviour
         }
     }
 
+    public void SwitchToSlot(int slotIndex)
+    {
+        if (slotIndex < 0 || slotIndex > 2)
+        {
+            UnityEngine.Debug.LogError($"[RsTransformController] 無効なスロット番号: {slotIndex}。0-2の範囲で指定してください。", this);
+            return;
+        }
+
+        currentSlotIndex = slotIndex;
+        LoadTransformConfig();
+        UnityEngine.Debug.Log($"[RsTransformController] スロット {slotIndex + 1} に切り替えました。", this);
+    }
+
+    public string GetConfigFileName(int slotIndex)
+    {
+        switch (slotIndex)
+        {
+            case 0: return configFileNameSlot1;
+            case 1: return configFileNameSlot2;
+            case 2: return configFileNameSlot3;
+            default: return configFileNameSlot1;
+        }
+    }
+
     public void SaveTransformConfig()
     {
+        SaveTransformConfigToSlot(currentSlotIndex);
+    }
+
+    public void SaveTransformConfigToSlot(int slotIndex)
+    {
+        string configFileName = GetConfigFileName(slotIndex);
+
         if (string.IsNullOrEmpty(configFileName))
         {
-            UnityEngine.Debug.LogError("[RsTransformController] 設定ファイル名が指定されていません。", this);
+            UnityEngine.Debug.LogError($"[RsTransformController] スロット{slotIndex + 1}の設定ファイル名が指定されていません。", this);
             return;
         }
 
@@ -125,7 +179,7 @@ public class RsTransformController : MonoBehaviour
         {
             string json = JsonUtility.ToJson(dataList, true);
             File.WriteAllText(fullPath, json);
-            UnityEngine.Debug.Log($"[RsTransformController] Saved config to: {fullPath}", this);
+            UnityEngine.Debug.Log($"[RsTransformController] Saved config to slot {currentSlotIndex + 1}: {fullPath}", this);
 
 #if UNITY_EDITOR
             AssetDatabase.Refresh();
@@ -139,9 +193,16 @@ public class RsTransformController : MonoBehaviour
 
     public void LoadTransformConfig()
     {
+        LoadTransformConfigFromSlot(currentSlotIndex);
+    }
+
+    public void LoadTransformConfigFromSlot(int slotIndex)
+    {
+        string configFileName = GetConfigFileName(slotIndex);
+
         if (string.IsNullOrEmpty(configFileName))
         {
-            UnityEngine.Debug.LogError("[RsTransformController] 設定ファイル名が指定されていません。", this);
+            UnityEngine.Debug.LogError($"[RsTransformController] スロット{slotIndex + 1}の設定ファイル名が指定されていません。", this);
             return;
         }
 
@@ -184,11 +245,21 @@ public class RsTransformController : MonoBehaviour
                 }
             }
 
-            UnityEngine.Debug.Log($"[RsTransformController] Loaded config from: {fullPath}", this);
+            UnityEngine.Debug.Log($"[RsTransformController] Loaded config from slot {slotIndex + 1}: {fullPath}", this);
         }
         catch (Exception e)
         {
             UnityEngine.Debug.LogError($"[RsTransformController] Failed to load file: {e.Message}", this);
         }
+    }
+
+    public bool HasConfigFile(int slotIndex)
+    {
+        string configFileName = GetConfigFileName(slotIndex);
+        if (string.IsNullOrEmpty(configFileName)) return false;
+
+        string fileName = configFileName.EndsWith(".json") ? configFileName : configFileName + ".json";
+        string fullPath = Path.Combine(SAVE_FOLDER_PATH, fileName);
+        return File.Exists(fullPath);
     }
 }

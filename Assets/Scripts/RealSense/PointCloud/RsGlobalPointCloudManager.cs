@@ -43,6 +43,25 @@ public class RsGlobalPointCloudManager : MonoBehaviour
     private Vector3 _integratedLinePoint = Vector3.zero;
     private Vector3 _integratedLineDir = Vector3.forward;
     private readonly List<RsSamplingResult> _samplingResults = new List<RsSamplingResult>();
+    
+    private readonly Dictionary<RsPointCloudRenderer, RsSamplingResult> _cachedSamplingResults = 
+        new Dictionary<RsPointCloudRenderer, RsSamplingResult>();
+
+    [Header("Debug Statistics")]
+    [Tooltip("Enable stats tracking (exposed via public properties)")]
+    [SerializeField] private bool _statsEnabled = true;
+    [Tooltip("Enable async file logging (no main thread impact)")]
+    [SerializeField] private bool _asyncLoggingEnabled = false;
+    
+    private int _pcaCallsPerSec = 0;
+    private int _pcaCacheHitsPerSec = 0;
+    private int _pcaCacheMissesPerSec = 0;
+    private int _pcaCallsCounter = 0;
+    private int _pcaCacheHitsCounter = 0;
+    private int _pcaCacheMissesCounter = 0;
+    private float _lastStatsResetTime = 0f;
+    
+    private RsAsyncStatsLogger _asyncLogger;
 
     public int CurrentTotalCount { get; private set; } = 0;
 
@@ -57,10 +76,18 @@ public class RsGlobalPointCloudManager : MonoBehaviour
         Instance = this;
         _globalBuffer = new ComputeBuffer(maxTotalPoints, STRIDE);
         _kernelMerge = mergeComputeShader.FindKernel("MergePoints");
+        
+        if (_asyncLoggingEnabled)
+        {
+            _asyncLogger = new RsAsyncStatsLogger("GlobalPCMStats.csv");
+            Debug.Log($"[GlobalPCM] Async logging enabled: {_asyncLogger.GetLogFilePath()}");
+        }
     }
 
     private void LateUpdate()
     {
+        UpdateDebugStats();
+        
         switch (outputMode)
         {
             case OutputMode.MergeAll:
@@ -78,7 +105,54 @@ public class RsGlobalPointCloudManager : MonoBehaviour
         {
             ComputeIntegratedPCA();
         }
+        
+        if (_statsEnabled)
+        {
+            LogDebugStats();
+        }
     }
+    
+    private void UpdateDebugStats()
+    {
+        float currentTime = Time.realtimeSinceStartup;
+        if (currentTime - _lastStatsResetTime >= 1f)
+        {
+            _pcaCallsPerSec = _pcaCallsCounter;
+            _pcaCacheHitsPerSec = _pcaCacheHitsCounter;
+            _pcaCacheMissesPerSec = _pcaCacheMissesCounter;
+            
+            _pcaCallsCounter = 0;
+            _pcaCacheHitsCounter = 0;
+            _pcaCacheMissesCounter = 0;
+            _lastStatsResetTime = currentTime;
+        }
+    }
+    
+    private void LogDebugStats()
+    {
+        if (_asyncLogger != null)
+        {
+            _asyncLogger.LogGlobalManagerStats(_pcaCallsPerSec, _pcaCacheHitsPerSec, _pcaCacheMissesPerSec);
+            
+            foreach (var renderer in renderers)
+            {
+                if (renderer == null) continue;
+                var stats = renderer.GetComputeStats();
+                if (stats != null)
+                {
+                    _asyncLogger.LogComputeStats(
+                        renderer.gameObject.name,
+                        stats.FilterCallsPerSec,
+                        stats.CountReadbackSkippedPerSec,
+                        stats.SamplesReadbackSkippedPerSec);
+                }
+            }
+        }
+    }
+    
+    public int PcaCallsPerSec => _pcaCallsPerSec;
+    public int PcaCacheHitsPerSec => _pcaCacheHitsPerSec;
+    public int PcaCacheMissesPerSec => _pcaCacheMissesPerSec;
 
     private void ProcessMergeAll()
     {
@@ -141,16 +215,26 @@ public class RsGlobalPointCloudManager : MonoBehaviour
 
     private void ComputeIntegratedPCA()
     {
+        _pcaCallsCounter++;
         _samplingResults.Clear();
 
         foreach (var renderer in renderers)
         {
             if (renderer == null) continue;
 
-            var samplingResult = renderer.GetLastSamplingResult();
-            if (samplingResult.IsValid)
+            if (renderer.TryGetLatestSamplingResult(out var samplingResult))
             {
                 _samplingResults.Add(samplingResult);
+                _cachedSamplingResults[renderer] = samplingResult;
+            }
+            else if (_cachedSamplingResults.TryGetValue(renderer, out var cached) && cached.IsValid)
+            {
+                _samplingResults.Add(cached);
+                _pcaCacheHitsCounter++;
+            }
+            else
+            {
+                _pcaCacheMissesCounter++;
             }
         }
 
@@ -175,5 +259,6 @@ public class RsGlobalPointCloudManager : MonoBehaviour
     private void OnDestroy()
     {
         _globalBuffer?.Release();
+        _asyncLogger?.Dispose();
     }
 }
