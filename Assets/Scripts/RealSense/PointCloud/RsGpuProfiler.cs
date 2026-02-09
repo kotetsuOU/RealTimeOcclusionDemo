@@ -13,15 +13,13 @@ public class RsGpuProfiler : IDisposable
 
     public RsGpuProfiler(string filePrefix = "RsGpuProfile")
     {
-        // ★変更: ファイル名にミリ秒を追加して重複回避
         string fileName = $"{filePrefix}_{DateTime.Now:yyyyMMdd_HHmmss_fff}.csv";
         string path = Path.Combine(Application.persistentDataPath, fileName);
 
         try
         {
-            // append=false (上書き) だが、タイムスタンプがあるので実質新規作成
             _writer = new StreamWriter(path, false);
-            _writer.AutoFlush = true; // 書き込み遅延を防ぐ
+            _writer.AutoFlush = true;
             _writer.WriteLine("FrameID,InputCount,OutputCount,ExecutionTime(ms),Status");
 
             UnityEngine.Debug.Log($"[RsGpuProfiler] Recording started. File: {path}");
