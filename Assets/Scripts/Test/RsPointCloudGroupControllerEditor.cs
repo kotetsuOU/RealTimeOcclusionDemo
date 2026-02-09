@@ -1,6 +1,8 @@
 using System.Reflection;
-using UnityEditor;
 using UnityEngine;
+
+#if UNITY_EDITOR
+using UnityEditor;
 
 [CustomEditor(typeof(RsPointCloudGroupController))]
 public class RsPointCloudGroupControllerEditor : Editor
@@ -163,3 +165,5 @@ public class RsPointCloudGroupControllerEditor : Editor
 
     #endregion
 }
+
+#endif

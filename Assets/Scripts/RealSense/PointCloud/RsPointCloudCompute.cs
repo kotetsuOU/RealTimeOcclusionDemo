@@ -28,6 +28,9 @@ public class RsPointCloudCompute : IDisposable
 
     private readonly RsComputeStats _stats = new RsComputeStats();
 
+    private static readonly string s_sampleTransformDispatch = "RsPointCloud.Transform.DispatchTransform";
+    private readonly CommandBuffer _transformCmd = new CommandBuffer { name = "RsPointCloudCompute.Transform" };
+
     #endregion
 
     #region Public Properties
@@ -159,9 +162,14 @@ public class RsPointCloudCompute : IDisposable
     {
         _filteredVerticesBuffer.SetCounterValue(0);
 
+        _transformCmd.Clear();
+        _transformCmd.BeginSample(s_sampleTransformDispatch);
         _dispatcher.DispatchTransform(
+            _transformCmd,
             rawVerticesBuffer, _filteredVerticesBuffer, _localToWorld,
             _globalThreshold1, _globalThreshold2, vertexCount);
+        _transformCmd.EndSample(s_sampleTransformDispatch);
+        Graphics.ExecuteCommandBuffer(_transformCmd);
 
         ComputeBuffer.CopyCount(_filteredVerticesBuffer, _argsBuffer, 0);
         return _argsBuffer;

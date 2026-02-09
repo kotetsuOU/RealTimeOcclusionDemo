@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.Rendering;
 
 public class RsFilterShaderDispatcher
 {
@@ -20,6 +21,7 @@ public class RsFilterShaderDispatcher
     }
 
     public void DispatchFilter(
+        CommandBuffer cmd,
         ComputeBuffer rawVertices,
         ComputeBuffer filteredVertices,
         ComputeBuffer samplingBuffer,
@@ -34,26 +36,32 @@ public class RsFilterShaderDispatcher
         float samplingRate,
         int randomSeed)
     {
-        _filterShader.SetBuffer(_filterKernel, "rawVertices", rawVertices);
-        _filterShader.SetBuffer(_filterKernel, "filteredVertices", filteredVertices);
-        _filterShader.SetBuffer(_filterKernel, "samplingBuffer", samplingBuffer);
-        _filterShader.SetBuffer(_filterKernel, "distanceDiscardBuffer", distanceDiscardBuffer);
+        if (cmd == null)
+        {
+            return;
+        }
 
-        _filterShader.SetMatrix("localToWorld", localToWorld);
-        _filterShader.SetVector("globalThreshold1", globalThreshold1);
-        _filterShader.SetVector("globalThreshold2", globalThreshold2);
-        _filterShader.SetInt("vertexCount", vertexCount);
-        _filterShader.SetFloat("maxDistance", maxDistance);
-        _filterShader.SetVector("linePoint", linePoint);
-        _filterShader.SetVector("lineDir", lineDir);
-        _filterShader.SetFloat("samplingRate", samplingRate);
-        _filterShader.SetInt("randomSeed", randomSeed);
+        cmd.SetComputeBufferParam(_filterShader, _filterKernel, "rawVertices", rawVertices);
+        cmd.SetComputeBufferParam(_filterShader, _filterKernel, "filteredVertices", filteredVertices);
+        cmd.SetComputeBufferParam(_filterShader, _filterKernel, "samplingBuffer", samplingBuffer);
+        cmd.SetComputeBufferParam(_filterShader, _filterKernel, "distanceDiscardBuffer", distanceDiscardBuffer);
+
+        cmd.SetComputeMatrixParam(_filterShader, "localToWorld", localToWorld);
+        cmd.SetComputeVectorParam(_filterShader, "globalThreshold1", globalThreshold1);
+        cmd.SetComputeVectorParam(_filterShader, "globalThreshold2", globalThreshold2);
+        cmd.SetComputeIntParam(_filterShader, "vertexCount", vertexCount);
+        cmd.SetComputeFloatParam(_filterShader, "maxDistance", maxDistance);
+        cmd.SetComputeVectorParam(_filterShader, "linePoint", linePoint);
+        cmd.SetComputeVectorParam(_filterShader, "lineDir", lineDir);
+        cmd.SetComputeFloatParam(_filterShader, "samplingRate", samplingRate);
+        cmd.SetComputeIntParam(_filterShader, "randomSeed", randomSeed);
 
         int threadGroups = Mathf.CeilToInt(vertexCount / (float)THREAD_GROUP_SIZE);
-        _filterShader.Dispatch(_filterKernel, threadGroups, 1, 1);
+        cmd.DispatchCompute(_filterShader, _filterKernel, threadGroups, 1, 1);
     }
 
     public void DispatchTransform(
+        CommandBuffer cmd,
         ComputeBuffer rawVertices,
         ComputeBuffer filteredVertices,
         Matrix4x4 localToWorld,
@@ -61,14 +69,19 @@ public class RsFilterShaderDispatcher
         Vector3 globalThreshold2,
         int vertexCount)
     {
-        _transformShader.SetBuffer(_transformKernel, "rawVertices", rawVertices);
-        _transformShader.SetBuffer(_transformKernel, "filteredVertices", filteredVertices);
-        _transformShader.SetMatrix("localToWorld", localToWorld);
-        _transformShader.SetVector("globalThreshold1", globalThreshold1);
-        _transformShader.SetVector("globalThreshold2", globalThreshold2);
-        _transformShader.SetInt("vertexCount", vertexCount);
+        if (cmd == null)
+        {
+            return;
+        }
+
+        cmd.SetComputeBufferParam(_transformShader, _transformKernel, "rawVertices", rawVertices);
+        cmd.SetComputeBufferParam(_transformShader, _transformKernel, "filteredVertices", filteredVertices);
+        cmd.SetComputeMatrixParam(_transformShader, "localToWorld", localToWorld);
+        cmd.SetComputeVectorParam(_transformShader, "globalThreshold1", globalThreshold1);
+        cmd.SetComputeVectorParam(_transformShader, "globalThreshold2", globalThreshold2);
+        cmd.SetComputeIntParam(_transformShader, "vertexCount", vertexCount);
 
         int threadGroups = Mathf.CeilToInt(vertexCount / (float)THREAD_GROUP_SIZE);
-        _transformShader.Dispatch(_transformKernel, threadGroups, 1, 1);
+        cmd.DispatchCompute(_transformShader, _transformKernel, threadGroups, 1, 1);
     }
 }

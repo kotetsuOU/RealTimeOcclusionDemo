@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.Rendering;
 
 public class RsFilterPassExecutor
 {
@@ -50,6 +51,10 @@ public class RsFilterPassExecutor
 
     #region Public Methods
 
+    private static readonly string s_sampleFilterDispatch = "RsPointCloud.Filter.DispatchFilter";
+
+    private readonly CommandBuffer _cmd = new CommandBuffer { name = "RsPointCloudCompute" };
+
     public (int finalCount, int discardedCount, int sampledCount, float discardPercentage)
         ExecuteFilterPass(
             ComputeBuffer rawVerticesBuffer,
@@ -65,7 +70,7 @@ public class RsFilterPassExecutor
         _frameCounter++;
         _stats?.RecordFilterCall();
 
-        if (rawVerticesBuffer == null || filteredVerticesBuffer == null || 
+        if (rawVerticesBuffer == null || filteredVerticesBuffer == null ||
             samplingBuffer == null || distanceDiscardBuffer == null || argsBuffer == null)
         {
             return (0, 0, 0, 0f);
@@ -75,10 +80,17 @@ public class RsFilterPassExecutor
 
         float samplingRate = RsPointCloudPCA.CalculateSamplingRate(vertexCount, MAX_SAMPLE_TRANSFER);
 
+        _cmd.Clear();
+
+        _cmd.BeginSample(s_sampleFilterDispatch);
         _dispatcher.DispatchFilter(
+            _cmd,
             rawVerticesBuffer, filteredVerticesBuffer, samplingBuffer, distanceDiscardBuffer,
             localToWorld, _globalThreshold1, _globalThreshold2,
             vertexCount, _maxPlaneDistance, linePoint, lineDir, samplingRate, (int)_frameCounter);
+        _cmd.EndSample(s_sampleFilterDispatch);
+
+        Graphics.ExecuteCommandBuffer(_cmd);
 
         ComputeBuffer.CopyCount(filteredVerticesBuffer, argsBuffer, 0);
 
