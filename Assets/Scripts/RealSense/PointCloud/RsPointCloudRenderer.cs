@@ -118,8 +118,34 @@ public class RsPointCloudRenderer : MonoBehaviour
         return result;
     }
 
-    public ComputeBuffer GetRawBuffer() => _initializer?.Compute?.GetFilteredVerticesBuffer();
-    public int GetLastVertexCount() => _initializer?.Compute?.GetLastFilteredCount() ?? 0;
+    public ComputeBuffer GetFilteredVerticesBuffer() => _initializer?.Compute?.GetFilteredVerticesBuffer();
+    public int GetLastFilteredCount() => _initializer?.Compute?.GetLastFilteredCount() ?? 0;
+
+    public ComputeBuffer GetPCDSourceBuffer()
+    {
+        var integrated = _initializer?.IntegratedPointCloud;
+        if (integrated != null && integrated.PointCloudBuffer != null)
+        {
+            return integrated.PointCloudBuffer;
+        }
+
+        return GetFilteredVerticesBuffer();
+    }
+
+    public int GetPCDSourceCount()
+    {
+        var integrated = _initializer?.IntegratedPointCloud;
+        if (integrated != null)
+        {
+            int c = integrated.LastPointCount;
+            if (c > 0) return c;
+        }
+
+        return GetLastFilteredCount();
+    }
+
+    public ComputeBuffer GetRawBuffer() => GetFilteredVerticesBuffer();
+    public int GetLastVertexCount() => GetLastFilteredCount();
     public RsComputeStats GetComputeStats() => _initializer?.Compute?.Stats;
 
     #endregion

@@ -12,3 +12,5 @@
 
 # Visual Studio cache directory
 .vs/
+.csproj
+.sln

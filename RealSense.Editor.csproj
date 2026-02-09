@@ -67,6 +67,7 @@
     <Compile Include="Assets\Editor\RealSense\RsPointCloudSceneGizmo.cs" />
     <Compile Include="Assets\Editor\RealSense\RsMaterialControllerEditor.cs" />
     <Compile Include="Assets\Editor\RealSense\RsPointCloudRendererEditor.cs" />
+    <Compile Include="Assets\Editor\RealSense\RsGlobalPointCloudManagerEditor.cs" />
     <Compile Include="Assets\Editor\RealSense\RsPointCloudExportTool.cs" />
     <Compile Include="Assets\Editor\RealSense\RsProcessingPipeEditor.cs" />
     <Compile Include="Assets\Editor\RealSense\RsDeviceEditor.cs" />

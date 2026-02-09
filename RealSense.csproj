@@ -65,6 +65,7 @@
     <Compile Include="Assets\Scripts\RealSense\ProcessingBlocks\RsPointCloud.cs" />
     <Compile Include="Assets\Scripts\RealSense\ProcessingBlocks\RsThresholdFilter.cs" />
     <Compile Include="Assets\Scripts\RealSense\ProcessingBlocks\ColorFilter\RsGpuCullingProcessor.cs" />
+    <Compile Include="Assets\Scripts\RealSense\PointCloud\RsGpuProfiler.cs" />
     <Compile Include="Assets\Scripts\RealSense\PointCloud\RsMaterialController.cs" />
     <Compile Include="Assets\Scripts\RealSense\Debug\RsAsyncStatsLogger.cs" />
     <Compile Include="Assets\Scripts\RealSense\RsDeviceInspector.cs" />
