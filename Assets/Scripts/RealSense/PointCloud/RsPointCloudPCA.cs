@@ -22,12 +22,78 @@ public static class RsPointCloudPCA
     {
         if (count < 2) return (Vector3.zero, Vector3.forward);
 
-        var samples = CollectSamples(vertices, count, DEFAULT_MAX_SAMPLES);
-        if (samples.Count < 2) return (Vector3.zero, Vector3.forward);
+        int usedSampleCount = 0;
+        double sumX = 0, sumY = 0, sumZ = 0;
 
-        Vector3 centroid = ComputeCentroid(samples);
-        Matrix4x4 covariance = ComputeCovarianceMatrix(samples, centroid);
-        Vector3 dir = PowerIteration(covariance, DEFAULT_ITERATIONS).normalized;
+        int maxSamples = DEFAULT_MAX_SAMPLES;
+
+        if (count <= maxSamples)
+        {
+            usedSampleCount = count;
+            for (int i = 0; i < count; i++)
+            {
+                Vector3 v = vertices[i];
+                sumX += v.x;
+                sumY += v.y;
+                sumZ += v.z;
+            }
+        }
+        else
+        {
+            usedSampleCount = maxSamples;
+            float step = (float)count / maxSamples;
+            for (int i = 0; i < maxSamples; i++)
+            {
+                int idx = Mathf.Min((int)(i * step), count - 1);
+                Vector3 v = vertices[idx];
+                sumX += v.x;
+                sumY += v.y;
+                sumZ += v.z;
+            }
+        }
+
+        float invCount = 1.0f / usedSampleCount;
+        Vector3 centroid = new Vector3((float)(sumX * invCount), (float)(sumY * invCount), (float)(sumZ * invCount));
+        float cx = centroid.x, cy = centroid.y, cz = centroid.z;
+
+        float cxx = 0, cxy = 0, cxz = 0, cyy = 0, cyz = 0, czz = 0;
+
+        if (count <= maxSamples)
+        {
+            for (int i = 0; i < count; i++)
+            {
+                Vector3 v = vertices[i];
+                float rx = v.x - cx;
+                float ry = v.y - cy;
+                float rz = v.z - cz;
+
+                cxx += rx * rx; cxy += rx * ry; cxz += rx * rz;
+                cyy += ry * ry; cyz += ry * rz; czz += rz * rz;
+            }
+        }
+        else
+        {
+            float step = (float)count / maxSamples;
+            for (int i = 0; i < maxSamples; i++)
+            {
+                int idx = Mathf.Min((int)(i * step), count - 1);
+                Vector3 v = vertices[idx];
+                float rx = v.x - cx;
+                float ry = v.y - cy;
+                float rz = v.z - cz;
+
+                cxx += rx * rx; cxy += rx * ry; cxz += rx * rz;
+                cyy += ry * ry; cyz += ry * rz; czz += rz * rz;
+            }
+        }
+
+        Matrix4x4 covariance = new Matrix4x4();
+        covariance.m00 = cxx; covariance.m01 = cxy; covariance.m02 = cxz;
+        covariance.m10 = cxy; covariance.m11 = cyy; covariance.m12 = cyz;
+        covariance.m20 = cxz; covariance.m21 = cyz; covariance.m22 = czz;
+        covariance.m33 = 1;
+
+        Vector3 dir = PowerIteration(covariance, DEFAULT_ITERATIONS); // PowerIteration“à‚Å³‹K‰»Ï‚Ý
 
         return (centroid, dir);
     }
@@ -38,21 +104,50 @@ public static class RsPointCloudPCA
             return (Vector3.zero, Vector3.forward);
 
         int totalCount = 0;
-        Vector3 totalCentroidSum = Vector3.zero;
+        double sumX = 0, sumY = 0, sumZ = 0;
 
-        foreach (var r in results)
+        int resultCount = results.Count;
+        for (int i = 0; i < resultCount; i++)
         {
+            RsSamplingResult r = results[i];
             if (!r.IsValid) continue;
+
             totalCount += r.SampledCount;
-            totalCentroidSum += r.CentroidSum;
+            sumX += r.CentroidSum.x;
+            sumY += r.CentroidSum.y;
+            sumZ += r.CentroidSum.z;
         }
 
         if (totalCount < 2)
             return (Vector3.zero, Vector3.forward);
 
-        Vector3 globalCentroid = totalCentroidSum / totalCount;
-        Matrix4x4 globalCov = MergeCovarianceMatrices(results, globalCentroid);
-        Vector3 dir = PowerIteration(globalCov, DEFAULT_ITERATIONS).normalized;
+        float invTotal = 1.0f / totalCount;
+        Vector3 globalCentroid = new Vector3((float)(sumX * invTotal), (float)(sumY * invTotal), (float)(sumZ * invTotal));
+        float gcx = globalCentroid.x, gcy = globalCentroid.y, gcz = globalCentroid.z;
+
+        Matrix4x4 globalCov = new Matrix4x4();
+        globalCov.m33 = 1;
+
+        for (int k = 0; k < resultCount; k++)
+        {
+            RsSamplingResult r = results[k];
+            if (!r.IsValid) continue;
+
+            globalCov.m00 += r.CovarianceMatrix.m00; globalCov.m01 += r.CovarianceMatrix.m01; globalCov.m02 += r.CovarianceMatrix.m02;
+            globalCov.m10 += r.CovarianceMatrix.m10; globalCov.m11 += r.CovarianceMatrix.m11; globalCov.m12 += r.CovarianceMatrix.m12;
+            globalCov.m20 += r.CovarianceMatrix.m20; globalCov.m21 += r.CovarianceMatrix.m21; globalCov.m22 += r.CovarianceMatrix.m22;
+
+            float dx = r.Centroid.x - gcx;
+            float dy = r.Centroid.y - gcy;
+            float dz = r.Centroid.z - gcz;
+            int n = r.SampledCount;
+
+            globalCov.m00 += n * dx * dx; globalCov.m01 += n * dx * dy; globalCov.m02 += n * dx * dz;
+            globalCov.m10 += n * dy * dx; globalCov.m11 += n * dy * dy; globalCov.m12 += n * dy * dz;
+            globalCov.m20 += n * dz * dx; globalCov.m21 += n * dz * dy; globalCov.m22 += n * dz * dz;
+        }
+
+        Vector3 dir = PowerIteration(globalCov, DEFAULT_ITERATIONS);
 
         return (globalCentroid, dir);
     }
@@ -62,19 +157,79 @@ public static class RsPointCloudPCA
         if (count < 2)
             return new RsSamplingResult { SampledCount = count };
 
-        var samples = CollectSamples(vertices, count, DEFAULT_MAX_SAMPLES);
-        if (samples.Count < 2)
-            return new RsSamplingResult { SampledCount = samples.Count };
+        int usedSampleCount = 0;
+        double sumX = 0, sumY = 0, sumZ = 0;
+        int maxSamples = DEFAULT_MAX_SAMPLES;
 
-        Vector3 centroid = ComputeCentroid(samples);
-        Matrix4x4 covariance = ComputeCovarianceMatrix(samples, centroid);
+        if (count <= maxSamples)
+        {
+            usedSampleCount = count;
+            for (int i = 0; i < count; i++)
+            {
+                Vector3 v = vertices[i];
+                sumX += v.x; sumY += v.y; sumZ += v.z;
+            }
+        }
+        else
+        {
+            usedSampleCount = maxSamples;
+            float step = (float)count / maxSamples;
+            for (int i = 0; i < maxSamples; i++)
+            {
+                int idx = Mathf.Min((int)(i * step), count - 1);
+                Vector3 v = vertices[idx];
+                sumX += v.x; sumY += v.y; sumZ += v.z;
+            }
+        }
+
+        float invCount = 1.0f / usedSampleCount;
+        Vector3 centroidSum = new Vector3((float)sumX, (float)sumY, (float)sumZ);
+        Vector3 centroid = new Vector3((float)(sumX * invCount), (float)(sumY * invCount), (float)(sumZ * invCount));
+        float cx = centroid.x, cy = centroid.y, cz = centroid.z;
+
+        float cxx = 0, cxy = 0, cxz = 0, cyy = 0, cyz = 0, czz = 0;
+
+        if (count <= maxSamples)
+        {
+            for (int i = 0; i < count; i++)
+            {
+                Vector3 v = vertices[i];
+                float rx = v.x - cx;
+                float ry = v.y - cy;
+                float rz = v.z - cz;
+
+                cxx += rx * rx; cxy += rx * ry; cxz += rx * rz;
+                cyy += ry * ry; cyz += ry * rz; czz += rz * rz;
+            }
+        }
+        else
+        {
+            float step = (float)count / maxSamples;
+            for (int i = 0; i < maxSamples; i++)
+            {
+                int idx = Mathf.Min((int)(i * step), count - 1);
+                Vector3 v = vertices[idx];
+                float rx = v.x - cx;
+                float ry = v.y - cy;
+                float rz = v.z - cz;
+
+                cxx += rx * rx; cxy += rx * ry; cxz += rx * rz;
+                cyy += ry * ry; cyz += ry * rz; czz += rz * rz;
+            }
+        }
+
+        Matrix4x4 covariance = new Matrix4x4();
+        covariance.m00 = cxx; covariance.m01 = cxy; covariance.m02 = cxz;
+        covariance.m10 = cxy; covariance.m11 = cyy; covariance.m12 = cyz;
+        covariance.m20 = cxz; covariance.m21 = cyz; covariance.m22 = czz;
+        covariance.m33 = 1;
 
         return new RsSamplingResult
         {
-            SampledCount = samples.Count,
+            SampledCount = usedSampleCount,
             Centroid = centroid,
             CovarianceMatrix = covariance,
-            CentroidSum = centroid * samples.Count
+            CentroidSum = centroidSum
         };
     }
 
@@ -88,87 +243,27 @@ public static class RsPointCloudPCA
 
     #region Internal Methods
 
-    private static List<Vector3> CollectSamples(Vector3[] vertices, int count, int maxSampleCount)
-    {
-        var samples = new List<Vector3>(Mathf.Min(count, maxSampleCount));
-
-        if (count <= maxSampleCount)
-        {
-            for (int i = 0; i < count; i++)
-                samples.Add(vertices[i]);
-        }
-        else
-        {
-            float step = (float)count / maxSampleCount;
-            for (int i = 0; i < maxSampleCount; i++)
-                samples.Add(vertices[Mathf.Min((int)(i * step), count - 1)]);
-        }
-
-        return samples;
-    }
-
-    private static Vector3 ComputeCentroid(List<Vector3> samples)
-    {
-        Vector3 sum = Vector3.zero;
-        foreach (var v in samples) sum += v;
-        return sum / samples.Count;
-    }
-
-    private static Matrix4x4 ComputeCovarianceMatrix(List<Vector3> samples, Vector3 centroid)
-    {
-        float xx = 0, xy = 0, xz = 0, yy = 0, yz = 0, zz = 0;
-
-        foreach (var v in samples)
-        {
-            Vector3 r = v - centroid;
-            xx += r.x * r.x; xy += r.x * r.y; xz += r.x * r.z;
-            yy += r.y * r.y; yz += r.y * r.z; zz += r.z * r.z;
-        }
-
-        var cov = new Matrix4x4();
-        cov[0, 0] = xx; cov[0, 1] = xy; cov[0, 2] = xz;
-        cov[1, 0] = xy; cov[1, 1] = yy; cov[1, 2] = yz;
-        cov[2, 0] = xz; cov[2, 1] = yz; cov[2, 2] = zz;
-        cov[3, 3] = 1;
-        return cov;
-    }
-
-    private static Matrix4x4 MergeCovarianceMatrices(List<RsSamplingResult> results, Vector3 globalCentroid)
-    {
-        var globalCov = new Matrix4x4 { [3, 3] = 1 };
-
-        foreach (var r in results)
-        {
-            if (!r.IsValid) continue;
-
-            for (int i = 0; i < 3; i++)
-                for (int j = 0; j < 3; j++)
-                    globalCov[i, j] += r.CovarianceMatrix[i, j];
-
-            Vector3 d = r.Centroid - globalCentroid;
-            int n = r.SampledCount;
-            globalCov[0, 0] += n * d.x * d.x; globalCov[0, 1] += n * d.x * d.y; globalCov[0, 2] += n * d.x * d.z;
-            globalCov[1, 0] += n * d.y * d.x; globalCov[1, 1] += n * d.y * d.y; globalCov[1, 2] += n * d.y * d.z;
-            globalCov[2, 0] += n * d.z * d.x; globalCov[2, 1] += n * d.z * d.y; globalCov[2, 2] += n * d.z * d.z;
-        }
-
-        return globalCov;
-    }
-
     private static Vector3 PowerIteration(Matrix4x4 m, int iterations)
     {
-        Vector3 b = new Vector3(1, 1, 1).normalized;
+        float bx = 1f, by = 1f, bz = 1f;
 
         for (int i = 0; i < iterations; i++)
         {
-            b = new Vector3(
-                m[0, 0] * b.x + m[0, 1] * b.y + m[0, 2] * b.z,
-                m[1, 0] * b.x + m[1, 1] * b.y + m[1, 2] * b.z,
-                m[2, 0] * b.x + m[2, 1] * b.y + m[2, 2] * b.z
-            ).normalized;
+            float nx = m.m00 * bx + m.m01 * by + m.m02 * bz;
+            float ny = m.m10 * bx + m.m11 * by + m.m12 * bz;
+            float nz = m.m20 * bx + m.m21 * by + m.m22 * bz;
+
+            float lengthSq = nx * nx + ny * ny + nz * nz;
+            if (lengthSq < 1e-6f) break;
+
+            float invLength = 1.0f / Mathf.Sqrt(lengthSq);
+
+            bx = nx * invLength;
+            by = ny * invLength;
+            bz = nz * invLength;
         }
 
-        return b;
+        return new Vector3(bx, by, bz);
     }
 
     #endregion

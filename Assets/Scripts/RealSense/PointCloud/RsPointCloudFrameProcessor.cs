@@ -10,6 +10,8 @@ public class RsPointCloudFrameProcessor
     private Vector3 _estimatedPoint = Vector3.zero;
     private Vector3 _estimatedDir = Vector3.forward;
 
+    public string SourceName { get; set; } = string.Empty;
+
     public Vector3 EstimatedPoint => _estimatedPoint;
     public Vector3 EstimatedDir => _estimatedDir;
 
@@ -85,13 +87,13 @@ public class RsPointCloudFrameProcessor
 
             if (useIntegratedPCA)
             {
-                var result = _compute.FilterOnly(sourceBuffer, linePoint, lineDir, pointCount);
+                var result = _compute.FilterOnly(SourceName, sourceBuffer, linePoint, lineDir, pointCount);
                 discardedCount = result.discardedCount;
                 totalCount = result.sampledCount;
             }
             else
             {
-                var result = _compute.FilterAndEstimateLine(sourceBuffer, linePoint, lineDir, pointCount);
+                var result = _compute.FilterAndEstimateLine(SourceName, sourceBuffer, linePoint, lineDir, pointCount);
                 _estimatedPoint = result.point;
                 _estimatedDir = result.dir;
                 discardedCount = result.discardedCount;

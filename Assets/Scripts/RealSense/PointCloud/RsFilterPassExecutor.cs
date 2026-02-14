@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.Rendering;
+using Unity.Profiling;
 
 public class RsFilterPassExecutor
 {
@@ -51,12 +52,16 @@ public class RsFilterPassExecutor
 
     #region Public Methods
 
-    private static readonly string s_sampleFilterDispatch = "RsPointCloud.Filter.DispatchFilter";
+    private static readonly string s_sampleFilterDispatchBase = "RsPointCloud.Filter.DispatchFilter";
+
+    private static readonly ProfilerMarker s_cpuMarkerExecuteFilterPass =
+        new ProfilerMarker("RsPointCloud.Filter.ExecuteFilterPass");
 
     private readonly CommandBuffer _cmd = new CommandBuffer { name = "RsPointCloudCompute" };
 
     public (int finalCount, int discardedCount, int sampledCount, float discardPercentage)
         ExecuteFilterPass(
+            string sourceName,
             ComputeBuffer rawVerticesBuffer,
             ComputeBuffer filteredVerticesBuffer,
             ComputeBuffer samplingBuffer,
@@ -67,6 +72,8 @@ public class RsFilterPassExecutor
             Vector3 lineDir,
             int vertexCount)
     {
+        using (s_cpuMarkerExecuteFilterPass.Auto())
+        {
         _frameCounter++;
         _stats?.RecordFilterCall();
 
@@ -82,13 +89,17 @@ public class RsFilterPassExecutor
 
         _cmd.Clear();
 
-        _cmd.BeginSample(s_sampleFilterDispatch);
+        string sampleName = string.IsNullOrWhiteSpace(sourceName)
+            ? s_sampleFilterDispatchBase
+            : $"{s_sampleFilterDispatchBase}/{sourceName}";
+
+        _cmd.BeginSample(sampleName);
         _dispatcher.DispatchFilter(
             _cmd,
             rawVerticesBuffer, filteredVerticesBuffer, samplingBuffer, distanceDiscardBuffer,
             localToWorld, _globalThreshold1, _globalThreshold2,
             vertexCount, _maxPlaneDistance, linePoint, lineDir, samplingRate, (int)_frameCounter);
-        _cmd.EndSample(s_sampleFilterDispatch);
+        _cmd.EndSample(sampleName);
 
         Graphics.ExecuteCommandBuffer(_cmd);
 
@@ -103,6 +114,7 @@ public class RsFilterPassExecutor
 
         _lastSamplingResult = new RsSamplingResult();
         return (finalCount, discardedCount, sampledCount, discardPercentage);
+        }
     }
 
     public void UpdateSamplingResultFromCache()

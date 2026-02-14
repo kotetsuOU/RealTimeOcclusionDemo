@@ -172,6 +172,11 @@ public class RsPointCloudRenderer : MonoBehaviour
     {
         if (!_initializer.IsInitialized) return;
 
+        if (_initializer.FrameProcessor != null)
+        {
+            _initializer.FrameProcessor.SourceName = gameObject.name;
+        }
+
         if (_logger.IsLogging) _stopwatch.Restart();
 
         if (showDebugMatrix)

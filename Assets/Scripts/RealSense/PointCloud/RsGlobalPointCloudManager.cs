@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 public class RsGlobalPointCloudManager : MonoBehaviour
 {
@@ -251,7 +252,14 @@ public class RsGlobalPointCloudManager : MonoBehaviour
         mergeComputeShader.SetVector("_Color", renderer.pointCloudColor);
 
         int threadGroups = Mathf.CeilToInt(count / 256.0f);
-        mergeComputeShader.Dispatch(_kernelMerge, threadGroups, 1, 1);
+
+        var cmd = new CommandBuffer { name = "RsPointCloud.GlobalMerge" };
+        string sampleName = $"RsPointCloud.GlobalMerge.Dispatch/{renderer.gameObject.name}";
+        cmd.BeginSample(sampleName);
+        cmd.DispatchCompute(mergeComputeShader, _kernelMerge, threadGroups, 1, 1);
+        cmd.EndSample(sampleName);
+        Graphics.ExecuteCommandBuffer(cmd);
+        cmd.Release();
 
         return count;
     }

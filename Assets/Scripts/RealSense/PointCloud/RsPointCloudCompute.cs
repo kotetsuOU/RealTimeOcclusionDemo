@@ -104,9 +104,10 @@ public class RsPointCloudCompute : IDisposable
     #region Filter & Estimate
 
     public (int finalCount, Vector3 point, Vector3 dir, int discardedCount, int sampledCount, float discardPercentage)
-        FilterAndEstimateLine(ComputeBuffer rawVerticesBuffer, Vector3 prevPoint, Vector3 prevDir, int vertexCount)
+        FilterAndEstimateLine(string sourceName, ComputeBuffer rawVerticesBuffer, Vector3 prevPoint, Vector3 prevDir, int vertexCount)
     {
         var counts = _filterPassExecutor.ExecuteFilterPass(
+            sourceName,
             rawVerticesBuffer,
             _filteredVerticesBuffer,
             _samplingBuffer,
@@ -129,13 +130,22 @@ public class RsPointCloudCompute : IDisposable
     }
 
     public (int finalCount, Vector3 point, Vector3 dir, int discardedCount, int sampledCount, float discardPercentage)
+        FilterAndEstimateLine(string sourceName, ComputeBuffer rawVerticesBuffer, Vector3 prevPoint, Vector3 prevDir)
+        => FilterAndEstimateLine(sourceName, rawVerticesBuffer, prevPoint, prevDir, _rsLength);
+
+    public (int finalCount, Vector3 point, Vector3 dir, int discardedCount, int sampledCount, float discardPercentage)
+        FilterAndEstimateLine(ComputeBuffer rawVerticesBuffer, Vector3 prevPoint, Vector3 prevDir, int vertexCount)
+        => FilterAndEstimateLine(string.Empty, rawVerticesBuffer, prevPoint, prevDir, vertexCount);
+
+    public (int finalCount, Vector3 point, Vector3 dir, int discardedCount, int sampledCount, float discardPercentage)
         FilterAndEstimateLine(ComputeBuffer rawVerticesBuffer, Vector3 prevPoint, Vector3 prevDir)
-        => FilterAndEstimateLine(rawVerticesBuffer, prevPoint, prevDir, _rsLength);
+        => FilterAndEstimateLine(string.Empty, rawVerticesBuffer, prevPoint, prevDir, _rsLength);
 
     public (int finalCount, int discardedCount, int sampledCount, float discardPercentage)
-        FilterOnly(ComputeBuffer rawVerticesBuffer, Vector3 prevPoint, Vector3 prevDir, int vertexCount)
+        FilterOnly(string sourceName, ComputeBuffer rawVerticesBuffer, Vector3 prevPoint, Vector3 prevDir, int vertexCount)
     {
         var counts = _filterPassExecutor.ExecuteFilterPass(
+            sourceName,
             rawVerticesBuffer,
             _filteredVerticesBuffer,
             _samplingBuffer,
@@ -153,6 +163,10 @@ public class RsPointCloudCompute : IDisposable
 
         return (counts.finalCount, counts.discardedCount, counts.sampledCount, counts.discardPercentage);
     }
+
+    public (int finalCount, int discardedCount, int sampledCount, float discardPercentage)
+        FilterOnly(ComputeBuffer rawVerticesBuffer, Vector3 prevPoint, Vector3 prevDir, int vertexCount)
+        => FilterOnly(string.Empty, rawVerticesBuffer, prevPoint, prevDir, vertexCount);
 
     #endregion
 
