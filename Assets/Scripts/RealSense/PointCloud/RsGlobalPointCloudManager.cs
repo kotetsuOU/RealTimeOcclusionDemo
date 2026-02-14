@@ -52,8 +52,11 @@ public class RsGlobalPointCloudManager : MonoBehaviour
     [Header("Debug Statistics")]
     [Tooltip("Enable stats tracking (exposed via public properties)")]
     [SerializeField] private bool _statsEnabled = true;
-    [Tooltip("Enable async file logging (no main thread impact)")]
+    [Tooltip("Write PCA/cache stats to file (async, no main thread impact)")]
     [SerializeField] private bool _asyncLoggingEnabled = false;
+
+    [Tooltip("Write GPU compute stats to CSV")]
+    [SerializeField] private bool _gpuProfilerEnabled = false;
     
     private int _pcaCallsPerSec = 0;
     private int _pcaCacheHitsPerSec = 0;
@@ -64,6 +67,9 @@ public class RsGlobalPointCloudManager : MonoBehaviour
     private float _lastStatsResetTime = 0f;
     
     private RsAsyncStatsLogger _asyncLogger;
+    private RsGpuProfiler _gpuProfiler;
+
+    public string GpuProfilerFilePath => _gpuProfiler != null ? _gpuProfiler.FilePath : string.Empty;
 
     public int CurrentTotalCount { get; private set; } = 0;
 
@@ -86,10 +92,36 @@ public class RsGlobalPointCloudManager : MonoBehaviour
             _asyncLogger = new RsAsyncStatsLogger("GlobalPCMStats.csv");
             Debug.Log($"[GlobalPCM] Async logging enabled: {_asyncLogger.GetLogFilePath()}");
         }
+
+        ApplyGpuProfilerState();
+    }
+
+    private void OnValidate()
+    {
+        if (!Application.isPlaying) return;
+        ApplyGpuProfilerState();
+    }
+
+    private void ApplyGpuProfilerState()
+    {
+        if (_gpuProfilerEnabled)
+        {
+            if (_gpuProfiler == null)
+            {
+                _gpuProfiler = new RsGpuProfiler();
+            }
+        }
+        else
+        {
+            _gpuProfiler?.Dispose();
+            _gpuProfiler = null;
+        }
     }
 
     private void LateUpdate()
     {
+        _gpuProfiler?.BeginProfile();
+
         UpdateDebugStats();
 
         if (pcaMode == PCAMode.None)
@@ -119,6 +151,8 @@ public class RsGlobalPointCloudManager : MonoBehaviour
         {
             LogDebugStats();
         }
+
+        _gpuProfiler?.EndProfile(Time.frameCount, CurrentTotalCount, _globalBuffer);
     }
     
     private void UpdateDebugStats()
@@ -350,5 +384,6 @@ public class RsGlobalPointCloudManager : MonoBehaviour
     {
         _globalBuffer?.Release();
         _asyncLogger?.Dispose();
+        _gpuProfiler?.Dispose();
     }
 }

@@ -8,19 +8,59 @@ public class RsGlobalPointCloudManagerEditor : Editor
     private bool _isVerticesSaved;
     private RsGlobalPointCloudManager _manager;
 
+    private SerializedProperty _statsEnabledProp;
+    private SerializedProperty _asyncLoggingEnabledProp;
+    private SerializedProperty _gpuProfilerEnabledProp;
+
     private void OnEnable()
     {
         _manager = (RsGlobalPointCloudManager)target;
+
+        _statsEnabledProp = serializedObject.FindProperty("_statsEnabled");
+        _asyncLoggingEnabledProp = serializedObject.FindProperty("_asyncLoggingEnabled");
+        _gpuProfilerEnabledProp = serializedObject.FindProperty("_gpuProfilerEnabled");
     }
 
     public override void OnInspectorGUI()
     {
-        DrawDefaultInspector();
+        serializedObject.Update();
+
+        DrawPropertiesExcluding(
+            serializedObject,
+            "m_Script",
+            "_statsEnabled",
+            "_asyncLoggingEnabled",
+            "_gpuProfilerEnabled");
+
+        DrawDebugStatisticsSection();
+
+        serializedObject.ApplyModifiedProperties();
         EditorGUILayout.Space();
 
         DrawBatchControlSection();
         EditorGUILayout.Space(20);
         DrawPerformanceLoggerSection();
+    }
+
+    private void DrawDebugStatisticsSection()
+    {
+        EditorGUILayout.Space();
+        EditorGUILayout.LabelField("Debug Statistics", EditorStyles.boldLabel);
+
+        EditorGUILayout.PropertyField(_statsEnabledProp, new GUIContent("Stats Enabled"));
+
+        using (new EditorGUI.IndentLevelScope())
+        {
+            if (_statsEnabledProp.boolValue)
+            {
+                EditorGUILayout.PropertyField(
+                    _asyncLoggingEnabledProp,
+                    new GUIContent("Log PCA/Cache Stats (Async)", "Write PCA/cache stats to file asynchronously"));
+                EditorGUILayout.PropertyField(
+                    _gpuProfilerEnabledProp,
+                    new GUIContent("GPU Profiler Enabled", "Write GPU compute stats to CSV"));
+            }
+        }
     }
 
     private void OnSceneGUI()

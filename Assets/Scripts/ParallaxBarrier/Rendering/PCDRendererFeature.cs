@@ -1,10 +1,16 @@
-using System.Diagnostics;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering.Universal;
 
 public class PCDRendererFeature : ScriptableRendererFeature
 {
     public static PCDRendererFeature Instance { get; private set; }
+
+    private class RegisteredObject
+    {
+        public Mesh mesh;
+        public Transform transform;
+    }
 
     [Header("Required Assets")]
     public ComputeShader pointCloudCompute;
@@ -33,6 +39,16 @@ public class PCDRendererFeature : ScriptableRendererFeature
     public bool enableAlphaBlend = true;
     public Material blendMaterial;
 
+    [Header("Layer & Bounds Optimization")]
+    [Tooltip("PCDを描画するための専用レイヤー")]
+    public LayerMask pcdLayer;
+    [Tooltip("登録時に自動的にレイヤーを変更するか")]
+    public bool autoSetLayer = true;
+    [Tooltip("カリング防止のためにBoundsを拡張するか")]
+    public bool expandBounds = true;
+    [Tooltip("拡張するBoundsのサイズ")]
+    public float boundsSize = 10000f;
+
     [Header("Debug")]
     [Tooltip("点群(黒)と静的メッシュ(白)の由来を示すデバッグマップを有効にします")]
     public bool enableOriginDebugMap = false;
@@ -42,6 +58,8 @@ public class PCDRendererFeature : ScriptableRendererFeature
     private bool _useGlobalBufferMode = false;
     public bool IsGlobalBufferMode => _useGlobalBufferMode;
 
+    private static List<RegisteredObject> _persistentObjects = new List<RegisteredObject>();
+
     public void SetUseGlobalBuffer(bool enable)
     {
         _useGlobalBufferMode = enable;
@@ -50,51 +68,96 @@ public class PCDRendererFeature : ScriptableRendererFeature
     public override void Create()
     {
         Instance = this;
+
         _scriptablePass = new PCDRenderPass(this, blendMaterial, enableAlphaBlend);
         _scriptablePass.renderPassEvent = RenderPassEvent.BeforeRenderingPostProcessing;
+
+        SyncPersistentObjectsToPass();
     }
 
-    public void SetPointCloudData(PCV_Data data)
+    private void SyncPersistentObjectsToPass()
     {
-        if (_scriptablePass != null)
+        if (_scriptablePass == null) return;
+
+        for (int i = _persistentObjects.Count - 1; i >= 0; i--)
         {
-            _scriptablePass.SetPointCloudData(data);
+            var obj = _persistentObjects[i];
+            if (obj.mesh != null && obj.transform != null)
+            {
+                _scriptablePass.AddStaticMesh(obj.mesh, obj.transform);
+            }
+            else
+            {
+                _persistentObjects.RemoveAt(i);
+            }
         }
     }
 
     public void AddStaticMesh(Mesh mesh, Transform transform)
     {
-        if (_scriptablePass != null)
+        if (mesh == null || transform == null) return;
+
+        if (!_persistentObjects.Exists(x => x.mesh == mesh && x.transform == transform))
         {
-            _scriptablePass.AddStaticMesh(mesh, transform);
+            _persistentObjects.Add(new RegisteredObject { mesh = mesh, transform = transform });
         }
+
+        ApplySettings(mesh, transform);
+
+        _scriptablePass?.AddStaticMesh(mesh, transform);
     }
 
     public void RemoveStaticMesh(Mesh mesh, Transform transform)
     {
-        if (_scriptablePass != null)
-        {
-            _scriptablePass.RemoveStaticMesh(mesh, transform);
-        }
+        _persistentObjects.RemoveAll(x => x.mesh == mesh && x.transform == transform);
+        _scriptablePass?.RemoveStaticMesh(mesh, transform);
     }
 
     public override void AddRenderPasses(ScriptableRenderer renderer, ref RenderingData renderingData)
     {
-        if (pointCloudCompute == null)
-        {
-            UnityEngine.Debug.LogWarningFormat("PCDRendererFeature: Compute Shader is not assigned. Skipping pass.");
-            return;
-        }
+        EnforceSettingsEveryFrame();
 
-        if (enableAlphaBlend && !enableOriginDebugMap && blendMaterial == null)
+        if (pointCloudCompute == null || (enableAlphaBlend && !enableOriginDebugMap && blendMaterial == null))
         {
-            UnityEngine.Debug.LogWarningFormat("PCDRendererFeature: Blend Material is not assigned (but blending is enabled). Skipping pass.");
             return;
         }
 
         _scriptablePass?.SetDebugFlag(enableOriginDebugMap);
-
         renderer.EnqueuePass(_scriptablePass);
+    }
+
+    private void EnforceSettingsEveryFrame()
+    {
+        for (int i = _persistentObjects.Count - 1; i >= 0; i--)
+        {
+            var obj = _persistentObjects[i];
+            if (obj.mesh == null || obj.transform == null)
+            {
+                _persistentObjects.RemoveAt(i);
+                continue;
+            }
+            ApplySettings(obj.mesh, obj.transform);
+        }
+    }
+
+    private void ApplySettings(Mesh mesh, Transform transform)
+    {
+        if (expandBounds && mesh != null)
+        {
+            mesh.bounds = new Bounds(Vector3.zero, Vector3.one * boundsSize);
+        }
+
+        if (autoSetLayer && transform != null)
+        {
+            int layerIndex = 0;
+            int mask = pcdLayer.value;
+            while (mask > 1) { mask >>= 1; layerIndex++; }
+
+            if (layerIndex >= 0 && layerIndex < 32 && transform.gameObject.layer != layerIndex)
+            {
+                transform.gameObject.layer = layerIndex;
+            }
+        }
     }
 
     protected override void Dispose(bool disposing)
@@ -108,8 +171,13 @@ public class PCDRendererFeature : ScriptableRendererFeature
         }
     }
 
-    public Texture GetOriginDebugMap()
+    public void SetPointCloudData(PCV_Data data)
     {
-        return _scriptablePass?.GetOriginDebugMap();
+        if (_scriptablePass != null)
+        {
+            _scriptablePass.SetPointCloudData(data);
+        }
     }
+
+    public Texture GetOriginDebugMap() => _scriptablePass?.GetOriginDebugMap();
 }
