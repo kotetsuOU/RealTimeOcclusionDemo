@@ -1,0 +1,144 @@
+#pragma kernel CSVertices
+#pragma kernel CSIndices
+
+struct Vertex
+{
+    float3 pos;
+    float3 col;
+    float2 uv;
+};
+
+StructuredBuffer<uint> _InputDepthBuffer; 
+Texture2D<float4> _InputColorTexture;
+RWStructuredBuffer<Vertex> _VertexBuffer; 
+AppendStructuredBuffer<int> _IndexBuffer;
+
+int _Width;
+int _Height;
+float _MinDist;
+float _MaxDist;
+float _EdgeThreshold;
+
+int _Mode; // 0 = HSV, 1 = YCbCr
+float _MinHue, _MaxHue;
+// Saturation
+float _MinSat, _MaxSat;
+float _MinVal, _MaxVal;
+int _MinY, _MaxY;
+int _MinCb, _MaxCb;
+int _MinCr, _MaxCr;
+
+float4 _Intrinsics; 
+
+float3 RGBtoHSV(float3 c)
+{
+    float4 K = float4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
+    float4 p = (c.g < c.b) ? float4(c.bg, K.wz) : float4(c.gb, K.xy);
+    float4 q = (c.r < p.x) ? float4(p.xyw, c.r) : float4(c.r, p.yzx);
+    float d = q.x - min(q.w, q.y);
+    float e = 1.0e-10;
+    return float3(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
+}
+
+bool CheckColor(float3 color)
+{
+    if (_Mode == 0) // HSV
+    {
+        float3 hsv = RGBtoHSV(color);
+        return (hsv.x >= _MinHue && hsv.x <= _MaxHue) &&
+               (hsv.y >= _MinSat && hsv.y <= _MaxSat) &&
+               (hsv.z >= _MinVal && hsv.z <= _MaxVal);
+    }
+    else // YCbCr (Approx)
+    {
+        float Y = 0.299 * color.r + 0.587 * color.g + 0.114 * color.b;
+        float Cr = 0.5 + 0.713 * (color.r - Y); 
+        float Cb = 0.5 + 0.564 * (color.b - Y); 
+        int yInt = (int)(Y * 255.0);
+        int crInt = (int)(Cr * 255.0);
+        int cbInt = (int)(Cb * 255.0);
+        return (yInt >= _MinY && yInt <= _MaxY) &&
+               (cbInt >= _MinCb && cbInt <= _MaxCb) &&
+               (crInt >= _MinCr && crInt <= _MaxCr);
+    }
+}
+
+[numthreads(8, 8, 1)]
+void CSVertices(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)_Width || id.y >= (uint)_Height) return;
+
+    int idx = id.y * _Width + id.x;
+    
+    // Unpack 16-bit packed depth
+    uint packed = _InputDepthBuffer[idx / 2];
+    // Little-endian usually: 0xHM LM.
+    uint dRaw = (idx % 2 == 0) ? (packed & 0xFFFF) : (packed >> 16);
+    float z = (float)dRaw * 0.001; 
+
+    Vertex v;
+    v.uv = float2((float)id.x / _Width, (float)id.y / _Height);
+    float4 cRaw = _InputColorTexture[id.xy];
+    v.col = cRaw.rgb;
+    v.pos = float3(0,0,0);
+
+    bool valid = (z >= _MinDist && z <= _MaxDist && z > 0.001);
+    if (valid && !CheckColor(v.col)) valid = false;
+
+    if (valid)
+    {
+        float x = (id.x - _Intrinsics.z) / _Intrinsics.x * z;
+        float y = (id.y - _Intrinsics.w) / _Intrinsics.y * z;
+        v.pos = float3(x, -y, z); 
+    }
+    _VertexBuffer[idx] = v;
+}
+
+[numthreads(8, 8, 1)]
+void CSIndices(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)_Width - 1 || id.y >= (uint)_Height - 1) return;
+
+    int i0 = id.y * _Width + id.x;
+    int i1 = i0 + 1;
+    int i2 = i0 + _Width;
+    int i3 = i0 + _Width + 1;
+
+    Vertex v0 = _VertexBuffer[i0];
+    Vertex v1 = _VertexBuffer[i1];
+    Vertex v2 = _VertexBuffer[i2];
+    Vertex v3 = _VertexBuffer[i3];
+
+    // Check Z > 0
+    bool v0Valid = v0.pos.z > 0.0001;
+    bool v1Valid = v1.pos.z > 0.0001;
+    bool v2Valid = v2.pos.z > 0.0001;
+    bool v3Valid = v3.pos.z > 0.0001;
+
+    // Tri 1: 0-1-2
+    if (v0Valid && v1Valid && v2Valid)
+    {
+        float d1 = distance(v0.pos, v1.pos);
+        float d2 = distance(v1.pos, v2.pos);
+        float d3 = distance(v2.pos, v0.pos);
+        if (d1 < _EdgeThreshold && d2 < _EdgeThreshold && d3 < _EdgeThreshold)
+        {
+            _IndexBuffer.Append(i0);
+            _IndexBuffer.Append(i1);
+            _IndexBuffer.Append(i2);
+        }
+    }
+    // Tri 2: 1-3-2
+    if (v1Valid && v3Valid && v2Valid)
+    {
+        float d1 = distance(v1.pos, v3.pos);
+        float d2 = distance(v3.pos, v2.pos);
+        float d3 = distance(v2.pos, v1.pos);
+        if (d1 < _EdgeThreshold && d2 < _EdgeThreshold && d3 < _EdgeThreshold)
+        {
+            _IndexBuffer.Append(i1);
+            _IndexBuffer.Append(i3);
+            _IndexBuffer.Append(i2);
+        }
+    }
+}

@@ -187,5 +187,13 @@ public class PCDRendererFeature : ScriptableRendererFeature
         }
     }
 
+    public void SetExternalBuffer(ComputeBuffer buffer, int count)
+    {
+        if (_scriptablePass != null)
+        {
+            _scriptablePass.SetExternalBuffer(buffer, count);
+        }
+    }
+
     public Texture GetOriginDebugMap() => _scriptablePass?.GetOriginDebugMap();
 }

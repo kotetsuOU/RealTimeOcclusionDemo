@@ -32,29 +32,35 @@ public class RsProcessingPipe : RsFrameProvider
 
     [SerializeField] private int _processIntervalFrames = 1;
 
+    public IReadOnlyList<RsProcessingBlock> RuntimeBlocks
+        => profile != null ? profile._processingBlocks : (IReadOnlyList<RsProcessingBlock>)Array.Empty<RsProcessingBlock>();
+
+    public T GetFirstBlock<T>() where T : RsProcessingBlock
+    {
+        if (profile == null || profile._processingBlocks == null) return null;
+        foreach (var b in profile._processingBlocks)
+        {
+            if (b is T t) return t;
+        }
+        return null;
+    }
+
     void Awake()
     {
-        // 【修正点】プロファイルと内部ブロックのディープコピー（インスタンス化）
-        // これを行わないと、複数のカメラで同一のScriptableObject（メモリ）を共有してしまい、
-        // キャリブレーション情報やGPUバッファが混線する。
         if (profile != null)
         {
-            // 1. Profile自体を複製（これでこのPipe専用のProfileになる）
             profile = Instantiate(profile);
 
-            // 2. Profile内の各ブロックも複製（中身のScriptableObjectもユニークにする）
             for (int i = 0; i < profile._processingBlocks.Count; i++)
             {
                 if (profile._processingBlocks[i] != null)
                 {
-                    // ScriptableObject.Instantiateにより、独立したメモリ領域を確保
                     profile._processingBlocks[i] = Instantiate(profile._processingBlocks[i]);
                 }
             }
         }
         else
         {
-            // プロファイルがない場合は空を作成
             profile = ScriptableObject.CreateInstance<RsProcessingProfile>();
             profile._processingBlocks = new List<RsProcessingBlock>();
         }
@@ -73,16 +79,8 @@ public class RsProcessingPipe : RsFrameProvider
 
     private void OnSourceStart(PipelineProfile activeProfile)
     {
-        // ブロックのインスタンス化後にイベント購読を行うため、ここでの変更は不要
         if (Source != null)
         {
-            // 修正: CustomProcessingBlockのAction対応版シグネチャを使用
-            // (前回修正した CustomProcessingBlock.cs の仕様に合わせる)
-            // CustomProcessingBlock側が Process(Frame) を呼ぶため、ここでは購読のみでよいが、
-            // _blockは内部で処理を持つため、Sourceからのイベントをブリッジする必要があるか？
-
-            // CustomProcessingBlockの実装によれば、
-            // _block.Process(Frame) を呼ぶ必要がある。
             Source.OnNewSample += _block.Process;
         }
 
@@ -94,12 +92,10 @@ public class RsProcessingPipe : RsFrameProvider
         {
             foreach (var pb in profile._processingBlocks)
             {
-                // インスタンス化されたユニークなブロックに対してキャリブレーションをセット
                 if (pb is RsIntegratedPointCloud integratedPointCloud)
                 {
                     integratedPointCloud.SetCalibration(_calibration);
                 }
-                // 不要な型チェック削除済み
             }
         }
 
@@ -136,7 +132,6 @@ public class RsProcessingPipe : RsFrameProvider
         }
     }
 
-    // CustomProcessingBlock (Action版) に対応したメソッドシグネチャ
     internal void ProcessFrame(Frame frame, Action<Frame> output)
     {
         _frameCounter++;
@@ -162,7 +157,6 @@ public class RsProcessingPipe : RsFrameProvider
                     if (!pb.Enabled)
                         continue;
 
-                    // FrameSource引数は使わないためdefaultでOK
                     Frame processed = pb.Process(f, default(FrameSource));
 
                     if (processed != f)
