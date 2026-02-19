@@ -11,20 +11,6 @@ public class PCDRenderPass : ScriptableRenderPass
 {
     private const string PROFILER_TAG = "PCDRendering";
 
-    private struct Point
-    {
-        public Vector3 position;
-        public Vector3 color;
-        public uint originType; // 0 = PointCloud, 1 = StaticMesh
-    }
-
-    private class MeshTransformPair
-    {
-        public Mesh mesh;
-        public Transform transform;
-        public PCDProcessingMode mode;
-    }
-
     private ComputeShader pointCloudCompute;
     private float densityThreshold_e;
     private float neighborhoodParam_p_prime;
@@ -35,20 +21,6 @@ public class PCDRenderPass : ScriptableRenderPass
     private float _occlusionThreshold;
     private bool _enableOriginDebugMap;
 
-    // --- Internal Buffer Management (Static Meshes & CPU PointCloud) ---
-    private ComputeBuffer _pointBuffer;
-    private int _pointCount = 0;
-    private Point[] _pointsCache;
-    private bool _isDataDirty = false;
-
-    // --- External Buffer Management (GPU Integration) ---
-    private ComputeBuffer _externalPointBuffer;
-    private int _externalPointCount = 0;
-    private bool _useExternalBuffer = false;
-
-    // --- Combined Buffer (External + Internal) ---
-    private ComputeBuffer _combinedBuffer;
-
     private int _kernelClear, _kernelProject, _kernelCalcGridZMin, _kernelCalcDensity,
                 _kernelCalcGridLevel, _kernelGridMedianFilter,
                 _kernelCalcNeighborhoodSize,
@@ -56,15 +28,14 @@ public class PCDRenderPass : ScriptableRenderPass
                 _kernelBuildDepthPyramidL3, _kernelBuildDepthPyramidL4,
                 _kernelApplyGradient,
                 _kernelOcclusion, _kernelInterpolate,
-                _kernelMerge, _kernelInitFromCamera; // Added Merge and InitFromCamera Kernels
+                _kernelMerge, _kernelInitFromCamera;
 
     private RTHandle _originDebugMapHandle;
-
     private bool _isInitialized = false;
-
-    private PCV_Data _dynamicData;
-    private List<MeshTransformPair> _staticMeshes = new List<MeshTransformPair>();
     private const int STRIDE = 28; // sizeof(float)*3 + sizeof(float)*3 + sizeof(uint)
+    
+    // --- Buffer Manager ---
+    private PCDPointBufferManager _bufferManager;
 
     public PCDRenderPass(PCDRendererFeature settings, Material blendMaterial, bool enableAlphaBlend)
     {
@@ -79,6 +50,8 @@ public class PCDRenderPass : ScriptableRenderPass
 
         this.m_BlendMaterial = blendMaterial;
         this._enableAlphaBlend = enableAlphaBlend;
+        
+        _bufferManager = new PCDPointBufferManager();
     }
 
     public void SetDebugFlag(bool enableDebugMap)
@@ -88,154 +61,22 @@ public class PCDRenderPass : ScriptableRenderPass
 
     public void SetExternalBuffer(ComputeBuffer buffer, int count)
     {
-        bool prevUse = _useExternalBuffer;
-
-        if (buffer != null && buffer.IsValid())
-        {
-            _externalPointBuffer = buffer;
-            _externalPointCount = count;
-            _useExternalBuffer = true;
-        }
-        else
-        {
-            _useExternalBuffer = false;
-            _externalPointBuffer = null;
-            _externalPointCount = 0;
-        }
-
-        if (prevUse != _useExternalBuffer)
-        {
-            _isDataDirty = true;
-        }
+        _bufferManager.SetExternalBuffer(buffer, count);
     }
 
     public void SetPointCloudData(PCV_Data data)
     {
-        if (_dynamicData != data || (data != null && _dynamicData != null && _dynamicData.PointCount != data.PointCount))
-        {
-            _dynamicData = data;
-            _isDataDirty = true;
-        }
-        else if (data == null && _dynamicData != null)
-        {
-            _dynamicData = null;
-            _isDataDirty = true;
-        }
+        _bufferManager.SetPointCloudData(data);
     }
 
     public void AddStaticMesh(Mesh mesh, Transform transform, PCDProcessingMode mode)
     {
-        if (mesh != null && transform != null)
-        {
-            var existing = _staticMeshes.Find(p => p.mesh == mesh && p.transform == transform);
-            if (existing == null)
-            {
-                _staticMeshes.Add(new MeshTransformPair { mesh = mesh, transform = transform, mode = mode });
-                _isDataDirty = true;
-                UnityEngine.Debug.Log($"[PCDRenderPass] Static mesh '{mesh.name}' added from Transform '{transform.name}'.");
-            }
-            else if (existing.mode != mode)
-            {
-                existing.mode = mode;
-                _isDataDirty = true;
-            }
-        }
+        _bufferManager.AddStaticMesh(mesh, transform, mode);
     }
 
     public void RemoveStaticMesh(Mesh mesh, Transform transform)
     {
-        var pair = _staticMeshes.Find(p => p.mesh == mesh && p.transform == transform);
-        if (pair != null)
-        {
-            _staticMeshes.Remove(pair);
-            _isDataDirty = true;
-            UnityEngine.Debug.Log($"[PCDRenderPass] Static mesh '{mesh.name}' removed from Transform '{transform.name}'.");
-        }
-    }
-
-    private void MergeAndCachePoints()
-    {
-        int dataPointCount = 0;
-        if (!_useExternalBuffer && _dynamicData != null && _dynamicData.PointCount > 0)
-        {
-            dataPointCount = _dynamicData.PointCount;
-        }
-
-        int totalMeshPointCount = 0;
-        foreach (var pair in _staticMeshes)
-        {
-            if (pair.mesh == null || pair.transform == null) continue;
-            if (!pair.mesh.isReadable) continue;
-            // Only add PointCloud mode meshes to point buffer
-            if (pair.mode != PCDProcessingMode.PointCloud) continue;
-            totalMeshPointCount += pair.mesh.vertexCount;
-        }
-
-        _pointCount = dataPointCount + totalMeshPointCount;
-
-        if (_pointCount == 0)
-        {
-            _pointsCache = null;
-            return;
-        }
-
-        if (_pointsCache == null || _pointsCache.Length != _pointCount)
-        {
-            _pointsCache = new Point[_pointCount];
-        }
-
-        int cacheIndex = 0;
-
-        if (dataPointCount > 0)
-        {
-            for (int i = 0; i < dataPointCount; i++)
-            {
-                _pointsCache[cacheIndex] = new Point
-                {
-                    position = _dynamicData.Vertices[i],
-                    color = new Vector3(_dynamicData.Colors[i].r, _dynamicData.Colors[i].g, _dynamicData.Colors[i].b),
-                    originType = 0
-                };
-                cacheIndex++;
-            }
-        }
-
-        Vector3 defaultColor = new Vector3(1.0f, 1.0f, 1.0f);
-        foreach (var pair in _staticMeshes)
-        {
-            if (pair.mesh == null || !pair.mesh.isReadable || pair.transform == null) continue;
-            // Only add PointCloud mode meshes to point buffer
-            if (pair.mode != PCDProcessingMode.PointCloud) continue;
-
-            int meshPointCount = pair.mesh.vertexCount;
-            if (meshPointCount == 0) continue;
-
-            Vector3[] meshVertices = pair.mesh.vertices;
-            Color[] meshColors = pair.mesh.colors;
-            bool hasMeshColors = meshColors != null && meshColors.Length == meshPointCount;
-
-            Matrix4x4 localToWorld = pair.transform.localToWorldMatrix;
-
-            for (int i = 0; i < meshPointCount; i++)
-            {
-                Vector3 color = hasMeshColors ? new Vector3(meshColors[i].r, meshColors[i].g, meshColors[i].b) : defaultColor;
-                Vector3 worldPos = localToWorld.MultiplyPoint3x4(meshVertices[i]);
-
-                _pointsCache[cacheIndex] = new Point
-                {
-                    position = worldPos,
-                    color = color,
-                    originType = 1
-                };
-                cacheIndex++;
-            }
-        }
-
-        if (_isDataDirty)
-        {
-            string mode = _useExternalBuffer ? "External(GPU) + Static" : "Internal(CPU) + Static";
-            UnityEngine.Debug.Log($"[PCDRenderPass] Merged points [{mode}] - Dynamic(CPU): {dataPointCount}, Static Meshes: {totalMeshPointCount}, InternalTotal: {_pointCount}");
-        }
+        _bufferManager.RemoveStaticMesh(mesh, transform);
     }
 
     private void Initialize()
@@ -270,30 +111,6 @@ public class PCDRenderPass : ScriptableRenderPass
         _kernelInitFromCamera = pointCloudCompute.FindKernel("InitFromCamera");
 
         _isInitialized = true;
-    }
-
-    private void UpdateComputeBuffer()
-    {
-        if (_pointCount == 0 || _pointsCache == null)
-        {
-            _pointBuffer?.Release();
-            _pointBuffer = null;
-            _isDataDirty = false;
-            return;
-        }
-
-        if (_pointBuffer == null || !_pointBuffer.IsValid() || _pointBuffer.count != _pointCount)
-        {
-            _pointBuffer?.Release();
-            _pointBuffer = new ComputeBuffer(_pointCount, STRIDE);
-        }
-
-        _pointBuffer.SetData(_pointsCache);
-        if (_pointCount > 0 && _isDataDirty)
-        {
-            UnityEngine.Debug.Log($"[PCDRenderPass] ComputeBuffer updated with {_pointCount} points (Static/Internal).");
-        }
-        _isDataDirty = false;
     }
 
     private class ComputePassData
@@ -370,24 +187,19 @@ public class PCDRenderPass : ScriptableRenderPass
         return null;
     }
 
-    /// <summary>
-    /// Checks if rendering should be skipped entirely.
-    /// This is used by PCDRendererFeature to decide whether to enqueue this pass.
-    /// Returns true for DepthMapOnly mode (no point cloud data, only DepthMap meshes).
-    /// </summary>
     public bool ShouldSkipRendering()
     {
         // Check for external buffer
-        bool hasExternalData = _useExternalBuffer && _externalPointBuffer != null && _externalPointBuffer.IsValid() && _externalPointCount > 0;
+        bool hasExternalData = _bufferManager.UseExternalBuffer && _bufferManager.ExternalPointBuffer != null && _bufferManager.ExternalPointBuffer.IsValid() && _bufferManager.ExternalPointCount > 0;
         
         // Check for internal buffer
-        bool hasInternalData = _pointBuffer != null && _pointBuffer.IsValid() && _pointCount > 0;
+        bool hasInternalData = _bufferManager.PointBuffer != null && _bufferManager.PointBuffer.IsValid() && _bufferManager.PointCount > 0;
         
         // Check if we have DepthMap mode meshes
-        bool hasDepthMapMeshes = _staticMeshes.Exists(p => p.mode == PCDProcessingMode.DepthMap);
+        bool hasDepthMapMeshes = _bufferManager.HasDepthMapMeshes();
         
         // Check if we have PointCloud mode meshes
-        bool hasPointCloudMeshes = _staticMeshes.Exists(p => p.mode == PCDProcessingMode.PointCloud);
+        bool hasPointCloudMeshes = _bufferManager.HasPointCloudMeshes();
         
         // If we have no point cloud data at all, and only DepthMap meshes, skip rendering
         bool noPointCloudData = !hasExternalData && !hasInternalData && !hasPointCloudMeshes;
@@ -408,45 +220,37 @@ public class PCDRenderPass : ScriptableRenderPass
         {
             var globalBuffer = RsGlobalPointCloudManager.Instance.GetGlobalBuffer();
             var globalCount = RsGlobalPointCloudManager.Instance.CurrentTotalCount;
-            SetExternalBuffer(globalBuffer, globalCount);
+            _bufferManager.SetExternalBuffer(globalBuffer, globalCount);
         }
         else
         {
-            SetExternalBuffer(null, 0);
+            _bufferManager.SetExternalBuffer(null, 0);
         }
 
-        if (_isDataDirty)
-        {
-            MergeAndCachePoints();
-            UpdateComputeBuffer();
-        }
+        _bufferManager.Update();
 
         ComputeBuffer activeBuffer = null;
         int activeCount = 0;
 
-        if (_useExternalBuffer)
+        if (_bufferManager.UseExternalBuffer)
         {
-            int totalCount = _externalPointCount + _pointCount;
+            int totalCount = _bufferManager.ExternalPointCount + _bufferManager.PointCount;
             if (totalCount > 0)
             {
-                if (_combinedBuffer == null || _combinedBuffer.count < totalCount || !_combinedBuffer.IsValid())
-                {
-                    _combinedBuffer?.Release();
-                    _combinedBuffer = new ComputeBuffer(totalCount, STRIDE);
-                }
-                activeBuffer = _combinedBuffer;
+                _bufferManager.EnsureCombinedBuffer(totalCount);
+                activeBuffer = _bufferManager.CombinedBuffer;
                 activeCount = totalCount;
             }
         }
         else
         {
-            activeBuffer = _pointBuffer;
-            activeCount = _pointCount;
+            activeBuffer = _bufferManager.PointBuffer;
+            activeCount = _bufferManager.PointCount;
         }
 
         // Check if we have DepthMap mode meshes
-        bool hasDepthMapMeshes = _staticMeshes.Exists(p => p.mode == PCDProcessingMode.DepthMap);
-        bool hasPointCloudMeshes = _staticMeshes.Exists(p => p.mode == PCDProcessingMode.PointCloud);
+        bool hasDepthMapMeshes = _bufferManager.HasDepthMapMeshes();
+        bool hasPointCloudMeshes = _bufferManager.HasPointCloudMeshes();
         
         // DepthMapOnlyMode: No point cloud data at all, only DepthMap meshes
         // In this case, URP renders the meshes normally, we don't need PCD processing
@@ -457,7 +261,6 @@ public class PCDRenderPass : ScriptableRenderPass
         if (depthMapOnlyMode)
         {
             // No point cloud data to process, just let URP render the DepthMap meshes
-            UnityEngine.Debug.Log("[PCDRenderPass] DepthMapOnlyMode: No point cloud data, letting URP render normally");
             return;
         }
 
@@ -543,12 +346,12 @@ public class PCDRenderPass : ScriptableRenderPass
             data.kernelMerge = _kernelMerge;
             data.kernelInitFromCamera = _kernelInitFromCamera;
 
-            data.useExternal = _useExternalBuffer;
-            data.externalBuffer = _externalPointBuffer;
-            data.internalBuffer = _pointBuffer;
-            data.externalCount = _externalPointCount;
-            data.internalCount = _pointCount;
-            data.combinedBuffer = _combinedBuffer;
+            data.useExternal = _bufferManager.UseExternalBuffer;
+            data.externalBuffer = _bufferManager.ExternalPointBuffer;
+            data.internalBuffer = _bufferManager.PointBuffer;
+            data.externalCount = _bufferManager.ExternalPointCount;
+            data.internalCount = _bufferManager.PointCount;
+            data.combinedBuffer = _bufferManager.CombinedBuffer;
 
 
             data.pointBuffer = activeBuffer;
@@ -881,21 +684,11 @@ public class PCDRenderPass : ScriptableRenderPass
 
     public void Cleanup()
     {
-        _pointBuffer?.Release();
-        _pointBuffer = null;
-
-        _combinedBuffer?.Release();
-        _combinedBuffer = null;
+        _bufferManager.Cleanup();
 
         _originDebugMapHandle?.Release();
         _originDebugMapHandle = null;
 
         _isInitialized = false;
-        _pointsCache = null;
-        _dynamicData = null;
-        _staticMeshes.Clear();
-
-        _externalPointBuffer = null;
-        _useExternalBuffer = false;
     }
 }
