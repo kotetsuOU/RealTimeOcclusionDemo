@@ -9,13 +9,6 @@ public class RsHandMeshMeshRenderer : MonoBehaviour
     [Header("Material")]
     public Material Material;
 
-    [Header("Output")]
-    [Tooltip("Optional transform applied when writing vertices. If null, this GameObject transform is used.")]
-    public Transform OutputTransform;
-
-    [Tooltip("If true, assumes incoming positions are already in world space and converts them into this object's local space.")]
-    public bool InputPositionsAreWorldSpace = true;
-
     [Header("Update")]
     [Tooltip("If enabled, updates mesh in LateUpdate to reduce contention with other scripts.")]
     public bool UpdateInLateUpdate = true;
@@ -161,9 +154,6 @@ public class RsHandMeshMeshRenderer : MonoBehaviour
                     maxPos = Vector3.Max(maxPos, p);
                 }
             }
-            
-            Debug.Log($"[RsHandMeshMeshRenderer] Receiving data. vertices={srcPositions.Length} validVertices={validCount} indices={indexCount} rendererEnabled={_renderer.enabled} material={_renderer.sharedMaterial}");
-            Debug.Log($"[RsHandMeshMeshRenderer] Bounds: min={minPos} max={maxPos} InputPositionsAreWorldSpace={InputPositionsAreWorldSpace} transform.pos={transform.position}");
         }
 
         if (CopySourceArrays)
@@ -189,23 +179,9 @@ public class RsHandMeshMeshRenderer : MonoBehaviour
         }
 
         // Mesh vertices should be in this object's local space.
-        // RsHandMeshBlock currently outputs positions multiplied by its _transformMatrix.
-        // If those positions are world-space, convert them into local space here.
-        if (InputPositionsAreWorldSpace)
-        {
-            var w2l = transform.worldToLocalMatrix;
-            for (int vi = 0; vi < _positions.Length; vi++)
-                _positions[vi] = w2l.MultiplyPoint3x4(_positions[vi]);
-        }
-
-        // Optional additional transform: interpret vertices as if they are in OutputTransform local space.
-        // Convert them into this object's local space.
-        if (OutputTransform != null)
-        {
-            var m = transform.worldToLocalMatrix * OutputTransform.localToWorldMatrix;
-            for (int vi = 0; vi < _positions.Length; vi++)
-                _positions[vi] = m.MultiplyPoint3x4(_positions[vi]);
-        }
+        var w2l = transform.worldToLocalMatrix;
+        for (int vi = 0; vi < _positions.Length; vi++)
+            _positions[vi] = w2l.MultiplyPoint3x4(_positions[vi]);
 
         _mesh.Clear(false);
         _mesh.vertices = _positions;
