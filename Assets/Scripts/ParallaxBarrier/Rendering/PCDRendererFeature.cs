@@ -10,6 +10,7 @@ public class PCDRendererFeature : ScriptableRendererFeature
     {
         public Mesh mesh;
         public Transform transform;
+        public PCDProcessingMode mode;
     }
 
     [Header("Required Assets")]
@@ -84,7 +85,7 @@ public class PCDRendererFeature : ScriptableRendererFeature
             var obj = _persistentObjects[i];
             if (obj.mesh != null && obj.transform != null)
             {
-                _scriptablePass.AddStaticMesh(obj.mesh, obj.transform);
+                _scriptablePass.AddStaticMesh(obj.mesh, obj.transform, obj.mode);
             }
             else
             {
@@ -93,18 +94,23 @@ public class PCDRendererFeature : ScriptableRendererFeature
         }
     }
 
-    public void AddStaticMesh(Mesh mesh, Transform transform)
+    public void AddStaticMesh(Mesh mesh, Transform transform, PCDProcessingMode mode)
     {
         if (mesh == null || transform == null) return;
 
-        if (!_persistentObjects.Exists(x => x.mesh == mesh && x.transform == transform))
+        var existing = _persistentObjects.Find(x => x.mesh == mesh && x.transform == transform);
+        if (existing == null)
         {
-            _persistentObjects.Add(new RegisteredObject { mesh = mesh, transform = transform });
+            _persistentObjects.Add(new RegisteredObject { mesh = mesh, transform = transform, mode = mode });
+        }
+        else
+        {
+            existing.mode = mode;
         }
 
         ApplySettings(mesh, transform);
 
-        _scriptablePass?.AddStaticMesh(mesh, transform);
+        _scriptablePass?.AddStaticMesh(mesh, transform, mode);
     }
 
     public void RemoveStaticMesh(Mesh mesh, Transform transform)
@@ -122,6 +128,8 @@ public class PCDRendererFeature : ScriptableRendererFeature
             return;
         }
 
+        // Always enqueue the pass - let RecordRenderGraph decide what to do
+        // The pass will handle early returns internally if needed
         _scriptablePass?.SetDebugFlag(enableOriginDebugMap);
         renderer.EnqueuePass(_scriptablePass);
     }

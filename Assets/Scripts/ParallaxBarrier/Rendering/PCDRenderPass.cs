@@ -22,6 +22,7 @@ public class PCDRenderPass : ScriptableRenderPass
     {
         public Mesh mesh;
         public Transform transform;
+        public PCDProcessingMode mode;
     }
 
     private ComputeShader pointCloudCompute;
@@ -55,7 +56,7 @@ public class PCDRenderPass : ScriptableRenderPass
                 _kernelBuildDepthPyramidL3, _kernelBuildDepthPyramidL4,
                 _kernelApplyGradient,
                 _kernelOcclusion, _kernelInterpolate,
-                _kernelMerge; // Added Merge Kernel
+                _kernelMerge, _kernelInitFromCamera; // Added Merge and InitFromCamera Kernels
 
     private RTHandle _originDebugMapHandle;
 
@@ -122,16 +123,21 @@ public class PCDRenderPass : ScriptableRenderPass
         }
     }
 
-    public void AddStaticMesh(Mesh mesh, Transform transform)
+    public void AddStaticMesh(Mesh mesh, Transform transform, PCDProcessingMode mode)
     {
         if (mesh != null && transform != null)
         {
             var existing = _staticMeshes.Find(p => p.mesh == mesh && p.transform == transform);
             if (existing == null)
             {
-                _staticMeshes.Add(new MeshTransformPair { mesh = mesh, transform = transform });
+                _staticMeshes.Add(new MeshTransformPair { mesh = mesh, transform = transform, mode = mode });
                 _isDataDirty = true;
                 UnityEngine.Debug.Log($"[PCDRenderPass] Static mesh '{mesh.name}' added from Transform '{transform.name}'.");
+            }
+            else if (existing.mode != mode)
+            {
+                existing.mode = mode;
+                _isDataDirty = true;
             }
         }
     }
@@ -160,6 +166,8 @@ public class PCDRenderPass : ScriptableRenderPass
         {
             if (pair.mesh == null || pair.transform == null) continue;
             if (!pair.mesh.isReadable) continue;
+            // Only add PointCloud mode meshes to point buffer
+            if (pair.mode != PCDProcessingMode.PointCloud) continue;
             totalMeshPointCount += pair.mesh.vertexCount;
         }
 
@@ -196,6 +204,8 @@ public class PCDRenderPass : ScriptableRenderPass
         foreach (var pair in _staticMeshes)
         {
             if (pair.mesh == null || !pair.mesh.isReadable || pair.transform == null) continue;
+            // Only add PointCloud mode meshes to point buffer
+            if (pair.mode != PCDProcessingMode.PointCloud) continue;
 
             int meshPointCount = pair.mesh.vertexCount;
             if (meshPointCount == 0) continue;
@@ -257,6 +267,7 @@ public class PCDRenderPass : ScriptableRenderPass
         _kernelOcclusion = pointCloudCompute.FindKernel("OcclusionAndFilter");
         _kernelInterpolate = pointCloudCompute.FindKernel("Interpolate");
         _kernelMerge = pointCloudCompute.FindKernel("MergeBuffer");
+        _kernelInitFromCamera = pointCloudCompute.FindKernel("InitFromCamera");
 
         _isInitialized = true;
     }
@@ -306,7 +317,7 @@ public class PCDRenderPass : ScriptableRenderPass
                      kernelBuildDepthPyramidL3, kernelBuildDepthPyramidL4,
                      kernelApplyGradient,
                      kernelOcclusion, kernelInterpolate,
-                     kernelMerge;
+                     kernelMerge, kernelInitFromCamera;
 
         // Buffers for Copy
         internal bool useExternal;
@@ -315,12 +326,15 @@ public class PCDRenderPass : ScriptableRenderPass
         internal int externalCount;
         internal int internalCount;
         internal ComputeBuffer combinedBuffer; // Target buffer
-
-        // ÅyèCê≥Åz: missing definition fixed
         internal ComputeBuffer pointBuffer;
 
         internal TextureHandle colorMap;
         internal TextureHandle depthMap;
+        internal TextureHandle virtualDepthTexture;
+        internal TextureHandle cameraColorTexture;
+        internal bool hasVirtualDepth;
+        internal bool depthMapOnlyMode;
+        internal Matrix4x4 inverseProjectionMatrix;
         internal TextureHandle viewPositionMap;
         internal TextureHandle gridZMinMap;
         internal TextureHandle densityMap;
@@ -354,6 +368,32 @@ public class PCDRenderPass : ScriptableRenderPass
             return _originDebugMapHandle;
         }
         return null;
+    }
+
+    /// <summary>
+    /// Checks if rendering should be skipped entirely.
+    /// This is used by PCDRendererFeature to decide whether to enqueue this pass.
+    /// Returns true for DepthMapOnly mode (no point cloud data, only DepthMap meshes).
+    /// </summary>
+    public bool ShouldSkipRendering()
+    {
+        // Check for external buffer
+        bool hasExternalData = _useExternalBuffer && _externalPointBuffer != null && _externalPointBuffer.IsValid() && _externalPointCount > 0;
+        
+        // Check for internal buffer
+        bool hasInternalData = _pointBuffer != null && _pointBuffer.IsValid() && _pointCount > 0;
+        
+        // Check if we have DepthMap mode meshes
+        bool hasDepthMapMeshes = _staticMeshes.Exists(p => p.mode == PCDProcessingMode.DepthMap);
+        
+        // Check if we have PointCloud mode meshes
+        bool hasPointCloudMeshes = _staticMeshes.Exists(p => p.mode == PCDProcessingMode.PointCloud);
+        
+        // If we have no point cloud data at all, and only DepthMap meshes, skip rendering
+        bool noPointCloudData = !hasExternalData && !hasInternalData && !hasPointCloudMeshes;
+        bool depthMapOnlyMode = hasDepthMapMeshes && noPointCloudData;
+        
+        return depthMapOnlyMode;
     }
 
     public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData)
@@ -404,13 +444,39 @@ public class PCDRenderPass : ScriptableRenderPass
             activeCount = _pointCount;
         }
 
-        if (activeBuffer == null || activeCount == 0 || !activeBuffer.IsValid())
+        // Check if we have DepthMap mode meshes
+        bool hasDepthMapMeshes = _staticMeshes.Exists(p => p.mode == PCDProcessingMode.DepthMap);
+        bool hasPointCloudMeshes = _staticMeshes.Exists(p => p.mode == PCDProcessingMode.PointCloud);
+        
+        // DepthMapOnlyMode: No point cloud data at all, only DepthMap meshes
+        // In this case, URP renders the meshes normally, we don't need PCD processing
+        bool depthMapOnlyMode = hasDepthMapMeshes && !hasPointCloudMeshes && 
+                                (activeBuffer == null || activeCount == 0 || !activeBuffer.IsValid());
+
+        // DepthMapOnlyMode: Skip all PCD processing and let URP render normally
+        if (depthMapOnlyMode)
         {
+            // No point cloud data to process, just let URP render the DepthMap meshes
+            UnityEngine.Debug.Log("[PCDRenderPass] DepthMapOnlyMode: No point cloud data, letting URP render normally");
             return;
         }
 
+        if (activeBuffer == null || activeCount == 0 || !activeBuffer.IsValid())
+        {
+            // No point cloud data and no DepthMap meshes, nothing to render
+            UnityEngine.Debug.LogWarning("[PCDRenderPass] Early return: No point cloud data");
+            return;
+        }
+        
+        // At this point, we have point cloud data (RealSense or static mesh points)
+        // If hasDepthMapMeshes is true, we'll use URP's depth texture for occlusion
+
         var cameraData = frameData.Get<UniversalCameraData>();
         var resourceData = frameData.Get<UniversalResourceData>();
+        
+        // Check if URP depth texture is available for virtual depth occlusion
+        bool hasValidDepthTexture = resourceData.cameraDepthTexture.IsValid();
+        
         Camera camera = cameraData.camera;
         int screenWidth = camera.pixelWidth;
         int screenHeight = camera.pixelHeight;
@@ -474,7 +540,8 @@ public class PCDRenderPass : ScriptableRenderPass
             data.kernelApplyGradient = _kernelApplyGradient;
             data.kernelOcclusion = _kernelOcclusion;
             data.kernelInterpolate = _kernelInterpolate;
-            data.kernelMerge = _kernelMerge; // Kernel index
+            data.kernelMerge = _kernelMerge;
+            data.kernelInitFromCamera = _kernelInitFromCamera;
 
             data.useExternal = _useExternalBuffer;
             data.externalBuffer = _externalPointBuffer;
@@ -483,7 +550,26 @@ public class PCDRenderPass : ScriptableRenderPass
             data.internalCount = _pointCount;
             data.combinedBuffer = _combinedBuffer;
 
+
             data.pointBuffer = activeBuffer;
+
+            // Enable VirtualDepth when there are DepthMap mode meshes (use URP depth for occlusion)
+            data.hasVirtualDepth = hasDepthMapMeshes && resourceData.cameraDepthTexture.IsValid();
+            data.depthMapOnlyMode = depthMapOnlyMode;
+            data.inverseProjectionMatrix = camera.projectionMatrix.inverse;
+            
+            if (data.hasVirtualDepth || depthMapOnlyMode)
+            {
+                data.virtualDepthTexture = resourceData.cameraDepthTexture;
+                builder.UseTexture(data.virtualDepthTexture, AccessFlags.Read);
+            }
+            
+            // For DepthMapOnly mode, we also need camera color texture
+            if (depthMapOnlyMode && resourceData.activeColorTexture.IsValid())
+            {
+                data.cameraColorTexture = resourceData.activeColorTexture;
+                builder.UseTexture(data.cameraColorTexture, AccessFlags.Read);
+            }
 
             var desc = new TextureDesc(screenWidth, screenHeight) { enableRandomWrite = true };
             desc.colorFormat = GraphicsFormatUtility.GetGraphicsFormat(RenderTextureFormat.ARGBFloat, false);
@@ -559,6 +645,27 @@ public class PCDRenderPass : ScriptableRenderPass
                 var cmd = context.cmd;
                 var cs = pointCloudCompute;
 
+                // Enable VirtualDepth for hybrid mode (PointCloud + DepthMap meshes coexisting)
+                // In DepthMapOnlyMode, we don't need VirtualDepth check since all depth comes from camera
+                bool useVirtualDepth = passData.hasVirtualDepth && !passData.depthMapOnlyMode;
+                cmd.SetComputeIntParam(cs, "_UseVirtualDepth", useVirtualDepth ? 1 : 0);
+                
+                // Always bind a texture to avoid "Property not set" errors, even if unused
+                if (passData.hasVirtualDepth || passData.depthMapOnlyMode)
+                {
+                    cmd.SetComputeTextureParam(cs, passData.kernelCalcGridZMin, "_VirtualDepthMap", passData.virtualDepthTexture);
+                    cmd.SetComputeTextureParam(cs, passData.kernelCalcDensity, "_VirtualDepthMap", passData.virtualDepthTexture);
+                    cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, "_VirtualDepthMap", passData.virtualDepthTexture);
+                }
+                else
+                {
+                    // Bind a dummy texture (e.g., depthMap itself) to satisfy the shader binding requirement
+                    // This is safe because _UseVirtualDepth is 0, so the shader won't sample it
+                    cmd.SetComputeTextureParam(cs, passData.kernelCalcGridZMin, "_VirtualDepthMap", passData.depthMap);
+                    cmd.SetComputeTextureParam(cs, passData.kernelCalcDensity, "_VirtualDepthMap", passData.depthMap);
+                    cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, "_VirtualDepthMap", passData.depthMap);
+                }
+
                 // --- 1. Buffer Merge using Compute Shader ---
                 // GPU Copy (External + Internal -> Combined)
                 if (passData.useExternal && passData.combinedBuffer != null)
@@ -606,6 +713,7 @@ public class PCDRenderPass : ScriptableRenderPass
                 int gridGroupsY = Mathf.CeilToInt(sh / 16.0f);
 
                 // 1. ClearMaps
+                cmd.SetComputeTextureParam(cs, passData.kernelClear, "_ColorMap_RW", passData.colorMap);
                 cmd.SetComputeTextureParam(cs, passData.kernelClear, "_DepthMap_RW", passData.depthMap);
                 cmd.SetComputeTextureParam(cs, passData.kernelClear, "_ViewPositionMap_RW", passData.viewPositionMap);
                 cmd.SetComputeTextureParam(cs, passData.kernelClear, "_OcclusionResultMap_RW", passData.occlusionResultMap);
@@ -614,13 +722,29 @@ public class PCDRenderPass : ScriptableRenderPass
                 cmd.SetComputeTextureParam(cs, passData.kernelClear, "_OriginTypeMap_RW", passData.originTypeMap);
                 cmd.DispatchCompute(cs, passData.kernelClear, threadGroupsX, threadGroupsY, 1);
 
-                // 2. ProjectPoints
-                cmd.SetComputeBufferParam(cs, passData.kernelProject, "_PointBuffer", passData.pointBuffer);
-                cmd.SetComputeTextureParam(cs, passData.kernelProject, "_ColorMap_RW", passData.colorMap);
-                cmd.SetComputeTextureParam(cs, passData.kernelProject, "_DepthMap_RW", passData.depthMap);
-                cmd.SetComputeTextureParam(cs, passData.kernelProject, "_ViewPositionMap_RW", passData.viewPositionMap);
-                cmd.SetComputeTextureParam(cs, passData.kernelProject, "_OriginTypeMap_RW", passData.originTypeMap);
-                cmd.DispatchCompute(cs, passData.kernelProject, Mathf.CeilToInt(passData.pointCount / 256.0f), 1, 1);
+                // 2. ProjectPoints or InitFromCamera (DepthMapOnly mode)
+                if (passData.depthMapOnlyMode)
+                {
+                    // DepthMapOnly mode: Initialize from URP camera textures instead of projecting points
+                    cmd.SetComputeMatrixParam(cs, "_InverseProjectionMatrix", passData.inverseProjectionMatrix);
+                    cmd.SetComputeTextureParam(cs, passData.kernelInitFromCamera, "_VirtualDepthMap", passData.virtualDepthTexture);
+                    cmd.SetComputeTextureParam(cs, passData.kernelInitFromCamera, "_CameraColorTexture", passData.cameraColorTexture);
+                    cmd.SetComputeTextureParam(cs, passData.kernelInitFromCamera, "_DepthMap_RW", passData.depthMap);
+                    cmd.SetComputeTextureParam(cs, passData.kernelInitFromCamera, "_ColorMap_RW", passData.colorMap);
+                    cmd.SetComputeTextureParam(cs, passData.kernelInitFromCamera, "_ViewPositionMap_RW", passData.viewPositionMap);
+                    cmd.SetComputeTextureParam(cs, passData.kernelInitFromCamera, "_OriginTypeMap_RW", passData.originTypeMap);
+                    cmd.DispatchCompute(cs, passData.kernelInitFromCamera, threadGroupsX, threadGroupsY, 1);
+                }
+                else
+                {
+                    // Normal PointCloud mode: Project points to screen
+                    cmd.SetComputeBufferParam(cs, passData.kernelProject, "_PointBuffer", passData.pointBuffer);
+                    cmd.SetComputeTextureParam(cs, passData.kernelProject, "_ColorMap_RW", passData.colorMap);
+                    cmd.SetComputeTextureParam(cs, passData.kernelProject, "_DepthMap_RW", passData.depthMap);
+                    cmd.SetComputeTextureParam(cs, passData.kernelProject, "_ViewPositionMap_RW", passData.viewPositionMap);
+                    cmd.SetComputeTextureParam(cs, passData.kernelProject, "_OriginTypeMap_RW", passData.originTypeMap);
+                    cmd.DispatchCompute(cs, passData.kernelProject, Mathf.CeilToInt(passData.pointCount / 256.0f), 1, 1);
+                }
 
                 // 3. CalculateGridZMin
                 cmd.SetComputeTextureParam(cs, passData.kernelCalcGridZMin, "_DepthMap", passData.depthMap);
@@ -693,6 +817,7 @@ public class PCDRenderPass : ScriptableRenderPass
                 cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, "_DepthMap", passData.depthMap);
                 cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, "_ViewPositionMap", passData.viewPositionMap);
                 cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, "_OriginTypeMap", passData.originTypeMap);
+                cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, "_OriginTypeMap_RW", passData.originTypeMap);
 
                 if (passData.enableGradientCorrection)
                 {
@@ -736,18 +861,20 @@ public class PCDRenderPass : ScriptableRenderPass
                 builder.UseTexture(data.sourceImage, AccessFlags.Read);
             }
 
-            builder.SetRenderAttachment(data.cameraTarget, 0);
+            // Use Load action to preserve existing camera color (URP rendered meshes)
+            builder.SetRenderAttachment(data.cameraTarget, 0, AccessFlags.ReadWrite);
 
             builder.SetRenderFunc((BlitPassData passData, RasterGraphContext context) =>
             {
-                if (!passData.enableOriginDebugMap)
+                // Always use alpha blend when we have DepthMap meshes or when enableAlphaBlend is true
+                // This allows URP-rendered content (virtual objects) to show through where PCD result is transparent
+                if (passData.blendMaterial != null && !passData.enableOriginDebugMap)
                 {
-                    Blitter.BlitTexture(context.cmd, passData.sourceImage, new Vector4(1, 1, 0, 0), 0.0f, false);
+                    Blitter.BlitTexture(context.cmd, passData.sourceImage, new Vector4(1, 1, 0, 0), passData.blendMaterial, 0);
+                    return;
                 }
-                else
-                {
-                    Blitter.BlitTexture(context.cmd, passData.sourceImage, new Vector4(1, 1, 0, 0), 0.0f, false);
-                }
+
+                Blitter.BlitTexture(context.cmd, passData.sourceImage, new Vector4(1, 1, 0, 0), 0.0f, false);
             });
         }
     }

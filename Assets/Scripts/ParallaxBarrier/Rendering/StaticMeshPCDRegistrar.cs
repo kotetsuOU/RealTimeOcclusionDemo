@@ -4,30 +4,52 @@ using System.Collections;
 [RequireComponent(typeof(MeshFilter))]
 public class StaticMeshPCDRegistrar : MonoBehaviour
 {
+    [Tooltip("PointCloud: vertices / DepthMap: URP depth")]
+    public PCDProcessingMode mode = PCDProcessingMode.DepthMap;
+
     private MeshFilter _meshFilter;
+    private MeshRenderer _meshRenderer;
     private bool _isRegistered = false;
 
     private void OnEnable()
     {
         _meshFilter = GetComponent<MeshFilter>();
+        _meshRenderer = GetComponent<MeshRenderer>();
 
         if (_meshFilter == null || _meshFilter.mesh == null)
         {
-            UnityEngine.Debug.LogError($"[StaticMeshPCDRegistrar] MeshFilter または Mesh が見つかりません。", this.gameObject);
+            Debug.LogError("[StaticMeshPCDRegistrar] MeshFilter or Mesh not found.", this.gameObject);
             return;
+        }
+
+        if (mode == PCDProcessingMode.DepthMap)
+        {
+            if (_meshRenderer == null)
+            {
+                Debug.LogError("[StaticMeshPCDRegistrar] DepthMap mode requires MeshRenderer. Add MeshRenderer to: " + gameObject.name, this.gameObject);
+                return;
+            }
+            if (!_meshRenderer.enabled)
+            {
+                Debug.LogWarning("[StaticMeshPCDRegistrar] MeshRenderer is disabled. DepthMap mode requires it enabled: " + gameObject.name, this.gameObject);
+            }
+            if (_meshRenderer.sharedMaterial == null)
+            {
+                Debug.LogWarning("[StaticMeshPCDRegistrar] No Material assigned. DepthMap mode requires Material: " + gameObject.name, this.gameObject);
+            }
         }
 
         if (_isRegistered) return;
 
         if (PCDRendererFeature.Instance != null)
         {
-            PCDRendererFeature.Instance.AddStaticMesh(_meshFilter.mesh, transform);
+            PCDRendererFeature.Instance.AddStaticMesh(_meshFilter.sharedMesh, transform, mode);
             _isRegistered = true;
-            UnityEngine.Debug.Log($"[StaticMeshPCDRegistrar] メッシュ '{_meshFilter.mesh.name}' を即時登録しました (Transform: '{transform.name}')。");
+            Debug.Log("[StaticMeshPCDRegistrar] Mesh registered: " + _meshFilter.mesh.name + " Mode: " + mode);
         }
         else
         {
-            UnityEngine.Debug.LogWarning($"[StaticMeshPCDRegistrar] PCDRendererFeature のインスタンス待機中: '{_meshFilter.mesh.name}'");
+            Debug.LogWarning("[StaticMeshPCDRegistrar] Waiting for PCDRendererFeature: " + _meshFilter.mesh.name);
             StartCoroutine(RegisterWhenReady());
         }
     }
@@ -41,8 +63,8 @@ public class StaticMeshPCDRegistrar : MonoBehaviour
 
         if (!_isRegistered && _meshFilter != null && _meshFilter.mesh != null)
         {
-            UnityEngine.Debug.Log($"[StaticMeshPCDRegistrar] PCDRendererFeature インスタンスを発見。メッシュ '{_meshFilter.mesh.name}' を登録します (Transform: '{transform.name}')。");
-            PCDRendererFeature.Instance.AddStaticMesh(_meshFilter.mesh, transform);
+            Debug.Log("[StaticMeshPCDRegistrar] PCDRendererFeature found. Registering: " + _meshFilter.mesh.name + " Mode: " + mode);
+            PCDRendererFeature.Instance.AddStaticMesh(_meshFilter.sharedMesh, transform, mode);
             _isRegistered = true;
         }
     }
@@ -54,9 +76,15 @@ public class StaticMeshPCDRegistrar : MonoBehaviour
             if (PCDRendererFeature.Instance != null)
             {
                 PCDRendererFeature.Instance.RemoveStaticMesh(_meshFilter.mesh, transform);
-                UnityEngine.Debug.Log($"[StaticMeshPCDRegistrar] メッシュ '{_meshFilter.mesh.name}' を解除しました (Transform: '{transform.name}')。");
+                Debug.Log("[StaticMeshPCDRegistrar] Mesh unregistered: " + _meshFilter.mesh.name);
             }
         }
         _isRegistered = false;
     }
+}
+
+public enum PCDProcessingMode
+{
+    PointCloud,
+    DepthMap
 }

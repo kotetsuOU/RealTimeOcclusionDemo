@@ -1,4 +1,4 @@
-#pragma kernel ClearMaps
+﻿#pragma kernel ClearMaps
 #pragma kernel ProjectPoints
 #pragma kernel CalculateGridZMin
 #pragma kernel CalculateDensity
@@ -110,7 +110,7 @@ float SobelOnPyramid(Texture2D<uint> pyramidTex, uint2 uv)
     float bl = (float) pyramidTex[clamp(uv + int2(-1, 1), 0, dim - 1)] / (float) DEPTH_MAX_UINT;
     float b = (float) pyramidTex[clamp(uv + int2(0, 1), 0, dim - 1)] / (float) DEPTH_MAX_UINT;
     float br = (float) pyramidTex[clamp(uv + int2(1, 1), 0, dim - 1)] / (float) DEPTH_MAX_UINT;
-    
+
     const float MAX_DEPTH_NORMALIZED = 1.0 + 0.1;
     if (tl > MAX_DEPTH_NORMALIZED || t > MAX_DEPTH_NORMALIZED || tr > MAX_DEPTH_NORMALIZED ||
         l > MAX_DEPTH_NORMALIZED || r > MAX_DEPTH_NORMALIZED ||
@@ -121,7 +121,6 @@ float SobelOnPyramid(Texture2D<uint> pyramidTex, uint2 uv)
 
     float Gx = (tr + 2.0 * r + br) - (tl + 2.0 * l + bl);
     float Gy = (bl + 2.0 * b + br) - (tl + 2.0 * t + tr);
-    
     return sqrt(Gx * Gx + Gy * Gy);
 }
 
@@ -134,6 +133,7 @@ void MergeBuffer(uint3 id : SV_DispatchThreadID)
 {
     if (id.x >= (uint) _MergeCopyCount)
         return;
+    
     _MergeDstBuffer[_MergeDstOffset + id.x] = _MergeSrcBuffer[_MergeSrcOffset + id.x];
 }
 
@@ -143,7 +143,6 @@ void ClearMaps(uint3 id : SV_DispatchThreadID)
 {
     if (id.x >= (uint) _ScreenParams.x || id.y >= (uint) _ScreenParams.y)
         return;
-    
     _ColorMap_RW[id.xy] = float4(0, 0, 0, 0);
     _DepthMap_RW[id.xy] = DEPTH_MAX_UINT;
     _ViewPositionMap_RW[id.xy] = float4(0, 0, 0, 1e9);
@@ -151,7 +150,7 @@ void ClearMaps(uint3 id : SV_DispatchThreadID)
     _FinalImage_RW[id.xy] = float4(0, 0, 0, 0);
 
     _OriginMap_RW[id.xy] = float4(0, 0, 0, 1);
-    _OriginTypeMap_RW[id.xy] = 2u; // 2 = Background
+    _OriginTypeMap_RW[id.xy] = 2u;
 }
 
 // 2. Project Points
@@ -160,23 +159,18 @@ void ProjectPoints(uint3 id : SV_DispatchThreadID)
 {
     if (id.x >= _PointCount)
         return;
-    
     Point p = _PointBuffer[id.x];
     float4 worldPos = float4(p.position, 1.0);
     float4 viewPos = mul(_ViewMatrix, worldPos);
     float4 clipPos = mul(_ProjectionMatrix, viewPos);
-    
     float3 ndc = clipPos.xyz / clipPos.w;
     if (ndc.x < -1 || ndc.x > 1 || ndc.y < -1 || ndc.y > 1 || ndc.z < 0 || ndc.z > 1)
         return;
-    
     uint2 screenUV = uint2((ndc.x * 0.5 + 0.5) * _ScreenParams.x, (ndc.y * 0.5 + 0.5) * _ScreenParams.y);
     float depth = ndc.z;
     uint depth_uint = (uint) (depth * (float) DEPTH_MAX_UINT);
-    
     uint oldDepth;
     InterlockedMin(_DepthMap_RW[screenUV], depth_uint, oldDepth);
-    
     if (depth_uint < oldDepth)
     {
         _ColorMap_RW[screenUV] = float4(p.color, 1.0);
@@ -194,15 +188,22 @@ void CalculateGridZMin(uint3 id : SV_DispatchThreadID, uint3 groupID : SV_GroupI
         shared_z_min = DEPTH_MAX_UINT;
     }
     GroupMemoryBarrierWithGroupSync();
-    
     uint depth_uint = _DepthMap[id.xy];
 
+    if (_UseVirtualDepth > 0)
+    {
+        float vDepth = _VirtualDepthMap[id.xy];
+        if (vDepth < 1.0)
+        {
+            uint vDepth_uint = (uint) (vDepth * (float) DEPTH_MAX_UINT);
+            depth_uint = min(depth_uint, vDepth_uint);
+        }
+    }
     if (depth_uint < DEPTH_MAX_UINT)
     {
         InterlockedMin(shared_z_min, depth_uint);
     }
     GroupMemoryBarrierWithGroupSync();
-    
     if (groupIndex == 0u)
     {
         _GridZMinMap_RW[groupID.xy] = shared_z_min;
@@ -218,22 +219,25 @@ void CalculateDensity(uint3 id : SV_DispatchThreadID, uint3 groupID : SV_GroupID
         shared_point_count = 0u;
     }
     GroupMemoryBarrierWithGroupSync();
-    
     uint z_min_uint = _GridZMinMap[groupID.xy];
     float z_min = (float) z_min_uint / (float) DEPTH_MAX_UINT;
-    
-    uint depth_uint = _DepthMap[id.xy];
-    if (depth_uint < DEPTH_MAX_UINT)
+    if (_UseVirtualDepth > 0 && _VirtualDepthMap[id.xy] < 1.0)
     {
-        float depth = (float) depth_uint / (float) DEPTH_MAX_UINT;
-        if ((depth - z_min) < _DensityThreshold_e)
+        InterlockedAdd(shared_point_count, 1u);
+    }
+    else
+    {
+        if (z_min_uint < DEPTH_MAX_UINT)
         {
-            InterlockedAdd(shared_point_count, 1u);
+            uint depth_uint = _DepthMap[id.xy];
+            float depth = (float) depth_uint / (float) DEPTH_MAX_UINT;
+            if (depth_uint < DEPTH_MAX_UINT && (depth - z_min) < _DensityThreshold_e)
+            {
+                InterlockedAdd(shared_point_count, 1u);
+            }
         }
     }
-    
     GroupMemoryBarrierWithGroupSync();
-    
     if (groupIndex == 0u)
     {
         float density = float(shared_point_count) / float(GRID_SIZE * GRID_SIZE);
@@ -249,7 +253,6 @@ void CalculateGridLevel(uint3 id : SV_DispatchThreadID)
     _DensityMap.GetDimensions(dim.x, dim.y);
     if (id.x >= dim.x || id.y >= dim.y)
         return;
-    
     float density = _DensityMap[id.xy];
     int level = 0;
     if (density > 0.001)
@@ -305,7 +308,6 @@ void CalculateNeighborhoodSize(uint3 id : SV_DispatchThreadID)
 {
     if (id.x >= (uint) _ScreenParams.x || id.y >= (uint) _ScreenParams.y)
         return;
-    
     uint2 gridID = id.xy / GRID_SIZE;
     int level = _FilteredGridLevelMap[gridID];
     _NeighborhoodSizeMap_RW[id.xy] = level;
@@ -361,11 +363,10 @@ void ApplyAdaptiveGradientCorrection(uint3 id : SV_DispatchThreadID)
 {
     if (id.x >= (uint) _ScreenParams.x || id.y >= (uint) _ScreenParams.y)
         return;
-    
     uint2 fullResUV = id.xy;
+    
     int level = _NeighborhoodSizeMap[fullResUV];
     int correctedLevel = level;
-    
     if (level > 0)
     {
         float gradient = 0.0;
@@ -397,6 +398,7 @@ void ApplyAdaptiveGradientCorrection(uint3 id : SV_DispatchThreadID)
             correctedLevel = max(0, level - 1);
         }
     }
+    
     _CorrectedNeighborhoodSizeMap_RW[fullResUV] = correctedLevel;
 }
 
@@ -406,107 +408,36 @@ void OcclusionAndFilter(uint3 id : SV_DispatchThreadID)
 {
     if (id.x >= (uint) _ScreenParams.x || id.y >= (uint) _ScreenParams.y)
         return;
-
     uint pointDepth_uint = _DepthMap[id.xy];
-    
-    uint vDepth_uint = DEPTH_MAX_UINT;
-    bool hasVirtualObj = false;
-    
+
+    // Hybrid mode mask behavior:
+    // - if virtual depth is significantly closer, output transparent so URP mesh color stays
+    // - if there's no point for this pixel, output transparent
+    // Note: Add small depth bias to avoid false occlusion from same-object depth precision issues
     if (_UseVirtualDepth > 0)
     {
-        float vDepthRaw = _VirtualDepthMap[id.xy];
-        float vDepth = 1.0 - vDepthRaw;
-        
-        if (vDepth < 0.9999)
+        float vDepth = _VirtualDepthMap[id.xy];
+        if (vDepth < 0.9999) // Use threshold slightly below 1.0 for precision
         {
-            hasVirtualObj = true;
-            vDepth_uint = (uint) (vDepth * (float) DEPTH_MAX_UINT);
+            uint vDepth_uint = (uint) (vDepth * (float) DEPTH_MAX_UINT);
+            // Add depth bias: virtual must be noticeably closer (not just floating-point error)
+            uint depthBias = DEPTH_MAX_UINT / 1000; // ~0.1% depth tolerance
+            if (pointDepth_uint >= DEPTH_MAX_UINT || (vDepth_uint + depthBias) < pointDepth_uint)
+            {
+                _OcclusionResultMap_RW[id.xy] = float4(0, 0, 0, 0);
+                _OriginMap_RW[id.xy] = float4(1, 1, 1, 1);
+                _OriginTypeMap_RW[id.xy] = 1u;
+                return;
+            }
         }
     }
 
     if (pointDepth_uint >= DEPTH_MAX_UINT)
     {
-        int fillRadius = 2;
-        float totalWeight = 0.0;
-        float4 accumulatedColor = float4(0, 0, 0, 0);
-        float weightedOriginSum = 0.0;
-
-        uint thresholdDepth = (hasVirtualObj) ? vDepth_uint : DEPTH_MAX_UINT;
-
-        for (int y = -fillRadius; y <= fillRadius; y++)
-        {
-            for (int x = -fillRadius; x <= fillRadius; x++)
-            {
-                if (x == 0 && y == 0)
-                    continue;
-                
-                float distSq = dot(float2(x, y), float2(x, y));
-                
-                float weight = 1.0 / (1.0 + distSq * 0.5);
-
-                int2 offset = int2(x, y);
-                uint2 uv = clamp((int2) id.xy + offset, 0, (int2) _ScreenParams.xy - 1);
-                
-                uint nDepth_uint = _DepthMap[uv];
-                
-                if (nDepth_uint < DEPTH_MAX_UINT)
-                {
-                    if (nDepth_uint < thresholdDepth)
-                    {
-                        float4 c = _ColorMap[uv];
-                        accumulatedColor += c * weight;
-                        totalWeight += weight;
-                        
-                        uint nType = _OriginTypeMap[uv];
-                        weightedOriginSum += (float) nType * weight;
-                    }
-                }
-            }
-        }
-
-        if (totalWeight > 0.3)
-        {
-            _OcclusionResultMap_RW[id.xy] = accumulatedColor / totalWeight;
-            
-            float avgType = weightedOriginSum / totalWeight;
-            if (avgType < 0.5)
-            {
-                _OriginMap_RW[id.xy] = float4(0, 0, 0, 1);
-                _OriginTypeMap_RW[id.xy] = 0u;
-            }
-            else
-            {
-                _OriginMap_RW[id.xy] = float4(1, 1, 1, 1);
-                _OriginTypeMap_RW[id.xy] = 1u;
-            }
-        }
-        else
-        {
-            _OcclusionResultMap_RW[id.xy] = float4(0, 0, 0, 0);
-            
-            if (hasVirtualObj)
-            {
-                _OriginMap_RW[id.xy] = float4(1, 1, 1, 1);
-                _OriginTypeMap_RW[id.xy] = 1u;
-            }
-            else
-            {
-                _OriginTypeMap_RW[id.xy] = 2u;
-            }
-        }
-        return;
-    }
-
-    uint depthBias = DEPTH_MAX_UINT / 1000;
-    
-    if (hasVirtualObj && (vDepth_uint + depthBias) < pointDepth_uint)
-    {
         _OcclusionResultMap_RW[id.xy] = float4(0, 0, 0, 0);
-        _OriginMap_RW[id.xy] = float4(1, 1, 1, 1);
-        _OriginTypeMap_RW[id.xy] = 1u;
         return;
     }
-    
+
     float3 currentPos = _ViewPositionMap[id.xy].xyz;
     float currentDepth = _ViewPositionMap[id.xy].w;
 
@@ -516,19 +447,16 @@ void OcclusionAndFilter(uint3 id : SV_DispatchThreadID)
 
     float occlusionSum = 0.0;
     uint neighborCount = 0u;
-    
     for (uint y = 0u; y <= radius * 2u; y++)
     {
         for (uint x = 0u; x <= radius * 2u; x++)
         {
             if (x == radius && y == radius)
                 continue;
-            
             int2 offset = int2((int) x - (int) radius, (int) y - (int) radius);
-            uint2 uv = clamp((int2) id.xy + offset, 0, (int2) _ScreenParams.xy - 1);
+            uint2 uv = clamp(id.xy + offset, 0, _ScreenParams.xy - 1);
             
             uint neighborDepth_uint = _DepthMap[uv];
-            
             if (neighborDepth_uint < DEPTH_MAX_UINT)
             {
                 float3 neighborPos = _ViewPositionMap[uv].xyz;
@@ -567,12 +495,15 @@ void OcclusionAndFilter(uint3 id : SV_DispatchThreadID)
     else
     {
         _OcclusionResultMap_RW[id.xy] = _ColorMap[id.xy];
-        
         uint originType = _OriginTypeMap[id.xy];
         if (originType == 0u)
+        {
             _OriginMap_RW[id.xy] = float4(0, 0, 0, 1);
+        }
         else if (originType == 1u)
+        {
             _OriginMap_RW[id.xy] = float4(1, 1, 1, 1);
+        }
     }
 }
 
@@ -582,7 +513,6 @@ void Interpolate(uint3 id : SV_DispatchThreadID)
 {
     if (id.x >= (uint) _ScreenParams.x || id.y >= (uint) _ScreenParams.y)
         return;
-    
     float4 centerColor = _OcclusionResultMap[id.xy];
 
     if (centerColor.a > 0)
@@ -593,18 +523,16 @@ void Interpolate(uint3 id : SV_DispatchThreadID)
 
     float4 accumulatedColor = float4(0, 0, 0, 0);
     uint count = 0u;
-    uint chosenOriginType = 2u;
     
+    uint chosenOriginType = 2u;
     for (int y = -1; y <= 1; y++)
     {
         for (int x = -1; x <= 1; x++)
         {
             if (x == 0 && y == 0)
                 continue;
-            
             uint2 uv = clamp(id.xy + int2(x, y), 0, _ScreenParams.xy - 1);
             float4 neighborColor = _OcclusionResultMap[uv];
-            
             if (neighborColor.a > 0)
             {
                 accumulatedColor += neighborColor;
@@ -622,11 +550,14 @@ void Interpolate(uint3 id : SV_DispatchThreadID)
     if (count > 0u)
     {
         _FinalImage_RW[id.xy] = accumulatedColor / (float) count;
-        
         if (chosenOriginType == 0u)
+        {
             _OriginMap_RW[id.xy] = float4(0, 0, 0, 1);
+        }
         else if (chosenOriginType == 1u)
+        {
             _OriginMap_RW[id.xy] = float4(1, 1, 1, 1);
+        }
     }
     else
     {
@@ -634,15 +565,17 @@ void Interpolate(uint3 id : SV_DispatchThreadID)
     }
 }
 
-// 11. InitFromCamera
+// 11. InitFromCamera - Initialize depth/color/viewPosition from URP camera textures (DepthMap mode)
 [numthreads(8, 8, 1)]
 void InitFromCamera(uint3 id : SV_DispatchThreadID)
 {
     if (id.x >= (uint) _ScreenParams.x || id.y >= (uint) _ScreenParams.y)
         return;
     
+    // Read camera depth (0-1 range, 0=near, 1=far in Unity)
     float cameraDepth = _VirtualDepthMap[id.xy];
     
+    // Skip pixels with no geometry (depth at far plane)
     if (cameraDepth >= 0.9999)
     {
         _DepthMap_RW[id.xy] = DEPTH_MAX_UINT;
@@ -652,18 +585,28 @@ void InitFromCamera(uint3 id : SV_DispatchThreadID)
         return;
     }
     
-    uint depth_uint = (uint) (cameraDepth * (float) DEPTH_MAX_UINT);
+    // Convert depth to uint for the depth map
+    uint depth_uint = (uint)(cameraDepth * (float)DEPTH_MAX_UINT);
     _DepthMap_RW[id.xy] = depth_uint;
     
+    // Read camera color
     float4 cameraColor = _CameraColorTexture[id.xy];
     _ColorMap_RW[id.xy] = float4(cameraColor.rgb, 1.0);
     
+    // Reconstruct view position from depth
+    // Convert screen UV to NDC (-1 to 1)
     float2 uv = float2(id.xy) / _ScreenParams.xy;
     float2 ndc = uv * 2.0 - 1.0;
+    
+    // Reconstruct clip position
     float4 clipPos = float4(ndc.x, ndc.y, cameraDepth * 2.0 - 1.0, 1.0);
+    
+    // Transform to view space using inverse projection
     float4 viewPos = mul(_InverseProjectionMatrix, clipPos);
     viewPos /= viewPos.w;
     
     _ViewPositionMap_RW[id.xy] = float4(viewPos.xyz, cameraDepth);
+    
+    // Mark as StaticMesh origin (DepthMap mode)
     _OriginTypeMap_RW[id.xy] = 1u;
 }
