@@ -68,7 +68,7 @@ void CSVertices(uint3 id : SV_DispatchThreadID)
 {
     if (id.x >= (uint)_Width || id.y >= (uint)_Height) return;
 
-    int idx = id.y * _Width + id.x;
+    uint idx = id.y * (uint)_Width + id.x;
     
     // Unpack 16-bit packed depth
     uint packed = _InputDepthBuffer[idx / 2];
