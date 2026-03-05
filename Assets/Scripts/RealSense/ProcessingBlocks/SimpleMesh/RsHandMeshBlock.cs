@@ -18,6 +18,13 @@ public class RsHandMeshBlock : RsProcessingBlock
     [Header("Output")]
     public bool _enableCpuOutput = true;
 
+    [Header("Depth Map Debug")]
+    public bool _enableDepthMapOutput = false;
+    public int _depthMapCaptureLimit = 5;
+    private int _depthMapCapturedCount = 0;
+    public string _depthMapSaveFolder = "Assets/HandTrackingData/DepthMaps";
+    private int _depthMapFrameCount = 0;
+
     [Header("Mesh Settings")]
     [Tooltip("Edges longer than this (meters) are discarded.")]
     [Range(0f, 0.1f)] public float _edgeThreshold = 0.02f; 
@@ -227,6 +234,21 @@ public class RsHandMeshBlock : RsProcessingBlock
                             depthFrame.CopyTo(_depthDataCache);
                             _hasNewFrame = true;
 
+                            if (_enableDepthMapOutput)
+                            {
+                                SaveDepthMapBmp(depthFrame);
+                                _depthMapCapturedCount++;
+                                if (_depthMapCapturedCount >= _depthMapCaptureLimit)
+                                {
+                                    _enableDepthMapOutput = false;
+                                    _depthMapCapturedCount = 0;
+                                }
+                            }
+                            else
+                            {
+                                _depthMapCapturedCount = 0;
+                            }
+
                             if (_logLifecycle && !_loggedFirstFrameCopied)
                             {
                                 _loggedFirstFrameCopied = true;
@@ -343,17 +365,90 @@ public class RsHandMeshBlock : RsProcessingBlock
             LatestPositions = new Vector3[vertexCount];
         if (LatestColors == null || LatestColors.Length != vertexCount)
             LatestColors = new Color[vertexCount];
-        if (LatestIndices == null || LatestIndices.Length != indexCount)
+        if (LatestIndices == null || LatestIndices.Length < indexCount)
             LatestIndices = new int[indexCount];
 
         for (int i = 0; i < vertexCount; i++)
         {
-            LatestPositions[i] = _transformMatrix.MultiplyPoint3x4(_vertexReadback[i].pos);
-            var c = _vertexReadback[i].col;
-            LatestColors[i] = new Color(c.x, c.y, c.z, 1f);
+            LatestPositions[i] = _vertexReadback[i].pos;
+            LatestColors[i] = new Color(_vertexReadback[i].col.x, _vertexReadback[i].col.y, _vertexReadback[i].col.z, 1f);
         }
         Array.Copy(_indexReadback, LatestIndices, indexCount);
         LatestIndexCount = indexCount;
+    }
+
+    private void SaveDepthMapBmp(DepthFrame depthFrame)
+    {
+        int width = depthFrame.Width;
+        int height = depthFrame.Height;
+        
+        ushort[] depthData = new ushort[width * height];
+        depthFrame.CopyTo(depthData);
+        float scale = 0.001f;
+
+        byte[] pixels = new byte[width * height * 3]; // RGB24
+        int idx = 0;
+
+        for (int y = 0; y < height; y++)
+        {
+            // BMP files store rows bottom-to-top
+            int rowStart = (height - 1 - y) * width;
+            for (int x = 0; x < width; x++)
+            {
+                float depthMeters = depthData[rowStart + x] * scale;
+                byte intensity = 0;
+                if (depthMeters >= _minDistance && depthMeters <= _maxDistance)
+                {
+                    float t = (depthMeters - _minDistance) / (_maxDistance - _minDistance);
+                    if (t < 0f) t = 0f;
+                    if (t > 1f) t = 1f;
+                    intensity = (byte)(t * 255f);
+                }
+
+                pixels[idx++] = intensity; // B
+                pixels[idx++] = intensity; // G
+                pixels[idx++] = intensity; // R
+            }
+        }
+
+        int rowLen = width * 3;
+        int pad = (4 - (rowLen % 4)) % 4;
+        int rawDataSize = (rowLen + pad) * height;
+
+        byte[] bmp = new byte[54 + rawDataSize];
+        bmp[0] = 66; bmp[1] = 77; // 'B', 'M'
+
+        System.BitConverter.GetBytes(bmp.Length).CopyTo(bmp, 2);
+        System.BitConverter.GetBytes(54).CopyTo(bmp, 10);
+        System.BitConverter.GetBytes(40).CopyTo(bmp, 14);
+        System.BitConverter.GetBytes(width).CopyTo(bmp, 18);
+        System.BitConverter.GetBytes(height).CopyTo(bmp, 22);
+        bmp[26] = 1;
+        bmp[28] = 24;
+        System.BitConverter.GetBytes(rawDataSize).CopyTo(bmp, 34);
+
+        int bmpIdx = 54;
+        int pIdx = 0;
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                bmp[bmpIdx++] = pixels[pIdx++];
+                bmp[bmpIdx++] = pixels[pIdx++];
+                bmp[bmpIdx++] = pixels[pIdx++];
+            }
+            bmpIdx += pad;
+        }
+
+        if (!System.IO.Directory.Exists(_depthMapSaveFolder))
+        {
+            System.IO.Directory.CreateDirectory(_depthMapSaveFolder);
+        }
+
+        string filename = $"depth_frame_{_depthMapFrameCount:D4}.bmp";
+        string path = System.IO.Path.Combine(_depthMapSaveFolder, filename);
+        System.IO.File.WriteAllBytes(path, bmp);
+        _depthMapFrameCount++;
     }
 
     private void InitializeBuffers(int w, int h)

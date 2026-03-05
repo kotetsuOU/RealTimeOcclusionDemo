@@ -58,7 +58,6 @@ public class RsHandMeshMeshRenderer : MonoBehaviour
             _renderer.sharedMaterial = Material;
         else if (_renderer.sharedMaterial == null)
         {
-            // Use vertex color shader for proper mesh rendering
             var shader = Shader.Find("Custom/RsHandMeshVertexColor");
             if (shader == null)
                 shader = Shader.Find("Universal Render Pipeline/Unlit");
@@ -191,16 +190,13 @@ public class RsHandMeshMeshRenderer : MonoBehaviour
         // Recalculate normals for proper lighting
         _mesh.RecalculateNormals();
         
-        // Set a large bounding box to avoid frustum culling issues
         _mesh.bounds = new Bounds(Vector3.zero, Vector3.one * 100f);
     }
 
     void CacheSourceAccessors()
     {
-        // If user assigned a GameObject, try to find a suitable component on it.
         if (Source is GameObject go)
         {
-            // Prefer RsHandMeshBlockSource if present
             var mb = go.GetComponent<MonoBehaviour>();
             foreach (var c in go.GetComponents<MonoBehaviour>())
             {
