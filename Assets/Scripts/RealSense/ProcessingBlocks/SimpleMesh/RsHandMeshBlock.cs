@@ -20,10 +20,24 @@ public class RsHandMeshBlock : RsProcessingBlock
 
     [Header("Depth Map Debug")]
     public bool _enableDepthMapOutput = false;
+    public bool _enableRawDepthOutput = false;
     public int _depthMapCaptureLimit = 5;
     private int _depthMapCapturedCount = 0;
     public string _depthMapSaveFolder = "Assets/HandTrackingData/DepthMaps";
     private int _depthMapFrameCount = 0;
+
+    [Serializable]
+    public struct DepthMetaData
+    {
+        public int width;
+        public int height;
+        public float fx;
+        public float fy;
+        public float ppx;
+        public float ppy;
+        public float depthScale;
+        public Matrix4x4 transformMatrix;
+    }
 
     [Header("Mesh Settings")]
     [Tooltip("Edges longer than this (meters) are discarded.")]
@@ -234,13 +248,19 @@ public class RsHandMeshBlock : RsProcessingBlock
                             depthFrame.CopyTo(_depthDataCache);
                             _hasNewFrame = true;
 
-                            if (_enableDepthMapOutput)
+                            bool capBmp = _enableDepthMapOutput;
+                            bool capRaw = _enableRawDepthOutput;
+                            if (capBmp || capRaw)
                             {
-                                SaveDepthMapBmp(depthFrame);
+                                if (capBmp) SaveDepthMapBmp(depthFrame);
+                                if (capRaw) SaveRawDepthData(depthFrame);
+
+                                _depthMapFrameCount++;
                                 _depthMapCapturedCount++;
                                 if (_depthMapCapturedCount >= _depthMapCaptureLimit)
                                 {
                                     _enableDepthMapOutput = false;
+                                    _enableRawDepthOutput = false;
                                     _depthMapCapturedCount = 0;
                                 }
                             }
@@ -448,7 +468,43 @@ public class RsHandMeshBlock : RsProcessingBlock
         string filename = $"depth_frame_{_depthMapFrameCount:D4}.bmp";
         string path = System.IO.Path.Combine(_depthMapSaveFolder, filename);
         System.IO.File.WriteAllBytes(path, bmp);
-        _depthMapFrameCount++;
+    }
+
+    private void SaveRawDepthData(DepthFrame depthFrame)
+    {
+        int width = depthFrame.Width;
+        int height = depthFrame.Height;
+        
+        ushort[] depthData = new ushort[width * height];
+        depthFrame.CopyTo(depthData);
+
+        if (!System.IO.Directory.Exists(_depthMapSaveFolder))
+        {
+            System.IO.Directory.CreateDirectory(_depthMapSaveFolder);
+        }
+
+        string filenameBase = $"depth_raw_{_depthMapFrameCount:D4}";
+        
+        // Save binary depth data (16-bit unsigned ints)
+        string binPath = System.IO.Path.Combine(_depthMapSaveFolder, filenameBase + ".bin");
+        byte[] byteData = new byte[depthData.Length * 2];
+        System.Buffer.BlockCopy(depthData, 0, byteData, 0, byteData.Length);
+        System.IO.File.WriteAllBytes(binPath, byteData);
+
+        // Save metadata as JSON
+        DepthMetaData meta = new DepthMetaData
+        {
+            width = width,
+            height = height,
+            fx = _intrinsics.x,
+            fy = _intrinsics.y,
+            ppx = _intrinsics.z,
+            ppy = _intrinsics.w,
+            depthScale = 0.001f,
+            transformMatrix = _transformMatrix
+        };
+        string jsonPath = System.IO.Path.Combine(_depthMapSaveFolder, filenameBase + ".json");
+        System.IO.File.WriteAllText(jsonPath, JsonUtility.ToJson(meta, true));
     }
 
     private void InitializeBuffers(int w, int h)
