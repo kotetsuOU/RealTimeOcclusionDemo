@@ -17,7 +17,7 @@ public class SMV_DataManager : MonoBehaviour
         public Matrix4x4 transformMatrix;
     }
 
-    public void LoadAndProcessData(List<SMV_FileEntry> fileEntries, float edgeThreshold, out Vector3[] outVertices, out int[] outIndices, out Color[] outColors)
+    public void LoadAndProcessData(List<SMV_FileEntry> fileEntries, float edgeThreshold, bool useBoundsFilter, Bounds generationBounds, SMV_Settings settings, out Vector3[] outVertices, out int[] outIndices, out Color[] outColors)
     {
         List<Vector3> combinedVertices = new List<Vector3>();
         List<int> combinedIndices = new List<int>();
@@ -62,6 +62,7 @@ public class SMV_DataManager : MonoBehaviour
 
             Vector3[] localVertices = new Vector3[expectedPixels];
             Color[] localColors = new Color[expectedPixels];
+            bool[] validVertexMask = new bool[expectedPixels];
             
             // Calculate 3D positions
             for (int y = 0; y < meta.height; y++)
@@ -78,13 +79,26 @@ public class SMV_DataManager : MonoBehaviour
                         
                         Vector3 pos = new Vector3(vx, vy, z);
                         pos = finalTransform.MultiplyPoint3x4(pos);
-                        localVertices[index] = pos;
-                        localColors[index] = Color.white;
+
+                        bool isInsideBounds = !useBoundsFilter || (settings != null ? settings.IsPointInsideEffectiveBounds(pos) : generationBounds.Contains(pos));
+                        if (isInsideBounds)
+                        {
+                            localVertices[index] = pos;
+                            localColors[index] = Color.white;
+                            validVertexMask[index] = true;
+                        }
+                        else
+                        {
+                            localVertices[index] = Vector3.zero;
+                            localColors[index] = Color.clear;
+                            validVertexMask[index] = false;
+                        }
                     }
                     else
                     {
                         localVertices[index] = Vector3.zero;
                         localColors[index] = Color.clear;
+                        validVertexMask[index] = false;
                     }
                 }
             }
@@ -102,7 +116,7 @@ public class SMV_DataManager : MonoBehaviour
                     int bl = (y + 1) * meta.width + x;
                     int br = bl + 1;
 
-                    if (depthData[tl] == 0 || depthData[tr] == 0 || depthData[bl] == 0 || depthData[br] == 0)
+                    if (!validVertexMask[tl] || !validVertexMask[tr] || !validVertexMask[bl] || !validVertexMask[br])
                         continue;
 
                     Vector3 vTL = localVertices[tl];

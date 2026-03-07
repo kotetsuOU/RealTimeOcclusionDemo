@@ -14,23 +14,31 @@ public class RsHandMeshRenderBridge : MonoBehaviour
     public class HandMeshData
     {
         public ComputeBuffer VertexBuffer;
+        public ComputeBuffer IndexBuffer;
         public ComputeBuffer ArgsBuffer;
         public MaterialPropertyBlock PropertyBlock;
-        public bool HasData => VertexBuffer != null && ArgsBuffer != null;
+        public Matrix4x4 LocalToWorld = Matrix4x4.identity;
+        public bool HasData => VertexBuffer != null && IndexBuffer != null && ArgsBuffer != null;
 
         public HandMeshData()
         {
             PropertyBlock = new MaterialPropertyBlock();
         }
 
-        public void UpdateBuffers(ComputeBuffer vertexBuffer, ComputeBuffer argsBuffer)
+        public void UpdateBuffers(ComputeBuffer vertexBuffer, ComputeBuffer indexBuffer, ComputeBuffer argsBuffer)
         {
             VertexBuffer = vertexBuffer;
+            IndexBuffer = indexBuffer;
             ArgsBuffer = argsBuffer;
             if (vertexBuffer != null)
             {
                 PropertyBlock.SetBuffer("_VertexBuffer", vertexBuffer);
             }
+            if (indexBuffer != null)
+            {
+                PropertyBlock.SetBuffer("_IndexBuffer", indexBuffer);
+            }
+            PropertyBlock.SetFloat("_UseProceduralBuffers", 1f);
         }
     }
 
@@ -64,14 +72,25 @@ public class RsHandMeshRenderBridge : MonoBehaviour
     /// <summary>
     /// äe RsHandMeshBlock Ç™é©êgÇÃInstanceIDÇ≈ìoò^
     /// </summary>
-    public void UpdateBuffers(int sourceId, ComputeBuffer vertexBuffer, ComputeBuffer argsBuffer)
+    public void UpdateBuffers(int sourceId, ComputeBuffer vertexBuffer, ComputeBuffer indexBuffer, ComputeBuffer argsBuffer)
     {
         if (!_handMeshes.TryGetValue(sourceId, out var data))
         {
             data = new HandMeshData();
             _handMeshes[sourceId] = data;
         }
-        data.UpdateBuffers(vertexBuffer, argsBuffer);
+        data.UpdateBuffers(vertexBuffer, indexBuffer, argsBuffer);
+    }
+
+    public void UpdateBuffers(int sourceId, ComputeBuffer vertexBuffer, ComputeBuffer indexBuffer, ComputeBuffer argsBuffer, Matrix4x4 localToWorld)
+    {
+        if (!_handMeshes.TryGetValue(sourceId, out var data))
+        {
+            data = new HandMeshData();
+            _handMeshes[sourceId] = data;
+        }
+        data.UpdateBuffers(vertexBuffer, indexBuffer, argsBuffer);
+        data.LocalToWorld = localToWorld;
     }
 
     /// <summary>

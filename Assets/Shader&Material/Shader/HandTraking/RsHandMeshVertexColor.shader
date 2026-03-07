@@ -3,6 +3,9 @@ Shader "Custom/RsHandMeshVertexColor"
     Properties
     {
         [Toggle] _DoubleSided ("Double Sided", Float) = 1
+        _UseVertexColor ("Use Vertex Color", Float) = 1
+        _BaseColor ("Base Color", Color) = (0.945, 0.733, 0.576, 1)
+        [HideInInspector] _UseProceduralBuffers ("Use Procedural Buffers", Float) = 0
     }
     SubShader
     {
@@ -18,14 +21,29 @@ Shader "Custom/RsHandMeshVertexColor"
             HLSLPROGRAM
             #pragma vertex vert
             #pragma fragment frag
-            #pragma target 3.0
+            #pragma target 4.5
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+
+            float _UseVertexColor;
+            float4 _BaseColor;
+            float _UseProceduralBuffers;
+
+            struct HandVertex
+            {
+                float3 pos;
+                float3 col;
+                float2 uv;
+            };
+
+            StructuredBuffer<HandVertex> _VertexBuffer;
+            StructuredBuffer<int> _IndexBuffer;
 
             struct Attributes
             {
                 float4 positionOS : POSITION;
                 float4 color : COLOR;
+                uint vertexID : SV_VertexID;
             };
 
             struct Varyings
@@ -37,14 +55,29 @@ Shader "Custom/RsHandMeshVertexColor"
             Varyings vert(Attributes input)
             {
                 Varyings output;
-                output.positionCS = TransformObjectToHClip(input.positionOS.xyz);
-                output.color = input.color;
+
+                float3 positionOS = input.positionOS.xyz;
+                float4 color = input.color;
+
+                if (_UseProceduralBuffers > 0.5)
+                {
+                    int index = _IndexBuffer[input.vertexID];
+                    HandVertex v = _VertexBuffer[index];
+                    positionOS = v.pos;
+                    color = float4(v.col, 1.0);
+                }
+
+                output.positionCS = TransformObjectToHClip(positionOS);
+                output.color = color;
                 return output;
             }
 
             half4 frag(Varyings input) : SV_Target
             {
-                return half4(input.color.rgb, 1.0);
+                half useVertexColor = _UseVertexColor;
+                half3 baseColor = _BaseColor.rgb;
+                half3 finalColor = lerp(baseColor, input.color.rgb, useVertexColor);
+                return half4(finalColor, 1.0);
             }
             ENDHLSL
         }
@@ -62,13 +95,26 @@ Shader "Custom/RsHandMeshVertexColor"
             HLSLPROGRAM
             #pragma vertex vert
             #pragma fragment frag
-            #pragma target 3.0
+            #pragma target 4.5
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+
+            float _UseProceduralBuffers;
+
+            struct HandVertex
+            {
+                float3 pos;
+                float3 col;
+                float2 uv;
+            };
+
+            StructuredBuffer<HandVertex> _VertexBuffer;
+            StructuredBuffer<int> _IndexBuffer;
 
             struct Attributes
             {
                 float4 positionOS : POSITION;
+                uint vertexID : SV_VertexID;
             };
 
             struct Varyings
@@ -79,7 +125,16 @@ Shader "Custom/RsHandMeshVertexColor"
             Varyings vert(Attributes input)
             {
                 Varyings output;
-                output.positionCS = TransformObjectToHClip(input.positionOS.xyz);
+
+                float3 positionOS = input.positionOS.xyz;
+                if (_UseProceduralBuffers > 0.5)
+                {
+                    int index = _IndexBuffer[input.vertexID];
+                    HandVertex v = _VertexBuffer[index];
+                    positionOS = v.pos;
+                }
+
+                output.positionCS = TransformObjectToHClip(positionOS);
                 return output;
             }
 

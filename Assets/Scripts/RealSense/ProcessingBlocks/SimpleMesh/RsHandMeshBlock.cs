@@ -119,6 +119,8 @@ public class RsHandMeshBlock : RsProcessingBlock
     private bool _loggedFirstArgsForced;
 
     private int _mainThreadInstanceId;
+    private Matrix4x4 _cachedLocalToWorld = Matrix4x4.identity;
+    private bool _localToWorldCached = false;
 
     [Header("Runtime Helper")]
     public bool _useRuntimeDriver = true;
@@ -174,6 +176,12 @@ public class RsHandMeshBlock : RsProcessingBlock
     private void OnDisable()
     {
         if (_logLifecycle) Debug.Log($"[RsHandMeshBlock] OnDisable ({name})");
+
+        if (RsHandMeshRenderBridge.Instance != null)
+        {
+            RsHandMeshRenderBridge.Instance.RemoveSource(_mainThreadInstanceId);
+        }
+
         ReleaseBuffers();
 
         if (_driver != null)
@@ -327,6 +335,18 @@ public class RsHandMeshBlock : RsProcessingBlock
             if (_gpuReady)
             {
                 DispatchCompute();
+
+                if (!_localToWorldCached)
+                {
+                    _cachedLocalToWorld = _transformMatrix;
+                    _localToWorldCached = true;
+                }
+
+                if (RsHandMeshRenderBridge.Instance != null)
+                {
+                    RsHandMeshRenderBridge.Instance.UpdateBuffers(
+                        _mainThreadInstanceId, _vertexBuffer, _indexBuffer, _argsBuffer, _cachedLocalToWorld);
+                }
 
                 if (_enableCpuOutput)
                     UpdateCpuOutput();

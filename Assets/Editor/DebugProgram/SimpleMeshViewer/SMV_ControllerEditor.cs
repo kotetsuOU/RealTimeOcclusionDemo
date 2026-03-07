@@ -10,7 +10,22 @@ public class SMV_ControllerEditor : Editor
 
     private SerializedProperty fileEntriesProp;
     private SerializedProperty edgeThresholdProp;
+    private SerializedProperty useBoundsFilterProp;
+    private SerializedProperty generationBoundsProp;
+    private SerializedProperty useRsDeviceControllerBoundsProp;
+    private SerializedProperty rsDeviceControllerProp;
+    private SerializedProperty showBoundsPreviewProp;
+    private SerializedProperty showPointsPreviewProp;
+    private SerializedProperty boundsPreviewColorProp;
+    private SerializedProperty pointsPreviewColorProp;
+    private SerializedProperty previewPointSizeProp;
+    private SerializedProperty maxPreviewPointCountProp;
     private SerializedProperty meshMaterialProp;
+
+    private bool showDataFiles = true;
+    private bool showAddFileEntry;
+    private bool showMeshSettings = true;
+    private bool showPreviewSettings = true;
 
     private void OnEnable()
     {
@@ -22,6 +37,16 @@ public class SMV_ControllerEditor : Editor
             settingsObject = new SerializedObject(settingsComponent);
             fileEntriesProp = settingsObject.FindProperty("fileEntries");
             edgeThresholdProp = settingsObject.FindProperty("edgeThreshold");
+            useBoundsFilterProp = settingsObject.FindProperty("useBoundsFilter");
+            generationBoundsProp = settingsObject.FindProperty("generationBounds");
+            useRsDeviceControllerBoundsProp = settingsObject.FindProperty("useRsDeviceControllerBounds");
+            rsDeviceControllerProp = settingsObject.FindProperty("rsDeviceController");
+            showBoundsPreviewProp = settingsObject.FindProperty("showBoundsPreview");
+            showPointsPreviewProp = settingsObject.FindProperty("showPointsPreview");
+            boundsPreviewColorProp = settingsObject.FindProperty("boundsPreviewColor");
+            pointsPreviewColorProp = settingsObject.FindProperty("pointsPreviewColor");
+            previewPointSizeProp = settingsObject.FindProperty("previewPointSize");
+            maxPreviewPointCountProp = settingsObject.FindProperty("maxPreviewPointCount");
             meshMaterialProp = settingsObject.FindProperty("meshMaterial");
         }
     }
@@ -36,65 +61,71 @@ public class SMV_ControllerEditor : Editor
 
         settingsObject.Update();
 
-        EditorGUILayout.LabelField("Data Files", EditorStyles.boldLabel);
-        
+        showDataFiles = EditorGUILayout.Foldout(showDataFiles, "Data Files", true, EditorStyles.foldoutHeader);
+
         int indexToRemove = -1;
 
-        for (int i = 0; i < fileEntriesProp.arraySize; i++)
+        if (showDataFiles)
         {
-            SerializedProperty entryProp = fileEntriesProp.GetArrayElementAtIndex(i);
-            SerializedProperty useFileProp = entryProp.FindPropertyRelative("useFile");
-            SerializedProperty binProp = entryProp.FindPropertyRelative("binFilePath");
-            SerializedProperty jsonProp = entryProp.FindPropertyRelative("jsonFilePath");
-            SerializedProperty targetObjProp = entryProp.FindPropertyRelative("targetPointCloudObject");
-
-            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-            
-            EditorGUILayout.BeginHorizontal();
-            EditorGUILayout.PropertyField(useFileProp, new GUIContent($"File {i}"));
-            if (GUILayout.Button("Remove", GUILayout.Width(60)))
+            for (int i = 0; i < fileEntriesProp.arraySize; i++)
             {
-                indexToRemove = i;
-            }
-            EditorGUILayout.EndHorizontal();
+                SerializedProperty entryProp = fileEntriesProp.GetArrayElementAtIndex(i);
+                SerializedProperty useFileProp = entryProp.FindPropertyRelative("useFile");
+                SerializedProperty binProp = entryProp.FindPropertyRelative("binFilePath");
+                SerializedProperty jsonProp = entryProp.FindPropertyRelative("jsonFilePath");
+                SerializedProperty targetObjProp = entryProp.FindPropertyRelative("targetPointCloudObject");
 
-            EditorGUI.BeginDisabledGroup(!useFileProp.boolValue);
+                EditorGUILayout.BeginVertical(EditorStyles.helpBox);
 
-            EditorGUILayout.BeginHorizontal();
-            EditorGUILayout.PropertyField(binProp, new GUIContent("BIN File"));
-            if (GUILayout.Button("Select", GUILayout.Width(60)))
-            {
-                string path = EditorUtility.OpenFilePanel("Select BIN File", "Assets", "bin");
-                if (!string.IsNullOrEmpty(path))
+                EditorGUILayout.BeginHorizontal();
+                entryProp.isExpanded = EditorGUILayout.Foldout(entryProp.isExpanded, $"File {i}", true);
+                EditorGUILayout.PropertyField(useFileProp, GUIContent.none, GUILayout.Width(18f));
+                if (GUILayout.Button("Remove", GUILayout.Width(60)))
                 {
-                    // Optionally make path relative to project
-                    if (path.StartsWith(Application.dataPath))
-                        path = "Assets" + path.Substring(Application.dataPath.Length);
-                    binProp.stringValue = path;
+                    indexToRemove = i;
                 }
-            }
-            EditorGUILayout.EndHorizontal();
+                EditorGUILayout.EndHorizontal();
 
-            EditorGUILayout.BeginHorizontal();
-            EditorGUILayout.PropertyField(jsonProp, new GUIContent("JSON File"));
-            if (GUILayout.Button("Select", GUILayout.Width(60)))
-            {
-                string path = EditorUtility.OpenFilePanel("Select JSON File", "Assets", "json");
-                if (!string.IsNullOrEmpty(path))
+                if (entryProp.isExpanded)
                 {
-                    if (path.StartsWith(Application.dataPath))
-                        path = "Assets" + path.Substring(Application.dataPath.Length);
-                    jsonProp.stringValue = path;
+                    EditorGUI.BeginDisabledGroup(!useFileProp.boolValue);
+
+                    EditorGUILayout.BeginHorizontal();
+                    EditorGUILayout.PropertyField(binProp, new GUIContent("BIN File"));
+                    if (GUILayout.Button("Select", GUILayout.Width(60)))
+                    {
+                        string path = EditorUtility.OpenFilePanel("Select BIN File", "Assets", "bin");
+                        if (!string.IsNullOrEmpty(path))
+                        {
+                            if (path.StartsWith(Application.dataPath))
+                                path = "Assets" + path.Substring(Application.dataPath.Length);
+                            binProp.stringValue = path;
+                        }
+                    }
+                    EditorGUILayout.EndHorizontal();
+
+                    EditorGUILayout.BeginHorizontal();
+                    EditorGUILayout.PropertyField(jsonProp, new GUIContent("JSON File"));
+                    if (GUILayout.Button("Select", GUILayout.Width(60)))
+                    {
+                        string path = EditorUtility.OpenFilePanel("Select JSON File", "Assets", "json");
+                        if (!string.IsNullOrEmpty(path))
+                        {
+                            if (path.StartsWith(Application.dataPath))
+                                path = "Assets" + path.Substring(Application.dataPath.Length);
+                            jsonProp.stringValue = path;
+                        }
+                    }
+                    EditorGUILayout.EndHorizontal();
+
+                    EditorGUILayout.PropertyField(targetObjProp, new GUIContent("Target GameObject (Transform)"));
+
+                    EditorGUI.EndDisabledGroup();
                 }
+
+                EditorGUILayout.EndVertical();
+                EditorGUILayout.Space();
             }
-            EditorGUILayout.EndHorizontal();
-
-            EditorGUILayout.PropertyField(targetObjProp, new GUIContent("Target GameObject (Transform)"));
-
-            EditorGUI.EndDisabledGroup();
-            
-            EditorGUILayout.EndVertical();
-            EditorGUILayout.Space();
         }
 
         if (indexToRemove >= 0)
@@ -102,21 +133,50 @@ public class SMV_ControllerEditor : Editor
             fileEntriesProp.DeleteArrayElementAtIndex(indexToRemove);
         }
 
-        if (GUILayout.Button("Add File Entry"))
+        showAddFileEntry = EditorGUILayout.Foldout(showAddFileEntry, "Add File Entry", true, EditorStyles.foldoutHeader);
+        if (showAddFileEntry && GUILayout.Button("Add File Entry"))
         {
             fileEntriesProp.InsertArrayElementAtIndex(fileEntriesProp.arraySize);
-            // Reset the newly added entry
             SerializedProperty newEntryProp = fileEntriesProp.GetArrayElementAtIndex(fileEntriesProp.arraySize - 1);
             newEntryProp.FindPropertyRelative("useFile").boolValue = true;
             newEntryProp.FindPropertyRelative("binFilePath").stringValue = "";
             newEntryProp.FindPropertyRelative("jsonFilePath").stringValue = "";
             newEntryProp.FindPropertyRelative("targetPointCloudObject").objectReferenceValue = null;
+            newEntryProp.isExpanded = true;
         }
 
         EditorGUILayout.Space();
-        EditorGUILayout.LabelField("Mesh Settings", EditorStyles.boldLabel);
-        EditorGUILayout.PropertyField(edgeThresholdProp);
-        EditorGUILayout.PropertyField(meshMaterialProp);
+        showMeshSettings = EditorGUILayout.Foldout(showMeshSettings, "Mesh Settings", true, EditorStyles.foldoutHeader);
+        if (showMeshSettings)
+        {
+            EditorGUILayout.PropertyField(edgeThresholdProp);
+            EditorGUILayout.PropertyField(useBoundsFilterProp, new GUIContent("Use Bounds Filter"));
+            if (useBoundsFilterProp.boolValue)
+            {
+                EditorGUILayout.PropertyField(useRsDeviceControllerBoundsProp, new GUIContent("Use RsDeviceController Bounds"));
+                if (useRsDeviceControllerBoundsProp.boolValue)
+                {
+                    EditorGUILayout.PropertyField(rsDeviceControllerProp, new GUIContent("RsDeviceController"));
+                }
+                else
+                {
+                    EditorGUILayout.PropertyField(generationBoundsProp, new GUIContent("Generation Bounds"), true);
+                }
+            }
+            EditorGUILayout.PropertyField(meshMaterialProp);
+        }
+
+        EditorGUILayout.Space();
+        showPreviewSettings = EditorGUILayout.Foldout(showPreviewSettings, "Preview Settings", true, EditorStyles.foldoutHeader);
+        if (showPreviewSettings)
+        {
+            EditorGUILayout.PropertyField(showBoundsPreviewProp, new GUIContent("Show Bounds Preview"));
+            EditorGUILayout.PropertyField(boundsPreviewColorProp, new GUIContent("Bounds Preview Color"));
+            EditorGUILayout.PropertyField(showPointsPreviewProp, new GUIContent("Show Points Preview"));
+            EditorGUILayout.PropertyField(pointsPreviewColorProp, new GUIContent("Points Preview Color"));
+            EditorGUILayout.PropertyField(previewPointSizeProp, new GUIContent("Preview Point Size"));
+            EditorGUILayout.PropertyField(maxPreviewPointCountProp, new GUIContent("Max Preview Point Count"));
+        }
 
         EditorGUILayout.Space();
         GUI.backgroundColor = new Color(0.8f, 1f, 0.8f);

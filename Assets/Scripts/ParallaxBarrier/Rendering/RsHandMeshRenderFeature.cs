@@ -53,7 +53,7 @@ public class RsHandMeshRenderFeature : ScriptableRendererFeature
                 if (!data.HasData) continue;
 
                 cmd.DrawProceduralIndirect(
-                    Matrix4x4.identity,
+                    data.LocalToWorld,
                     _settings.handMeshMaterial,
                     0,
                     MeshTopology.Triangles,

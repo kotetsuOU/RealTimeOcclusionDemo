@@ -7,6 +7,7 @@ public class SMV_Controller : MonoBehaviour
     private SMV_Settings settings;
     private SMV_DataManager dataManager;
     private SMV_Renderer meshRenderer;
+    private Vector3[] latestPreviewVertices;
 
     private void Awake()
     {
@@ -61,7 +62,17 @@ public class SMV_Controller : MonoBehaviour
         int[] indices;
         Color[] colors;
 
-        dataManager.LoadAndProcessData(settings.fileEntries, settings.edgeThreshold, out vertices, out indices, out colors);
+        dataManager.LoadAndProcessData(
+            settings.fileEntries,
+            settings.edgeThreshold,
+            settings.useBoundsFilter,
+            settings.GetEffectiveBounds(),
+            settings,
+            out vertices,
+            out indices,
+            out colors);
+
+        latestPreviewVertices = vertices;
 
         if (vertices != null && indices != null && vertices.Length > 0)
         {
@@ -72,6 +83,47 @@ public class SMV_Controller : MonoBehaviour
         {
             meshRenderer.ClearMesh();
             Debug.LogWarning("[SMV_Controller] Generated mesh was empty.");
+        }
+    }
+
+    private void OnDrawGizmos()
+    {
+        InitializeComponents();
+        if (settings == null) return;
+
+        if (settings.useBoundsFilter && settings.showBoundsPreview)
+        {
+            Bounds bounds = settings.GetEffectiveBounds();
+            Gizmos.color = settings.boundsPreviewColor;
+            Matrix4x4 oldMatrix = Gizmos.matrix;
+            if (settings.useRsDeviceControllerBounds && settings.rsDeviceController != null)
+            {
+                Gizmos.matrix = settings.rsDeviceController.transform.localToWorldMatrix;
+                Gizmos.DrawWireCube(bounds.center, bounds.size);
+            }
+            else
+            {
+                Gizmos.DrawWireCube(bounds.center, bounds.size);
+            }
+            Gizmos.matrix = oldMatrix;
+        }
+
+        if (!settings.showPointsPreview || latestPreviewVertices == null) return;
+        if (settings.maxPreviewPointCount <= 0) return;
+
+        Gizmos.color = settings.pointsPreviewColor;
+        float radius = settings.previewPointSize;
+        int maxPreviewPointCount = Mathf.Max(1, settings.maxPreviewPointCount);
+        int step = Mathf.Max(1, Mathf.CeilToInt((float)latestPreviewVertices.Length / maxPreviewPointCount));
+        int drawnCount = 0;
+
+        for (int i = 0; i < latestPreviewVertices.Length && drawnCount < maxPreviewPointCount; i += step)
+        {
+            Vector3 point = latestPreviewVertices[i];
+            if (point == Vector3.zero) continue;
+            if (settings.useBoundsFilter && !settings.IsPointInsideEffectiveBounds(point)) continue;
+            Gizmos.DrawSphere(point, radius);
+            drawnCount++;
         }
     }
 }
