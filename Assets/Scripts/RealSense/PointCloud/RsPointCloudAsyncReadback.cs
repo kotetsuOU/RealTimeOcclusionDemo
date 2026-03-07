@@ -40,6 +40,7 @@ public class RsPointCloudAsyncReadback : IDisposable
     public bool HasCachedSamples => _hasCachedSamples;
     public int CachedSamplesCount => _cachedSamplesCount;
     public Vector3[] CachedSamples => _cachedSamples;
+    public bool IsCountReadbackPending => _countReadbackPending;
 
     #endregion
 

@@ -120,6 +120,7 @@ public class RsPointCloudRenderer : MonoBehaviour
 
     public ComputeBuffer GetFilteredVerticesBuffer() => _initializer?.Compute?.GetFilteredVerticesBuffer();
     public int GetLastFilteredCount() => _initializer?.Compute?.GetLastFilteredCount() ?? 0;
+    public bool IsFilteredCountReadbackPending => _initializer?.Compute?.IsFilteredCountReadbackPending ?? false;
 
     public ComputeBuffer GetPCDSourceBuffer()
     {

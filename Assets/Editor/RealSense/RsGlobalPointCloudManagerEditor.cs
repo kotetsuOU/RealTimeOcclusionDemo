@@ -89,13 +89,36 @@ public class RsGlobalPointCloudManagerEditor : Editor
             _isVerticesSaved = false;
         }
 
-        GUI.backgroundColor = Color.yellow;
-        if (GUILayout.Button("Toggle Range Filter on All"))
+        bool anyFiltersEnabled = _manager.AreAnyRangeFiltersEnabled();
+        bool allFiltersEnabled = _manager.AreAllRangeFiltersEnabled();
+        string filterStateLabel = allFiltersEnabled ? "ON" : anyFiltersEnabled ? "MIXED" : "OFF";
+        EditorGUILayout.LabelField($"Range Filter on All: {filterStateLabel}");
+
+        EditorGUILayout.BeginHorizontal();
+
+        GUI.backgroundColor = allFiltersEnabled ? new Color(0.7f, 0.7f, 0.7f) : new Color(0.6f, 1f, 0.6f);
+        EditorGUI.BeginDisabledGroup(allFiltersEnabled);
+        if (GUILayout.Button("Set Range Filter ON for All"))
         {
-            _manager.ToggleAllRangeFilters();
+            _manager.SetAllRangeFilters(true);
             SceneView.RepaintAll();
-            Debug.Log("[RsGlobalPointCloudManager] Toggled Range Filter on All");
+            Debug.Log("[RsGlobalPointCloudManager] Set Range Filter ON for All");
         }
+
+        EditorGUI.EndDisabledGroup();
+
+        GUI.backgroundColor = allFiltersEnabled ? new Color(1f, 0.6f, 0.6f) : new Color(0.7f, 0.7f, 0.7f);
+        EditorGUI.BeginDisabledGroup(!allFiltersEnabled);
+        if (GUILayout.Button("Set Range Filter OFF for All"))
+        {
+            _manager.SetAllRangeFilters(false);
+            SceneView.RepaintAll();
+            Debug.Log("[RsGlobalPointCloudManager] Set Range Filter OFF for All");
+        }
+        EditorGUI.EndDisabledGroup();
+
+        EditorGUILayout.EndHorizontal();
+
         GUI.backgroundColor = Color.white;
     }
 

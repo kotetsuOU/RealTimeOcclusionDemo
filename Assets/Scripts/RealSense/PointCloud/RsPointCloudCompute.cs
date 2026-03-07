@@ -38,6 +38,7 @@ public class RsPointCloudCompute : IDisposable
     public RsSamplingResult LastSamplingResult => _filterPassExecutor?.LastSamplingResult ?? new RsSamplingResult();
     
     public RsComputeStats Stats => _stats;
+    public bool IsFilteredCountReadbackPending => _asyncReadback != null && _asyncReadback.IsCountReadbackPending;
 
     #endregion
 
@@ -186,6 +187,7 @@ public class RsPointCloudCompute : IDisposable
         Graphics.ExecuteCommandBuffer(_transformCmd);
 
         ComputeBuffer.CopyCount(_filteredVerticesBuffer, _argsBuffer, 0);
+        _asyncReadback.RequestFilteredCountReadback(_filteredVerticesBuffer);
         return _argsBuffer;
     }
 
@@ -195,7 +197,6 @@ public class RsPointCloudCompute : IDisposable
     public int Transform(ComputeBuffer rawVerticesBuffer, int vertexCount)
     {
         TransformIndirect(rawVerticesBuffer, vertexCount);
-        _asyncReadback.RequestFilteredCountReadback(_filteredVerticesBuffer);
         return _asyncReadback.LastFilteredCount;
     }
 

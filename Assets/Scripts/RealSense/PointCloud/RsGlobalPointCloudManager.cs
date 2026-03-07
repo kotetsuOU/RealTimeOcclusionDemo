@@ -357,6 +357,40 @@ public class RsGlobalPointCloudManager : MonoBehaviour
         ApplyToAllRenderers(r => r.IsGlobalRangeFilterEnabled = !r.IsGlobalRangeFilterEnabled);
     }
 
+    public bool AreAllRangeFiltersEnabled()
+    {
+        bool hasRenderer = false;
+
+        foreach (var renderer in GetChildRenderers())
+        {
+            hasRenderer = true;
+            if (!renderer.IsGlobalRangeFilterEnabled)
+            {
+                return false;
+            }
+        }
+
+        return hasRenderer;
+    }
+
+    public bool AreAnyRangeFiltersEnabled()
+    {
+        foreach (var renderer in GetChildRenderers())
+        {
+            if (renderer.IsGlobalRangeFilterEnabled)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public void SetAllRangeFilters(bool enabled)
+    {
+        ApplyToAllRenderers(r => r.IsGlobalRangeFilterEnabled = enabled);
+    }
+
     public void StartAllPerformanceLogs(bool append = false)
     {
         ApplyToAllRenderers(r =>
