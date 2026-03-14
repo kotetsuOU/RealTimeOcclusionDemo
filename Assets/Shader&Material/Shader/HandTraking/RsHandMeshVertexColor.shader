@@ -28,6 +28,7 @@ Shader "Custom/RsHandMeshVertexColor"
             float _UseVertexColor;
             float4 _BaseColor;
             float _UseProceduralBuffers;
+            float4x4 _CustomLocalToWorld;
 
             struct HandVertex
             {
@@ -65,9 +66,15 @@ Shader "Custom/RsHandMeshVertexColor"
                     HandVertex v = _VertexBuffer[index];
                     positionOS = v.pos;
                     color = float4(v.col, 1.0);
+                    
+                    // Convert Local to World manually using the correct matrix
+                    float3 positionWS = mul(_CustomLocalToWorld, float4(positionOS, 1.0)).xyz;
+                    output.positionCS = TransformWorldToHClip(positionWS);
                 }
-
-                output.positionCS = TransformObjectToHClip(positionOS);
+                else
+                {
+                    output.positionCS = TransformObjectToHClip(positionOS);
+                }
                 output.color = color;
                 return output;
             }
@@ -100,6 +107,7 @@ Shader "Custom/RsHandMeshVertexColor"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
 
             float _UseProceduralBuffers;
+            float4x4 _CustomLocalToWorld;
 
             struct HandVertex
             {
@@ -132,9 +140,15 @@ Shader "Custom/RsHandMeshVertexColor"
                     int index = _IndexBuffer[input.vertexID];
                     HandVertex v = _VertexBuffer[index];
                     positionOS = v.pos;
+                    
+                    float3 positionWS = mul(_CustomLocalToWorld, float4(positionOS, 1.0)).xyz;
+                    output.positionCS = TransformWorldToHClip(positionWS);
+                }
+                else
+                {
+                    output.positionCS = TransformObjectToHClip(positionOS);
                 }
 
-                output.positionCS = TransformObjectToHClip(positionOS);
                 return output;
             }
 

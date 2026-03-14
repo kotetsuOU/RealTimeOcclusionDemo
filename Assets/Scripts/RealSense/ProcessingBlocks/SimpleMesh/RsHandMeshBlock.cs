@@ -17,6 +17,8 @@ public class RsHandMeshBlock : RsProcessingBlock
 
     [Header("Output")]
     public bool _enableCpuOutput = true;
+    [Tooltip("When CPU output is disabled, force a lightweight GPU->CPU sync on args buffer to keep compute->draw ordering stable.")]
+    public bool _forceGpuSyncWhenCpuOutputDisabled = true;
 
     [Header("Depth Map Debug")]
     public bool _enableDepthMapOutput = false;
@@ -70,6 +72,12 @@ public class RsHandMeshBlock : RsProcessingBlock
     // --- Internal Data ---
     private int _kernelVertices;
     private int _kernelIndices;
+    
+    public void SetCachedTransform(Matrix4x4 matrix)
+    {
+        _cachedLocalToWorld = matrix;
+        _localToWorldCached = true;
+    }
     
     private ComputeBuffer _vertexBuffer;
     private ComputeBuffer _indexBuffer;
@@ -336,6 +344,13 @@ public class RsHandMeshBlock : RsProcessingBlock
             {
                 DispatchCompute();
 
+                if (!_enableCpuOutput && _forceGpuSyncWhenCpuOutputDisabled)
+                {
+                    // Keep compute->draw ordering stable even when CPU mesh readback is disabled.
+                    // (Historically UpdateCpuOutput() caused this implicitly via GetData.)
+                    _argsBuffer.GetData(_argsReadback);
+                }
+
                 if (!_localToWorldCached)
                 {
                     _cachedLocalToWorld = _transformMatrix;
@@ -344,12 +359,32 @@ public class RsHandMeshBlock : RsProcessingBlock
 
                 if (RsHandMeshRenderBridge.Instance != null)
                 {
-                    RsHandMeshRenderBridge.Instance.UpdateBuffers(
-                        _mainThreadInstanceId, _vertexBuffer, _indexBuffer, _argsBuffer, _cachedLocalToWorld);
+                    if (!_enableCpuOutput)
+                    {
+                        RsHandMeshRenderBridge.Instance.UpdateBuffers(
+                            _mainThreadInstanceId, _vertexBuffer, _indexBuffer, _argsBuffer, _cachedLocalToWorld);
+                    }
+                    else
+                    {
+                        RsHandMeshRenderBridge.Instance.RemoveSource(_mainThreadInstanceId);
+                    }
                 }
 
                 if (_enableCpuOutput)
+                {
                     UpdateCpuOutput();
+                }
+                else
+                {
+                    if (LatestIndexCount > 0)
+                    {
+                        // Output is disabled, clear last CPU frame so MeshRenderer won't get stuck
+                        LatestPositions = null;
+                        LatestColors = null;
+                        LatestIndices = null;
+                        LatestIndexCount = 0;
+                    }
+                }
 
                 if (_logLifecycle && !_loggedFirstArgs)
                 {
@@ -597,18 +632,6 @@ public class RsHandMeshBlock : RsProcessingBlock
 
         // Copy count to args
         // Ensure args has correct layout for DrawProceduralIndirect (4 uint).
-        // First write zeros + instanceCount=1, then overwrite args[0] with the append counter.
-        _argsBuffer.SetData(_indirectArgsInit);
         ComputeBuffer.CopyCount(_indexBuffer, _argsBuffer, 0);
-
-        // Safety: some platforms/drivers can clobber other fields; rewrite args[1..3] explicitly.
-        // Read back 4 uints and re-upload with corrected values.
-        _argsBuffer.GetData(_indirectArgsStaging);
-        _indirectArgsStaging[1] = 1;
-        _indirectArgsStaging[2] = 0;
-        _indirectArgsStaging[3] = 0;
-        _argsBuffer.SetData(_indirectArgsStaging);
     }
-
-    // Drawing is done by standard MeshRenderer once the mesh is updated.
 }

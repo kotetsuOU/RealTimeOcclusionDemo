@@ -38,6 +38,48 @@ public class RsHandMeshRenderFeature : ScriptableRendererFeature
             renderPassEvent = settings.renderPassEvent;
         }
 
+        private class PassData
+        {
+            public Settings settings;
+        }
+
+        public override void RecordRenderGraph(UnityEngine.Rendering.RenderGraphModule.RenderGraph renderGraph, ContextContainer frameData)
+        {
+            var bridge = RsHandMeshRenderBridge.Instance;
+            if (bridge == null || !bridge.HasAnyData) return;
+
+            using (var builder = renderGraph.AddUnsafePass<PassData>("RsHandMeshRenderPass", out var passData))
+            {
+                passData.settings = _settings;
+
+                builder.AllowPassCulling(false);
+
+                builder.SetRenderFunc((PassData data, UnityEngine.Rendering.RenderGraphModule.UnsafeGraphContext context) =>
+                {
+                    var cmd = context.cmd;
+                    
+                    var localBridge = RsHandMeshRenderBridge.Instance;
+                    if (localBridge == null) return;
+
+                    foreach (var kvp in localBridge.HandMeshes)
+                    {
+                        var handData = kvp.Value;
+                        if (!handData.HasData) continue;
+
+                        cmd.DrawProceduralIndirect(
+                            handData.LocalToWorld,
+                            data.settings.handMeshMaterial,
+                            0,
+                            MeshTopology.Triangles,
+                            handData.ArgsBuffer,
+                            0,
+                            handData.PropertyBlock
+                        );
+                    }
+                });
+            }
+        }
+
         [System.Obsolete]
         public override void Execute(ScriptableRenderContext context, ref RenderingData renderingData)
         {

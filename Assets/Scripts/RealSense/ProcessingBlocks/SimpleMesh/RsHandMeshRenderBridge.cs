@@ -39,6 +39,7 @@ public class RsHandMeshRenderBridge : MonoBehaviour
                 PropertyBlock.SetBuffer("_IndexBuffer", indexBuffer);
             }
             PropertyBlock.SetFloat("_UseProceduralBuffers", 1f);
+            PropertyBlock.SetMatrix("_CustomLocalToWorld", LocalToWorld);
         }
     }
 

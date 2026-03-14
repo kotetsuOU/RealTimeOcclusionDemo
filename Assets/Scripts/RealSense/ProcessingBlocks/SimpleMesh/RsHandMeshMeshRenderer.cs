@@ -115,16 +115,34 @@ public class RsHandMeshMeshRenderer : MonoBehaviour
         }
     }
 
+    private bool _transformSynced = false;
+
     void Update()
     {
         if (!UpdateInLateUpdate)
+        {
+            if (!_transformSynced) SyncTransformToBlock();
             TryUpdateMesh();
+        }
     }
 
     void LateUpdate()
     {
         if (UpdateInLateUpdate)
+        {
+            if (!_transformSynced) SyncTransformToBlock();
             TryUpdateMesh();
+        }
+    }
+
+    void SyncTransformToBlock()
+    {
+        // 開発者の意図を反映し、カメラ位置が固定であることを前提にキャッシュへ直接書き込む（1回のみ）
+        if (Source is RsHandMeshBlockSource src && src.Block is RsHandMeshBlock handBlock)
+        {
+            handBlock.SetCachedTransform(SourceTransform != null ? SourceTransform.localToWorldMatrix : Matrix4x4.identity);
+            _transformSynced = true;
+        }
     }
 
     void TryUpdateMesh()
@@ -166,9 +184,22 @@ public class RsHandMeshMeshRenderer : MonoBehaviour
         var indexCountObj = _pIndexCount.GetValue(Source, null);
         var indexCount = indexCountObj is int i ? i : 0;
 
-        if (srcPositions == null || srcIndices == null) return;
+        if (srcPositions == null || srcIndices == null || indexCount <= 0)
+        {
+            if (_mesh != null)
+                _mesh.Clear(false);
+            
+            if (_renderer != null && _renderer.enabled)
+                _renderer.enabled = false;
+            
+            return;
+        }
+
+        if (_renderer != null && !_renderer.enabled)
+            _renderer.enabled = true;
+        
+        
         if (useSourceColors && srcColors == null) return;
-        if (indexCount <= 0) return;
 
         if (LogOnce && !_loggedMesh)
         {
