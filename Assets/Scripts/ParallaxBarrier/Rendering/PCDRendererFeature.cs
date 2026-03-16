@@ -35,6 +35,10 @@ public class PCDRendererFeature : ScriptableRendererFeature
     [Range(0f, 1f)]
     public float occlusionThreshold = 0.8f;
 
+    [Tooltip("境界を滑らかにするためのフェード幅（閾値からの減衰範囲）")]
+    [Range(0f, 1f)]
+    public float occlusionFadeWidth = 0.1f;
+
     [Header("Blending Assets")]
     [Tooltip("最終結果のアルファブレンドを有効にするか")]
     public bool enableAlphaBlend = true;

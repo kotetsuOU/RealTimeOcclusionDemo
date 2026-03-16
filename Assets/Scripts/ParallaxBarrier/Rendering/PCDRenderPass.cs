@@ -19,6 +19,7 @@ public class PCDRenderPass : ScriptableRenderPass
     private bool _enableGradientCorrection;
     private float _gradientThreshold_g_th;
     private float _occlusionThreshold;
+    private float _occlusionFadeWidth;
     private bool _enableOriginDebugMap;
 
     private int _kernelClear, _kernelProject, _kernelCalcGridZMin, _kernelCalcDensity,
@@ -46,6 +47,7 @@ public class PCDRenderPass : ScriptableRenderPass
         this._enableGradientCorrection = settings.enableGradientCorrection;
         this._gradientThreshold_g_th = settings.gradientThreshold_g_th;
         this._occlusionThreshold = settings.occlusionThreshold;
+        this._occlusionFadeWidth = settings.occlusionFadeWidth;
         this._enableOriginDebugMap = settings.enableOriginDebugMap;
 
         this.m_BlendMaterial = blendMaterial;
@@ -125,6 +127,7 @@ public class PCDRenderPass : ScriptableRenderPass
         internal bool enableGradientCorrection;
         internal float gradientThreshold_g_th;
         internal float occlusionThreshold;
+        internal float occlusionFadeWidth;
         internal bool enableOriginDebugMap;
 
         internal int kernelClear, kernelProject, kernelCalcGridZMin, kernelCalcDensity,
@@ -327,6 +330,7 @@ public class PCDRenderPass : ScriptableRenderPass
             data.enableGradientCorrection = _enableGradientCorrection;
             data.gradientThreshold_g_th = _gradientThreshold_g_th;
             data.occlusionThreshold = _occlusionThreshold;
+            data.occlusionFadeWidth = _occlusionFadeWidth;
             data.enableOriginDebugMap = _enableOriginDebugMap;
 
             data.kernelClear = _kernelClear;
@@ -507,6 +511,7 @@ public class PCDRenderPass : ScriptableRenderPass
                 cmd.SetComputeFloatParam(cs, "_NeighborhoodParam_p_prime", passData.neighborhoodParam_p_prime);
                 cmd.SetComputeFloatParam(cs, "_GradientThreshold_g_th", passData.gradientThreshold_g_th);
                 cmd.SetComputeFloatParam(cs, "_OcclusionThreshold", passData.occlusionThreshold);
+                cmd.SetComputeFloatParam(cs, "_OcclusionFadeWidth", passData.occlusionFadeWidth);
 
                 int sw = (int)passData.screenParams.x;
                 int sh = (int)passData.screenParams.y;

@@ -81,6 +81,7 @@ float _DensityThreshold_e;
 float _NeighborhoodParam_p_prime;
 float _GradientThreshold_g_th;
 float _OcclusionThreshold;
+float _OcclusionFadeWidth;
 
 #define GRID_SIZE 16u
 #define DEPTH_MAX_UINT 0x7FFFFFFFu
@@ -550,23 +551,33 @@ void OcclusionAndFilter(uint3 id : SV_DispatchThreadID)
         }
     }
 
-    bool isOccluded = false;
+    float alpha = 1.0;
     if (neighborCount > 0)
     {
         float occlusionAverage = occlusionSum / (float) neighborCount;
-        if (occlusionAverage < _OcclusionThreshold)
+        if (_OcclusionFadeWidth > 1e-4)
         {
-            isOccluded = true;
+            float fadeEnd = _OcclusionThreshold + _OcclusionFadeWidth;
+            alpha = smoothstep(_OcclusionThreshold, fadeEnd, occlusionAverage);
+        }
+        else
+        {
+            if (occlusionAverage < _OcclusionThreshold)
+            {
+                alpha = 0.0;
+            }
         }
     }
     
-    if (isOccluded)
+    if (alpha <= 0.0)
     {
         _OcclusionResultMap_RW[id.xy] = float4(0, 0, 0, 0);
     }
     else
     {
-        _OcclusionResultMap_RW[id.xy] = _ColorMap[id.xy];
+        float4 col = _ColorMap[id.xy];
+        col.a *= alpha;
+        _OcclusionResultMap_RW[id.xy] = col;
         
         uint originType = _OriginTypeMap[id.xy];
         if (originType == 0u)
