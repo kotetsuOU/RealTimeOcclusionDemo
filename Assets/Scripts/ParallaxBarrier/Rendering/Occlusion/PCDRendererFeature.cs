@@ -6,6 +6,18 @@ public class PCDRendererFeature : ScriptableRendererFeature
 {
     public static PCDRendererFeature Instance { get; private set; }
 
+    [System.Serializable]
+    public struct PCDRenderSettings
+    {
+        public float densityThreshold_e;
+        public float neighborhoodParam_p_prime;
+        public bool enableGradientCorrection;
+        public float gradientThreshold_g_th;
+        [Range(0f, 1f)] public float occlusionThreshold;
+        [Range(0f, 1f)] public float occlusionFadeWidth;
+        public bool enableOriginDebugMap;
+    }
+
     private class RegisteredObject
     {
         public Mesh mesh;
@@ -70,11 +82,25 @@ public class PCDRendererFeature : ScriptableRendererFeature
         _useGlobalBufferMode = enable;
     }
 
+    private PCDRenderSettings GetSettings()
+    {
+        return new PCDRenderSettings
+        {
+            densityThreshold_e = this.densityThreshold_e,
+            neighborhoodParam_p_prime = this.neighborhoodParam_p_prime,
+            enableGradientCorrection = this.enableGradientCorrection,
+            gradientThreshold_g_th = this.gradientThreshold_g_th,
+            occlusionThreshold = this.occlusionThreshold,
+            occlusionFadeWidth = this.occlusionFadeWidth,
+            enableOriginDebugMap = this.enableOriginDebugMap
+        };
+    }
+
     public override void Create()
     {
         Instance = this;
 
-        _scriptablePass = new PCDRenderPass(this, blendMaterial, enableAlphaBlend);
+        _scriptablePass = new PCDRenderPass(this.pointCloudCompute, GetSettings(), blendMaterial, enableAlphaBlend);
         _scriptablePass.renderPassEvent = RenderPassEvent.BeforeRenderingPostProcessing;
 
         SyncPersistentObjectsToPass();
@@ -132,9 +158,14 @@ public class PCDRendererFeature : ScriptableRendererFeature
             return;
         }
 
+        if (_scriptablePass != null)
+        {
+            _scriptablePass.UpdateSettings(GetSettings());
+            _scriptablePass.SetDebugFlag(enableOriginDebugMap);
+        }
+
         // Always enqueue the pass - let RecordRenderGraph decide what to do
         // The pass will handle early returns internally if needed
-        _scriptablePass?.SetDebugFlag(enableOriginDebugMap);
         renderer.EnqueuePass(_scriptablePass);
     }
 

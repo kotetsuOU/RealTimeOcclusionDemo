@@ -202,7 +202,7 @@ public class RsGlobalPointCloudManager : MonoBehaviour
     {
         int currentTotalCount = 0;
 
-        foreach (var renderer in renderers)
+        foreach (var renderer in GetChildRenderers())
         {
             if (renderer == null) continue;
 
@@ -217,13 +217,19 @@ public class RsGlobalPointCloudManager : MonoBehaviour
 
     private void ProcessSingleCamera()
     {
-        if (debugCameraIndex < 0 || debugCameraIndex >= renderers.Count)
+        var activeRenderers = new List<RsPointCloudRenderer>();
+        foreach (var renderer in GetChildRenderers())
+        {
+            activeRenderers.Add(renderer);
+        }
+
+        if (debugCameraIndex < 0 || debugCameraIndex >= activeRenderers.Count)
         {
             CurrentTotalCount = 0;
             return;
         }
 
-        var targetRenderer = renderers[debugCameraIndex];
+        var targetRenderer = activeRenderers[debugCameraIndex];
 
         int copiedCount = DispatchCopy(targetRenderer, 0);
 
@@ -269,7 +275,7 @@ public class RsGlobalPointCloudManager : MonoBehaviour
         _pcaCallsCounter++;
         _samplingResults.Clear();
 
-        foreach (var renderer in renderers)
+        foreach (var renderer in GetChildRenderers())
         {
             if (renderer == null) continue;
 
