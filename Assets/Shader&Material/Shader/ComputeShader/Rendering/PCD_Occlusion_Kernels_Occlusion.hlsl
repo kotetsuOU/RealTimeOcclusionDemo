@@ -223,6 +223,7 @@ void OcclusionAndFilter(uint3 id : SV_DispatchThreadID)
                 float3 neighborPos = _ViewPositionMap[uv].xyz;
                 float neighborDepth = _ViewPositionMap[uv].w;
 
+                /*
                 if (currentDepth - neighborDepth > 0.01)
                 {
                     float3 y_minus_x = neighborPos - currentPos;
@@ -234,7 +235,18 @@ void OcclusionAndFilter(uint3 id : SV_DispatchThreadID)
                         occlusionSum += occlusionValue;
                         neighborCount++;
                     }
+                }*/
+                
+                float3 y_minus_x = neighborPos - currentPos;
+                float3 minus_y = -neighborPos;
+
+                if (length(y_minus_x) > 1e-6 && length(minus_y) > 1e-6)
+                {
+                    float occlusionValue = 1.0 - dot(normalize(y_minus_x), normalize(minus_y));
+                    occlusionSum += occlusionValue;
+                    neighborCount++;
                 }
+
             }
         }
     }
@@ -243,6 +255,12 @@ void OcclusionAndFilter(uint3 id : SV_DispatchThreadID)
     if (neighborCount > 0)
     {
         float occlusionAverage = occlusionSum / (float) neighborCount;
+
+        if (_RecordOcclusionDebug > 0)
+        {
+            _OcclusionValueMap_RW[id.xy] = occlusionAverage;
+        }
+
         if (_OcclusionFadeWidth > 1e-4)
         {
             float fadeEnd = _OcclusionThreshold + _OcclusionFadeWidth;

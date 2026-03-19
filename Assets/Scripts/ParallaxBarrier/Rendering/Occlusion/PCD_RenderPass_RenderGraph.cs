@@ -30,11 +30,13 @@ public partial class PCDRenderPass
         ComputeBuffer activeBuffer = null;
         int activeCount = 0;
 
-        if (_bufferManager.UseExternalBuffer && _bufferManager.ExternalPointCount > 0)
+        if (_bufferManager.UseExternalBuffer && _bufferManager.ExternalPointBuffer != null)
         {
+            int extCount = _bufferManager.ExternalPointCount > 0 ? _bufferManager.ExternalPointCount : _bufferManager.ExternalPointBuffer.count;
+            
             if (_bufferManager.PointCount > 0)
             {
-                int totalCount = _bufferManager.ExternalPointCount + _bufferManager.PointCount;
+                int totalCount = extCount + _bufferManager.PointCount;
                 _bufferManager.EnsureCombinedBuffer(totalCount);
                 activeBuffer = _bufferManager.CombinedBuffer;
                 activeCount = totalCount;
@@ -42,7 +44,7 @@ public partial class PCDRenderPass
             else
             {
                 activeBuffer = _bufferManager.ExternalPointBuffer;
-                activeCount = _bufferManager.ExternalPointCount;
+                activeCount = extCount;
             }
         }
         else
@@ -53,16 +55,35 @@ public partial class PCDRenderPass
 
         bool hasDepthMapMeshes = _bufferManager.HasDepthMapMeshes();
         bool hasPointCloudMeshes = _bufferManager.HasPointCloudMeshes();
-        bool depthMapOnlyMode = hasDepthMapMeshes && !hasPointCloudMeshes && (activeBuffer == null || activeCount == 0 || !activeBuffer.IsValid());
+        bool pointCloudHasData = activeBuffer != null && activeCount > 0 && activeBuffer.IsValid();
+
+        if (_settings.recordOcclusionDebugMap)
+        {
+            UnityEngine.Debug.Log($"[PCDRenderPass] Record Debug. DepthMap={hasDepthMapMeshes} PCMeshes={hasPointCloudMeshes} PointCloudData={pointCloudHasData} (Buffer={activeBuffer!=null}, Count={activeCount})");
+        }
+
+        bool depthMapOnlyMode = hasDepthMapMeshes && !hasPointCloudMeshes && !pointCloudHasData;
 
         if (depthMapOnlyMode)
         {
+            if (_settings.recordOcclusionDebugMap) 
+            {
+                UnityEngine.Debug.LogWarning("[PCDRenderPass] Skipped rendering because depthMapOnlyMode is true.");
+                PCDRendererFeature.Instance.recordOcclusionDebugMap = false;
+            }
             return;
         }
 
-        if (activeBuffer == null || activeCount == 0 || !activeBuffer.IsValid())
+        if (!pointCloudHasData && !hasDepthMapMeshes)
         {
-            UnityEngine.Debug.LogWarning("[PCDRenderPass] Early return: No point cloud data");
+            if (_settings.recordOcclusionDebugMap) 
+            {
+                UnityEngine.Debug.LogWarning("[PCDRenderPass] Check box pressed but ignored. No point cloud and no depth map data.");
+                if (PCDRendererFeature.Instance != null)
+                {
+                    PCDRendererFeature.Instance.recordOcclusionDebugMap = false;
+                }
+            }
             return;
         }
 
@@ -98,8 +119,20 @@ public partial class PCDRenderPass
             }
         }
 
+        if (_settings.recordOcclusionDebugMap)
+        {
+            if (_occlusionValueMapHandle == null || _occlusionValueMapHandle.rt == null || _occlusionValueMapHandle.rt.width != screenWidth || _occlusionValueMapHandle.rt.height != screenHeight)
+            {
+                _occlusionValueMapHandle?.Release();
+                var desc = new RenderTextureDescriptor(screenWidth, screenHeight, GraphicsFormatUtility.GetGraphicsFormat(RenderTextureFormat.RFloat, false), 0);
+                desc.enableRandomWrite = true;
+                _occlusionValueMapHandle = RTHandles.Alloc(desc, name: "_OcclusionValueMap");
+            }
+        }
+
         TextureHandle finalImageHandle;
         TextureHandle originDebugMapHandle_RG = default;
+        TextureHandle occlusionValueMapHandle_RG = default;
 
         using (var builder = renderGraph.AddComputePass<ComputePassData>(PROFILER_TAG, out var data))
         {
@@ -196,6 +229,19 @@ public partial class PCDRenderPass
 
             desc.colorFormat = GraphicsFormatUtility.GetGraphicsFormat(RenderTextureFormat.ARGBFloat, false);
             data.occlusionResultMap = renderGraph.CreateTexture(desc);
+            
+            if (data.settings.recordOcclusionDebugMap)
+            {
+                occlusionValueMapHandle_RG = renderGraph.ImportTexture(_occlusionValueMapHandle);
+                data.occlusionValueMap = occlusionValueMapHandle_RG;
+            }
+            else
+            {
+                desc.colorFormat = GraphicsFormatUtility.GetGraphicsFormat(RenderTextureFormat.RFloat, false);
+                data.occlusionValueMap = renderGraph.CreateTexture(desc);
+            }
+            
+            desc.colorFormat = GraphicsFormatUtility.GetGraphicsFormat(RenderTextureFormat.ARGBFloat, false);
             data.finalImage = renderGraph.CreateTexture(desc);
 
             if (data.settings.enableOriginDebugMap)
@@ -225,6 +271,7 @@ public partial class PCDRenderPass
             }
             builder.UseTexture(data.correctedNeighborhoodSizeMap, AccessFlags.ReadWrite);
             builder.UseTexture(data.occlusionResultMap, AccessFlags.ReadWrite);
+            builder.UseTexture(data.occlusionValueMap, AccessFlags.ReadWrite);
             builder.UseTexture(data.finalImage, AccessFlags.ReadWrite);
             builder.UseTexture(data.originTypeMap, AccessFlags.ReadWrite);
             builder.UseTexture(data.originDebugMap, AccessFlags.ReadWrite);
@@ -235,6 +282,52 @@ public partial class PCDRenderPass
             {
                 ExecuteComputePass(passData, context);
             });
+            
+            if (data.settings.recordOcclusionDebugMap)
+            {
+                builder.AllowPassCulling(false);
+            }
+        }
+
+        if (_settings.recordOcclusionDebugMap)
+        {
+            using (var builder = renderGraph.AddRasterRenderPass<BlitPassData>("PCD Extract Occlusion Debug", out var debugData))
+            {
+                builder.UseTexture(occlusionValueMapHandle_RG, AccessFlags.Read);
+                builder.AllowPassCulling(false);
+                
+                builder.SetRenderFunc((BlitPassData passData, RasterGraphContext context) =>
+                {
+                    Debug.Log($"[PCD Extract Occlusion Debug] Passing to AsyncGPUReadback... occlusionHandle isValid: {_occlusionValueMapHandle != null && _occlusionValueMapHandle.rt != null}");
+                    
+                    if (_occlusionValueMapHandle != null && _occlusionValueMapHandle.rt != null)
+                    {
+                        var rt = _occlusionValueMapHandle.rt;
+                        AsyncGPUReadback.Request(rt, 0, TextureFormat.RFloat, request =>
+                        {
+                            if (request.hasError) 
+                            {
+                                Debug.LogError("[PCD Export] AsyncGPUReadback error.");
+                                return;
+                            }
+
+                            int w = request.width;
+                            int h = request.height;
+                            Debug.Log($"[PCD Export] AsyncGPUReadback success! w: {w}, h: {h}");
+                            var rawData = request.GetData<float>();
+                            float[] fData = new float[w * h];
+                            rawData.CopyTo(fData);
+
+                            PCDOcclusionDebugExporter.ExportOcclusionMap16PaletteFromData(fData, w, h, "Assets/HandTrackingData/OcculusionMaps");
+                            
+                            if (PCDRendererFeature.Instance != null)
+                            {
+                                PCDRendererFeature.Instance.recordOcclusionDebugMap = false;
+                            }
+                        });
+                    }
+                });
+            }
         }
 
         using (var builder = renderGraph.AddRasterRenderPass<BlitPassData>("PCD Blit Pass", out var data))

@@ -48,6 +48,7 @@ public partial class PCDRenderPass
         cmd.SetComputeTextureParam(cs, passData.kernelClear, ShaderIDs.DepthMap_RW, passData.depthMap);
         cmd.SetComputeTextureParam(cs, passData.kernelClear, ShaderIDs.ViewPositionMap_RW, passData.viewPositionMap);
         cmd.SetComputeTextureParam(cs, passData.kernelClear, ShaderIDs.OcclusionResultMap_RW, passData.occlusionResultMap);
+        cmd.SetComputeTextureParam(cs, passData.kernelClear, ShaderIDs.OcclusionValueMap_RW, passData.occlusionValueMap);
         cmd.SetComputeTextureParam(cs, passData.kernelClear, ShaderIDs.FinalImage_RW, passData.finalImage);
         cmd.SetComputeTextureParam(cs, passData.kernelClear, ShaderIDs.OriginTypeMap_RW, passData.originTypeMap);
         cmd.SetComputeTextureParam(cs, passData.kernelClear, ShaderIDs.OriginMap_RW, passData.originDebugMap);
@@ -152,6 +153,10 @@ public partial class PCDRenderPass
         cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, ShaderIDs.OriginTypeMap_RW, passData.originTypeMap);
         cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, ShaderIDs.FinalNeighborhoodSizeMap, passData.settings.enableGradientCorrection ? passData.correctedNeighborhoodSizeMap : passData.neighborhoodSizeMap);
         cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, ShaderIDs.OcclusionResultMap_RW, passData.occlusionResultMap);
+        
+        cmd.SetComputeIntParam(cs, ShaderIDs.RecordOcclusionDebug, passData.settings.recordOcclusionDebugMap ? 1 : 0);
+        cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, ShaderIDs.OcclusionValueMap_RW, passData.occlusionValueMap);
+
         cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, ShaderIDs.OriginMap_RW, passData.originDebugMap);
         cmd.DispatchCompute(cs, passData.kernelOcclusion, threadGroupsX, threadGroupsY, 1);
 

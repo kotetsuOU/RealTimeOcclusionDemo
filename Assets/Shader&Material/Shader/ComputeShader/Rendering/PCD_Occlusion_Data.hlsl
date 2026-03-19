@@ -26,6 +26,7 @@ RWTexture2D<uint> _DepthPyramidL4_RW;
 RWTexture2D<int> _CorrectedNeighborhoodSizeMap_RW;
 RWTexture2D<uint> _OriginTypeMap_RW;
 RWTexture2D<float4> _OcclusionResultMap_RW;
+RWTexture2D<float> _OcclusionValueMap_RW;
 RWTexture2D<float4> _FinalImage_RW;
 RWTexture2D<float4> _OriginMap_RW;
 
@@ -50,6 +51,7 @@ Texture2D<float> _VirtualDepthMap;
 Texture2D<float4> _CameraColorTexture;
 int _UseVirtualDepth;
 float4x4 _InverseProjectionMatrix;
+int _RecordOcclusionDebug;
 
 // Merge Buffers
 StructuredBuffer<Point> _MergeSrcBuffer;

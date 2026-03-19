@@ -60,6 +60,9 @@ public partial class PCDRenderPass : ScriptableRenderPass
         public static readonly int OriginTypeMap_RW = Shader.PropertyToID("_OriginTypeMap_RW");
         public static readonly int OriginMap_RW = Shader.PropertyToID("_OriginMap_RW");
 
+        public static readonly int OcclusionValueMap_RW = Shader.PropertyToID("_OcclusionValueMap_RW");
+        public static readonly int RecordOcclusionDebug = Shader.PropertyToID("_RecordOcclusionDebug");
+
         public static readonly int MergeSrcBuffer = Shader.PropertyToID("_MergeSrcBuffer");
         public static readonly int MergeDstBuffer = Shader.PropertyToID("_MergeDstBuffer");
         public static readonly int MergeSrcOffset = Shader.PropertyToID("_MergeSrcOffset");
@@ -87,6 +90,7 @@ public partial class PCDRenderPass : ScriptableRenderPass
                 _kernelMerge, _kernelInitFromCamera;
 
     private RTHandle _originDebugMapHandle;
+    private RTHandle _occlusionValueMapHandle;
     private bool _isInitialized = false;
     private const int STRIDE = 28; // sizeof(float)*3 + sizeof(float)*3 + sizeof(uint)
     
@@ -215,6 +219,7 @@ public partial class PCDRenderPass : ScriptableRenderPass
         internal TextureHandle depthPyramidL4;
         internal TextureHandle correctedNeighborhoodSizeMap;
         internal TextureHandle occlusionResultMap;
+        internal TextureHandle occlusionValueMap;
         internal TextureHandle finalImage;
         internal TextureHandle originTypeMap;
         internal TextureHandle originDebugMap;
@@ -265,6 +270,9 @@ public partial class PCDRenderPass : ScriptableRenderPass
 
         _originDebugMapHandle?.Release();
         _originDebugMapHandle = null;
+        
+        _occlusionValueMapHandle?.Release();
+        _occlusionValueMapHandle = null;
 
         _isInitialized = false;
     }

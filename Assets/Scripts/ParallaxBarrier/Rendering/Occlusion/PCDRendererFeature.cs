@@ -16,6 +16,7 @@ public class PCDRendererFeature : ScriptableRendererFeature
         [Range(0f, 1f)] public float occlusionThreshold;
         [Range(0f, 1f)] public float occlusionFadeWidth;
         public bool enableOriginDebugMap;
+        public bool recordOcclusionDebugMap;
     }
 
     private class RegisteredObject
@@ -69,6 +70,9 @@ public class PCDRendererFeature : ScriptableRendererFeature
     [Header("Debug")]
     [Tooltip("点群(黒)と静的メッシュ(白)の由来を示すデバッグマップを有効にします")]
     public bool enableOriginDebugMap = false;
+    
+    [Tooltip("1フレームだけOcclusionの個別の生値を記録します")]
+    public bool recordOcclusionDebugMap = false;
 
     private PCDRenderPass _scriptablePass;
 
@@ -92,7 +96,8 @@ public class PCDRendererFeature : ScriptableRendererFeature
             gradientThreshold_g_th = this.gradientThreshold_g_th,
             occlusionThreshold = this.occlusionThreshold,
             occlusionFadeWidth = this.occlusionFadeWidth,
-            enableOriginDebugMap = this.enableOriginDebugMap
+            enableOriginDebugMap = this.enableOriginDebugMap,
+            recordOcclusionDebugMap = this.recordOcclusionDebugMap
         };
     }
 
