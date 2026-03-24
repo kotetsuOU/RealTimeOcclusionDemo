@@ -8,12 +8,17 @@ public partial class PCDRenderPass
 {
     public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData)
     {
+        // 初期化が行われていない場合は初期化を実行
         if (!_isInitialized) Initialize();
         if (!_isInitialized) return;
+
+        // 再生中のみ処理を実行（エディタの編集中はスキップ）
         if (!UnityEngine.Application.isPlaying) return;
 
+        // グローバルバッファモードを使用するかどうかを判断
         bool shouldUseExternal = PCDRendererFeature.Instance.IsGlobalBufferMode;
 
+        // 外部（グローバル）のポイントクラウドデータが存在する場合、バッファをセットする
         if (shouldUseExternal && RsGlobalPointCloudManager.Instance != null)
         {
             var globalBuffer = RsGlobalPointCloudManager.Instance.GetGlobalBuffer();
@@ -25,15 +30,18 @@ public partial class PCDRenderPass
             _bufferManager.SetExternalBuffer(null, 0);
         }
 
+        // バッファの更新処理を実行
         _bufferManager.Update();
 
         ComputeBuffer activeBuffer = null;
         int activeCount = 0;
 
+        // 外部バッファが使用され、データが存在する場合の処理
         if (_bufferManager.UseExternalBuffer && _bufferManager.ExternalPointBuffer != null)
         {
             int extCount = _bufferManager.ExternalPointCount > 0 ? _bufferManager.ExternalPointCount : _bufferManager.ExternalPointBuffer.count;
-            
+
+            // 内部データも存在する場合は、両方を結合したバッファを使用する
             if (_bufferManager.PointCount > 0)
             {
                 int totalCount = extCount + _bufferManager.PointCount;
@@ -43,29 +51,35 @@ public partial class PCDRenderPass
             }
             else
             {
+                // 外部データのみの場合はそのまま使用
                 activeBuffer = _bufferManager.ExternalPointBuffer;
                 activeCount = extCount;
             }
         }
         else
         {
+            // 内部データのみを使用
             activeBuffer = _bufferManager.PointBuffer;
             activeCount = _bufferManager.PointCount;
         }
 
+        // DepthMapメッシュやPointCloudメッシュ、点群データが存在するか確認
         bool hasDepthMapMeshes = _bufferManager.HasDepthMapMeshes();
         bool hasPointCloudMeshes = _bufferManager.HasPointCloudMeshes();
         bool pointCloudHasData = activeBuffer != null && activeCount > 0 && activeBuffer.IsValid();
 
+        // デバッグマップ記録時のログ出力
         if (_settings.recordOcclusionDebugMap)
         {
             UnityEngine.Debug.Log($"[PCDRenderPass] Record Debug. DepthMap={hasDepthMapMeshes} PCMeshes={hasPointCloudMeshes} PointCloudData={pointCloudHasData} (Buffer={activeBuffer!=null}, Count={activeCount})");
         }
 
+        // 点群データもメッシュも無い、背景深度の取得のみのモード
         bool depthMapOnlyMode = hasDepthMapMeshes && !hasPointCloudMeshes && !pointCloudHasData;
 
         if (depthMapOnlyMode)
         {
+            // DepthMap取得のみであればフルレンダリングはスキップ
             if (_settings.recordOcclusionDebugMap) 
             {
                 UnityEngine.Debug.LogWarning("[PCDRenderPass] Skipped rendering because depthMapOnlyMode is true.");
@@ -74,6 +88,7 @@ public partial class PCDRenderPass
             return;
         }
 
+        // 描画すべきデータが全く無ければスキップ
         if (!pointCloudHasData && !hasDepthMapMeshes)
         {
             if (_settings.recordOcclusionDebugMap) 
@@ -87,15 +102,19 @@ public partial class PCDRenderPass
             return;
         }
 
+        // カメラやリソース情報の取得
         var cameraData = frameData.Get<UniversalCameraData>();
         var resourceData = frameData.Get<UniversalResourceData>();
         Camera camera = cameraData.camera;
         int screenWidth = camera.pixelWidth;
         int screenHeight = camera.pixelHeight;
+
+        // 16x16で分割されたグリッドマップの解像度を計算
         int gridWidth = Mathf.CeilToInt(screenWidth / 16.0f);
         int gridHeight = Mathf.CeilToInt(screenHeight / 16.0f);
         int l1_Width = 1, l1_Height = 1, l2_Width = 1, l2_Height = 1, l3_Width = 1, l3_Height = 1, l4_Width = 1, l4_Height = 1;
 
+        // 勾配に応じた近傍補正を有効にしている場合、階層マップ(L1〜L4)の解像度を計算
         if (_settings.enableGradientCorrection)
         {
             l1_Width = Mathf.Max(1, Mathf.CeilToInt(screenWidth / 2.0f));
@@ -108,6 +127,8 @@ public partial class PCDRenderPass
             l4_Height = Mathf.Max(1, Mathf.CeilToInt(l3_Height / 2.0f));
         }
 
+        // オリジンデバッグマップのテクスチャハンドル生成
+        // 画面解像度が変わった場合などは再割り当てを行う
         if (_settings.enableOriginDebugMap)
         {
             if (_originDebugMapHandle == null || _originDebugMapHandle.rt == null || _originDebugMapHandle.rt.width != screenWidth || _originDebugMapHandle.rt.height != screenHeight)
@@ -119,6 +140,7 @@ public partial class PCDRenderPass
             }
         }
 
+        // オクルージョンデバッグマップのテクスチャハンドル生成
         if (_settings.recordOcclusionDebugMap)
         {
             if (_occlusionValueMapHandle == null || _occlusionValueMapHandle.rt == null || _occlusionValueMapHandle.rt.width != screenWidth || _occlusionValueMapHandle.rt.height != screenHeight)
@@ -134,8 +156,10 @@ public partial class PCDRenderPass
         TextureHandle originDebugMapHandle_RG = default;
         TextureHandle occlusionValueMapHandle_RG = default;
 
+        // コンピュートシェーダーを実行するパスをRenderGraphに追加
         using (var builder = renderGraph.AddComputePass<ComputePassData>(PROFILER_TAG, out var data))
         {
+            // パスへ渡すパラメータ（シェーダーや各種データ）を登録
             data.computeShader = pointCloudCompute;
             data.pointCount = activeCount;
             data.screenParams = new Vector4(screenWidth, screenHeight, 0, 0);
@@ -169,12 +193,14 @@ public partial class PCDRenderPass
             data.depthMapOnlyMode = depthMapOnlyMode;
             data.inverseProjectionMatrix = camera.projectionMatrix.inverse;
 
+            // 仮想深度（バックグラウンドの深度）を使用する場合、カメラの深度テクスチャを登録
             if (data.hasVirtualDepth || depthMapOnlyMode)
             {
                 data.virtualDepthTexture = resourceData.cameraDepthTexture;
             }
             else
             {
+                // 使用しない場合のフォールバックテクスチャとしてのダミーを作成
                 var virtualDepthFallbackDesc = new TextureDesc(1, 1)
                 {
                     colorFormat = GraphicsFormatUtility.GetGraphicsFormat(RenderTextureFormat.RFloat, false)
@@ -183,6 +209,7 @@ public partial class PCDRenderPass
             }
             builder.UseTexture(data.virtualDepthTexture, AccessFlags.Read);
 
+            // カメラのカラーテクスチャを登録
             if (data.hasVirtualDepth && resourceData.activeColorTexture.IsValid())
             {
                 data.cameraColorTexture = resourceData.activeColorTexture;
@@ -197,16 +224,20 @@ public partial class PCDRenderPass
             }
             builder.UseTexture(data.cameraColorTexture, AccessFlags.Read);
 
+            // 中間処理で使用する各種バッファを生成（カラー、深度、座標情報など）
             var desc = new TextureDesc(screenWidth, screenHeight) { enableRandomWrite = true };
             desc.colorFormat = GraphicsFormatUtility.GetGraphicsFormat(RenderTextureFormat.ARGBFloat, false);
             data.colorMap = renderGraph.CreateTexture(desc);
             data.viewPositionMap = renderGraph.CreateTexture(desc);
+
+            // 深度情報はRInt（整数型）として格納
             desc.colorFormat = GraphicsFormatUtility.GetGraphicsFormat(RenderTextureFormat.RInt, false);
             data.depthMap = renderGraph.CreateTexture(desc);
             data.neighborhoodSizeMap = renderGraph.CreateTexture(desc);
             data.correctedNeighborhoodSizeMap = renderGraph.CreateTexture(desc);
             data.originTypeMap = renderGraph.CreateTexture(desc);
 
+            // 密度とグリッドレベル用の縮小バッファを生成
             var gridDesc = new TextureDesc(gridWidth, gridHeight) { enableRandomWrite = true };
             gridDesc.colorFormat = GraphicsFormatUtility.GetGraphicsFormat(RenderTextureFormat.RInt, false);
             data.gridZMinMap = renderGraph.CreateTexture(gridDesc);
@@ -254,6 +285,7 @@ public partial class PCDRenderPass
                 data.originDebugMap = renderGraph.CreateTexture(desc);
             }
 
+            // --- 変換および演算で読み書き(ReadWrite)するテクスチャを一括登録 ---
             builder.UseTexture(data.colorMap, AccessFlags.ReadWrite);
             builder.UseTexture(data.depthMap, AccessFlags.ReadWrite);
             builder.UseTexture(data.viewPositionMap, AccessFlags.ReadWrite);
@@ -278,31 +310,35 @@ public partial class PCDRenderPass
 
             finalImageHandle = data.finalImage;
 
+            // アロケーションが終わったら、実際のComputeShader実行関数を登録
             builder.SetRenderFunc((ComputePassData passData, ComputeGraphContext context) =>
             {
                 ExecuteComputePass(passData, context);
             });
-            
+
+            // デバッグデータを非同期読込する場合はカリングを無効化
             if (data.settings.recordOcclusionDebugMap)
             {
                 builder.AllowPassCulling(false);
             }
         }
 
+        // --- デバッグ用のオクルージョンマップを非同期出力するパス ---
         if (_settings.recordOcclusionDebugMap)
         {
             using (var builder = renderGraph.AddRasterRenderPass<BlitPassData>("PCD Extract Occlusion Debug", out var debugData))
             {
                 builder.UseTexture(occlusionValueMapHandle_RG, AccessFlags.Read);
-                builder.AllowPassCulling(false);
-                
+                builder.AllowPassCulling(false); // カリング無効にして確実に読取りが走るようにする
+
                 builder.SetRenderFunc((BlitPassData passData, RasterGraphContext context) =>
                 {
                     Debug.Log($"[PCD Extract Occlusion Debug] Passing to AsyncGPUReadback... occlusionHandle isValid: {_occlusionValueMapHandle != null && _occlusionValueMapHandle.rt != null}");
-                    
+
                     if (_occlusionValueMapHandle != null && _occlusionValueMapHandle.rt != null)
                     {
                         var rt = _occlusionValueMapHandle.rt;
+                        // GPUからCPUへ非同期でテクスチャデータを取得
                         AsyncGPUReadback.Request(rt, 0, TextureFormat.RFloat, request =>
                         {
                             if (request.hasError) 
@@ -318,8 +354,9 @@ public partial class PCDRenderPass
                             float[] fData = new float[w * h];
                             rawData.CopyTo(fData);
 
+                            // テクスチャデータを画像として出力する関数を呼び出し
                             PCDOcclusionDebugExporter.ExportOcclusionMap16PaletteFromData(fData, w, h, "Assets/HandTrackingData/OcculusionMaps");
-                            
+
                             if (PCDRendererFeature.Instance != null)
                             {
                                 PCDRendererFeature.Instance.recordOcclusionDebugMap = false;
@@ -330,13 +367,15 @@ public partial class PCDRenderPass
             }
         }
 
+        // --- 生成された点群（またはデバッグマップ）を最終画面に描画する(Blit)パス ---
         using (var builder = renderGraph.AddRasterRenderPass<BlitPassData>("PCD Blit Pass", out var data))
         {
             data.blendMaterial = m_BlendMaterial;
             data.enableAlphaBlend = _enableAlphaBlend;
-            data.cameraTarget = resourceData.activeColorTexture;
+            data.cameraTarget = resourceData.activeColorTexture; // 出力先は現在のカラーテクスチャ
             data.enableOriginDebugMap = _settings.enableOriginDebugMap;
 
+            // オリジンデバッグが有効ならそちらを描画元とし、無効なら最終画像をソースとする
             if (data.enableOriginDebugMap)
             {
                 data.sourceImage = originDebugMapHandle_RG;
@@ -349,6 +388,7 @@ public partial class PCDRenderPass
             }
 
             builder.SetRenderAttachment(data.cameraTarget, 0, AccessFlags.ReadWrite);
+            // Blit処理関数を登録
             builder.SetRenderFunc((BlitPassData passData, RasterGraphContext context) =>
             {
                 ExecuteBlitPass(passData, context);

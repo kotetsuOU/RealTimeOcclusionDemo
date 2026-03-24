@@ -19,6 +19,7 @@ public class PCDRendererFeature : ScriptableRendererFeature
         public bool recordOcclusionDebugMap;
     }
 
+    // 登録された静的メッシュの情報を保持するためのクラス
     private class RegisteredObject
     {
         public Mesh mesh;
@@ -86,6 +87,7 @@ public class PCDRendererFeature : ScriptableRendererFeature
         _useGlobalBufferMode = enable;
     }
 
+    // Inspectorで設定されている値を構造体として取得する
     private PCDRenderSettings GetSettings()
     {
         return new PCDRenderSettings
@@ -101,16 +103,20 @@ public class PCDRendererFeature : ScriptableRendererFeature
         };
     }
 
+    // レンダラー特徴の初期化時に呼ばれる
     public override void Create()
     {
         Instance = this;
 
+        // レンダリングパスのインスタンスを生成し、実行タイミングを設定
         _scriptablePass = new PCDRenderPass(this.pointCloudCompute, GetSettings(), blendMaterial, enableAlphaBlend);
         _scriptablePass.renderPassEvent = RenderPassEvent.BeforeRenderingPostProcessing;
 
+        // パス再生成時にも既存の登録済みメッシュ情報を引き継ぐ
         SyncPersistentObjectsToPass();
     }
 
+    // 内部リストに保持している静的メッシュをスクリプタブルパスへ再登録する
     private void SyncPersistentObjectsToPass()
     {
         if (_scriptablePass == null) return;
@@ -129,10 +135,12 @@ public class PCDRendererFeature : ScriptableRendererFeature
         }
     }
 
+    // オクルージョン用の静的メッシュを追加登録する
     public void AddStaticMesh(Mesh mesh, Transform transform, PCDProcessingMode mode)
     {
         if (mesh == null || transform == null) return;
 
+        // 既に登録されているか確認し、無い場合は追加、ある場合はモードを更新
         var existing = _persistentObjects.Find(x => x.mesh == mesh && x.transform == transform);
         if (existing == null)
         {
@@ -145,17 +153,21 @@ public class PCDRendererFeature : ScriptableRendererFeature
 
         ApplySettings(mesh, transform);
 
+        // 実際の描画パスにもメッシュ情報を渡す
         _scriptablePass?.AddStaticMesh(mesh, transform, mode);
     }
 
+    // 登録された静的メッシュを削除する
     public void RemoveStaticMesh(Mesh mesh, Transform transform)
     {
         _persistentObjects.RemoveAll(x => x.mesh == mesh && x.transform == transform);
         _scriptablePass?.RemoveStaticMesh(mesh, transform);
     }
 
+    // 毎フレーム呼ばれ、RenderGraphにパスをエンキューする
     public override void AddRenderPasses(ScriptableRenderer renderer, ref RenderingData renderingData)
     {
+        // 毎フレーム、メッシュのカリング設定やレイヤーを強制適用する
         EnforceSettingsEveryFrame();
 
         if (pointCloudCompute == null || (enableAlphaBlend && !enableOriginDebugMap && blendMaterial == null))
@@ -165,20 +177,22 @@ public class PCDRendererFeature : ScriptableRendererFeature
 
         if (_scriptablePass != null)
         {
+            // Inspectorでの変更をパスに反映
             _scriptablePass.UpdateSettings(GetSettings());
             _scriptablePass.SetDebugFlag(enableOriginDebugMap);
         }
 
-        // Always enqueue the pass - let RecordRenderGraph decide what to do
-        // The pass will handle early returns internally if needed
+        // 常時パスをエンキューし、描画をスキップするかどうかはRecordRenderGraph内や内部ロジックに委ねる
         renderer.EnqueuePass(_scriptablePass);
     }
 
+    // 登録されたすべてのオブジェクトに対して、設定（BoundsやLayer）が正しく適用されているか確認する
     private void EnforceSettingsEveryFrame()
     {
         for (int i = _persistentObjects.Count - 1; i >= 0; i--)
         {
             var obj = _persistentObjects[i];
+            // オブジェクトが破棄されていたらリストから削除
             if (obj.mesh == null || obj.transform == null)
             {
                 _persistentObjects.RemoveAt(i);
@@ -188,6 +202,7 @@ public class PCDRendererFeature : ScriptableRendererFeature
         }
     }
 
+    // メッシュに広大なBoundsを設定（カリング防止）し、指定されたレイヤーに変更する
     private void ApplySettings(Mesh mesh, Transform transform)
     {
         if (expandBounds && mesh != null)

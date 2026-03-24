@@ -9,6 +9,7 @@ public partial class PCDRenderPass
         var cmd = context.cmd;
         var cs = passData.computeShader;
 
+        // 外部バッファと内部バッファの両方が存在する場合、それらを結合します
         if (passData.useExternal && passData.externalCount > 0 && passData.internalCount > 0)
         {
             cmd.SetComputeBufferParam(cs, passData.kernelMerge, ShaderIDs.MergeDstBuffer, passData.combinedBuffer);
@@ -27,6 +28,7 @@ public partial class PCDRenderPass
             cmd.DispatchCompute(cs, passData.kernelMerge, mergeGroupsInt, 1, 1);
         }
 
+        // --- コンピュートシェーダーのグローバルパラメータを設定 ---
         cmd.SetComputeIntParam(cs, ShaderIDs.PointCount, passData.pointCount);
         cmd.SetComputeVectorParam(cs, ShaderIDs.ScreenParams, passData.screenParams);
         cmd.SetComputeMatrixParam(cs, ShaderIDs.ViewMatrix, passData.viewMatrix);
@@ -37,6 +39,7 @@ public partial class PCDRenderPass
         cmd.SetComputeFloatParam(cs, ShaderIDs.OcclusionThreshold, passData.settings.occlusionThreshold);
         cmd.SetComputeFloatParam(cs, ShaderIDs.OcclusionFadeWidth, passData.settings.occlusionFadeWidth);
 
+        // --- 最適なスレッドグループ数を計算 ---
         int sw = (int)passData.screenParams.x;
         int sh = (int)passData.screenParams.y;
         int threadGroupsX = Mathf.CeilToInt(sw / 8.0f);
@@ -44,6 +47,7 @@ public partial class PCDRenderPass
         int gridGroupsX = Mathf.CeilToInt(sw / 16.0f);
         int gridGroupsY = Mathf.CeilToInt(sh / 16.0f);
 
+        // --- ステージ1: 中間RTテクスチャのクリア ---
         cmd.SetComputeTextureParam(cs, passData.kernelClear, ShaderIDs.ColorMap_RW, passData.colorMap);
         cmd.SetComputeTextureParam(cs, passData.kernelClear, ShaderIDs.DepthMap_RW, passData.depthMap);
         cmd.SetComputeTextureParam(cs, passData.kernelClear, ShaderIDs.ViewPositionMap_RW, passData.viewPositionMap);
@@ -54,6 +58,7 @@ public partial class PCDRenderPass
         cmd.SetComputeTextureParam(cs, passData.kernelClear, ShaderIDs.OriginMap_RW, passData.originDebugMap);
         cmd.DispatchCompute(cs, passData.kernelClear, threadGroupsX, threadGroupsY, 1);
 
+        // --- ステージ2: 仮想深度マップからの初期化（提供されている場合） ---
         if (passData.hasVirtualDepth)
         {
             cmd.SetComputeIntParam(cs, ShaderIDs.UseVirtualDepth, 1);
@@ -76,6 +81,7 @@ public partial class PCDRenderPass
             cmd.SetComputeIntParam(cs, ShaderIDs.UseVirtualDepth, 0);
         }
 
+        // --- ステージ3: 3D点群データのスクリーンスペースへの投影 ---
         if (!passData.depthMapOnlyMode)
         {
             cmd.SetComputeBufferParam(cs, passData.kernelProject, ShaderIDs.PointBuffer, passData.pointBuffer);
@@ -87,32 +93,39 @@ public partial class PCDRenderPass
             cmd.DispatchCompute(cs, passData.kernelProject, projectGroups, 1, 1);
         }
 
+        // --- ステージ4: 各グリッドセルの最小深度を計算 ---
         cmd.SetComputeTextureParam(cs, passData.kernelCalcGridZMin, ShaderIDs.DepthMap, passData.depthMap);
         cmd.SetComputeTextureParam(cs, passData.kernelCalcGridZMin, ShaderIDs.GridZMinMap_RW, passData.gridZMinMap);
         cmd.DispatchCompute(cs, passData.kernelCalcGridZMin, gridGroupsX, gridGroupsY, 1);
 
+        // --- ステージ5: グリッド解像度の要件を評価するために画面上のサンプル密度を計算 ---
         cmd.SetComputeTextureParam(cs, passData.kernelCalcDensity, ShaderIDs.DepthMap, passData.depthMap);
         cmd.SetComputeTextureParam(cs, passData.kernelCalcDensity, ShaderIDs.GridZMinMap, passData.gridZMinMap);
         cmd.SetComputeTextureParam(cs, passData.kernelCalcDensity, ShaderIDs.OriginTypeMap, passData.originTypeMap);
         cmd.SetComputeTextureParam(cs, passData.kernelCalcDensity, ShaderIDs.DensityMap_RW, passData.densityMap);
         cmd.DispatchCompute(cs, passData.kernelCalcDensity, gridGroupsX, gridGroupsY, 1);
 
+        // --- ステージ6: ポイントの密度に応じて必要な詳細レベル（グリッドレベル）を決定 ---
         cmd.SetComputeTextureParam(cs, passData.kernelCalcGridLevel, ShaderIDs.DensityMap, passData.densityMap);
         cmd.SetComputeTextureParam(cs, passData.kernelCalcGridLevel, ShaderIDs.GridLevelMap_RW, passData.gridLevelMap);
         int gridThreadX = Mathf.CeilToInt(gridGroupsX / 16.0f);
         int gridThreadY = Mathf.CeilToInt(gridGroupsY / 16.0f);
         cmd.DispatchCompute(cs, passData.kernelCalcGridLevel, Mathf.Max(1, gridThreadX), Mathf.Max(1, gridThreadY), 1);
 
+        // --- ステージ7: 穴やアーティファクトを防ぐために、メディアンフィルターを用いてグリッドレベルを平滑化 ---
         cmd.SetComputeTextureParam(cs, passData.kernelGridMedianFilter, ShaderIDs.GridLevelMap, passData.gridLevelMap);
         cmd.SetComputeTextureParam(cs, passData.kernelGridMedianFilter, ShaderIDs.FilteredGridLevelMap_RW, passData.filteredGridLevelMap);
         cmd.DispatchCompute(cs, passData.kernelGridMedianFilter, Mathf.Max(1, gridThreadX), Mathf.Max(1, gridThreadY), 1);
 
+        // --- ステージ8: フィルター処理されたLODに基づいて基本的な近傍の半径サイズを算出 ---
         cmd.SetComputeTextureParam(cs, passData.kernelCalcNeighborhoodSize, ShaderIDs.FilteredGridLevelMap, passData.filteredGridLevelMap);
         cmd.SetComputeTextureParam(cs, passData.kernelCalcNeighborhoodSize, ShaderIDs.NeighborhoodSizeMap_RW, passData.neighborhoodSizeMap);
         cmd.DispatchCompute(cs, passData.kernelCalcNeighborhoodSize, threadGroupsX, threadGroupsY, 1);
 
+        // --- ステージ9: （オプション）急な深度勾配がある部分の近傍サイズを補正 ---
         if (passData.settings.enableGradientCorrection)
         {
+            // 階層的な深度レベル（L1 〜 L4）を構築
             int l1_w = Mathf.Max(1, Mathf.CeilToInt(sw / 2.0f));
             int l1_h = Mathf.Max(1, Mathf.CeilToInt(sh / 2.0f));
             cmd.SetComputeTextureParam(cs, passData.kernelBuildDepthPyramidL1, ShaderIDs.DepthMap, passData.depthMap);
@@ -146,6 +159,7 @@ public partial class PCDRenderPass
             cmd.DispatchCompute(cs, passData.kernelApplyGradient, threadGroupsX, threadGroupsY, 1);
         }
 
+        // --- ステージ10: 近傍オクルージョンテストを実行し、奥にあるポイントを破棄し、手前にあるポイントをフィルタリング ---
         cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, ShaderIDs.ColorMap, passData.colorMap);
         cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, ShaderIDs.DepthMap, passData.depthMap);
         cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, ShaderIDs.ViewPositionMap, passData.viewPositionMap);
@@ -161,6 +175,7 @@ public partial class PCDRenderPass
         cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, ShaderIDs.OriginMap_RW, passData.originDebugMap);
         cmd.DispatchCompute(cs, passData.kernelOcclusion, threadGroupsX, threadGroupsY, 1);
 
+        // --- ステージ11: オクルージョンによってできた穴を補完し、仮想深度マップやカメラバッファとマージ ---
         cmd.SetComputeTextureParam(cs, passData.kernelInterpolate, ShaderIDs.OcclusionResultMap, passData.occlusionResultMap);
         cmd.SetComputeTextureParam(cs, passData.kernelInterpolate, ShaderIDs.VirtualDepthMap, passData.virtualDepthTexture);
         cmd.SetComputeTextureParam(cs, passData.kernelInterpolate, ShaderIDs.CameraColorTexture, passData.cameraColorTexture);
@@ -172,11 +187,15 @@ public partial class PCDRenderPass
 
     private static void ExecuteBlitPass(BlitPassData passData, RasterGraphContext context)
     {
+        // アルファブレンドや特定のレンダーキューに対応するため、
+        // カスタムマテリアルを用いて生成された画像をメインのフレームバッファに合成します
         if (passData.blendMaterial != null && !passData.enableOriginDebugMap)
         {
             Blitter.BlitTexture(context.cmd, passData.sourceImage, new Vector4(1, 1, 0, 0), passData.blendMaterial, 0);
             return;
         }
+
+        // デバッグ出力または通常の出力用の標準的なBlitのフォールバック
         Blitter.BlitTexture(context.cmd, passData.sourceImage, new Vector4(1, 1, 0, 0), 0.0f, false);
     }
 }

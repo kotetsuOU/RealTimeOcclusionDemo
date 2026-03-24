@@ -11,6 +11,7 @@ public partial class PCDRenderPass : ScriptableRenderPass
 {
     private const string PROFILER_TAG = "PCDRendering";
 
+    // Cache shader property IDs to avoid string lookups per frame
     private static class ShaderIDs
     {
         public static readonly int PointCount = Shader.PropertyToID("_PointCount");
@@ -75,11 +76,12 @@ public partial class PCDRenderPass : ScriptableRenderPass
         public static readonly int CameraColorTexture = Shader.PropertyToID("_CameraColorTexture");
     }
 
-    private ComputeShader pointCloudCompute;
-    private Material m_BlendMaterial;
-    private bool _enableAlphaBlend;
-    private PCDRendererFeature.PCDRenderSettings _settings;
+    private ComputeShader pointCloudCompute; // The core compute shader defining the occlusion pipeline
+    private Material m_BlendMaterial;        // Material used for blending the resulting image onto the screen
+    private bool _enableAlphaBlend;          // Whether the final point cloud result should be alpha blended
+    private PCDRendererFeature.PCDRenderSettings _settings; // Current settings corresponding to the feature inspector values
 
+    // Kernel IDs corresponding to individual compute shader functions
     private int _kernelClear, _kernelProject, _kernelCalcGridZMin, _kernelCalcDensity,
                 _kernelCalcGridLevel, _kernelGridMedianFilter,
                 _kernelCalcNeighborhoodSize,
@@ -89,11 +91,12 @@ public partial class PCDRenderPass : ScriptableRenderPass
                 _kernelOcclusion, _kernelInterpolate,
                 _kernelMerge, _kernelInitFromCamera;
 
+    // Output and debug maps
     private RTHandle _originDebugMapHandle;
     private RTHandle _occlusionValueMapHandle;
     private bool _isInitialized = false;
-    private const int STRIDE = 28; // sizeof(float)*3 + sizeof(float)*3 + sizeof(uint)
-    
+    private const int STRIDE = 28; // Represents size of one point data: sizeof(float)*3 + sizeof(float)*3 + sizeof(uint)
+
     // --- Buffer Manager ---
     private PCDPointBufferManager _bufferManager;
 
@@ -104,40 +107,47 @@ public partial class PCDRenderPass : ScriptableRenderPass
 
         this.m_BlendMaterial = blendMaterial;
         this._enableAlphaBlend = enableAlphaBlend;
-        
-        _bufferManager = new PCDPointBufferManager();
+
+        _bufferManager = new PCDPointBufferManager(); // Initialize the data manager for static meshes and points
     }
 
+    /// <summary> Updates renderer settings externally (e.g., via script or inspector changes). </summary>
     public void UpdateSettings(PCDRendererFeature.PCDRenderSettings settings)
     {
         this._settings = settings;
     }
 
+    /// <summary> Toggles the rendering of the origin debug map. </summary>
     public void SetDebugFlag(bool enableDebugMap)
     {
         this._settings.enableOriginDebugMap = enableDebugMap;
     }
 
+    /// <summary> Allows injecting an external compute buffer directly. </summary>
     public void SetExternalBuffer(ComputeBuffer buffer, int count)
     {
         _bufferManager.SetExternalBuffer(buffer, count);
     }
 
+    /// <summary> Sets the point cloud data from an internal PCV_Data object. </summary>
     public void SetPointCloudData(PCV_Data data)
     {
         _bufferManager.SetPointCloudData(data);
     }
 
+    /// <summary> Registers a static Unity Mesh to interact with point cloud occlusion. </summary>
     public void AddStaticMesh(Mesh mesh, Transform transform, PCDProcessingMode mode)
     {
         _bufferManager.AddStaticMesh(mesh, transform, mode);
     }
 
+    /// <summary> Unregisters a tracked static Unity Mesh. </summary>
     public void RemoveStaticMesh(Mesh mesh, Transform transform)
     {
         _bufferManager.RemoveStaticMesh(mesh, transform);
     }
 
+    /// <summary> Fetches kernel index IDs from the compute shader configuration. </summary>
     private void Initialize()
     {
         if (pointCloudCompute == null)
@@ -234,6 +244,7 @@ public partial class PCDRenderPass : ScriptableRenderPass
         internal bool enableOriginDebugMap;
     }
 
+    /// <summary> Returns the origin debug map if it's generated, otherwise null. </summary>
     public Texture GetOriginDebugMap()
     {
         if (_settings.enableOriginDebugMap && _originDebugMapHandle != null)
@@ -243,27 +254,29 @@ public partial class PCDRenderPass : ScriptableRenderPass
         return null;
     }
 
+    /// <summary> Determines if the occlusion pass pipeline should be bypassed this frame. </summary>
     public bool ShouldSkipRendering()
     {
         // Check for external buffer
         bool hasExternalData = _bufferManager.UseExternalBuffer && _bufferManager.ExternalPointBuffer != null && _bufferManager.ExternalPointBuffer.IsValid() && _bufferManager.ExternalPointCount > 0;
-        
+
         // Check for internal buffer
         bool hasInternalData = _bufferManager.PointBuffer != null && _bufferManager.PointBuffer.IsValid() && _bufferManager.PointCount > 0;
-        
+
         // Check if we have DepthMap mode meshes
         bool hasDepthMapMeshes = _bufferManager.HasDepthMapMeshes();
-        
+
         // Check if we have PointCloud mode meshes
         bool hasPointCloudMeshes = _bufferManager.HasPointCloudMeshes();
-        
-        // If we have no point cloud data at all, and only DepthMap meshes, skip rendering
+
+        // Skip rendering if there is no point cloud data and no meshes to inject (or if only generating background depths).
         bool noPointCloudData = !hasExternalData && !hasInternalData && !hasPointCloudMeshes;
         bool depthMapOnlyMode = hasDepthMapMeshes && noPointCloudData;
-        
+
         return depthMapOnlyMode;
     }
 
+    /// <summary> Releases resources and references properly to prevent memory leaks. </summary>
     public void Cleanup()
     {
         _bufferManager.Cleanup();

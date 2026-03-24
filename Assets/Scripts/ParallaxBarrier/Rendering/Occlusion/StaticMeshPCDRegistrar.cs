@@ -4,13 +4,14 @@ using System.Collections;
 [RequireComponent(typeof(MeshFilter))]
 public class StaticMeshPCDRegistrar : MonoBehaviour
 {
-    [Tooltip("PointCloud: vertices / DepthMap: URP depth")]
+    [Tooltip("PointCloud: メッシュの頂点を点群として扱う / DepthMap: URPの深度情報として扱う")]
     public PCDProcessingMode mode = PCDProcessingMode.DepthMap;
 
     private MeshFilter _meshFilter;
     private MeshRenderer _meshRenderer;
     private bool _isRegistered = false;
 
+    // コンポーネントが有効になった際に、レンダラーFeatureへメッシュを登録する
     private void OnEnable()
     {
         _meshFilter = GetComponent<MeshFilter>();
@@ -22,6 +23,7 @@ public class StaticMeshPCDRegistrar : MonoBehaviour
             return;
         }
 
+        // DepthMapモードの場合、MeshRendererが正しく設定・有効化されている必要がある
         if (mode == PCDProcessingMode.DepthMap)
         {
             if (_meshRenderer == null)
@@ -41,6 +43,7 @@ public class StaticMeshPCDRegistrar : MonoBehaviour
 
         if (_isRegistered) return;
 
+        // PCDRendererFeatureが既に初期化されていればすぐに登録
         if (PCDRendererFeature.Instance != null)
         {
             PCDRendererFeature.Instance.AddStaticMesh(_meshFilter.sharedMesh, transform, mode);
@@ -49,11 +52,13 @@ public class StaticMeshPCDRegistrar : MonoBehaviour
         }
         else
         {
+            // まだ初期化されていない場合は、コルーチンで待機する
             Debug.LogWarning("[StaticMeshPCDRegistrar] Waiting for PCDRendererFeature: " + _meshFilter.mesh.name);
             StartCoroutine(RegisterWhenReady());
         }
     }
 
+    // PCDRendererFeatureの初期化完了を待ってからメッシュを登録するコルーチン
     private IEnumerator RegisterWhenReady()
     {
         while (PCDRendererFeature.Instance == null)
@@ -69,6 +74,7 @@ public class StaticMeshPCDRegistrar : MonoBehaviour
         }
     }
 
+    // コンポーネントが無効になる、または破棄される際に登録を解除する
     private void OnDisable()
     {
         if (_isRegistered && _meshFilter != null && _meshFilter.mesh != null)
@@ -83,8 +89,9 @@ public class StaticMeshPCDRegistrar : MonoBehaviour
     }
 }
 
+// 登録したメッシュの処理モード
 public enum PCDProcessingMode
 {
-    PointCloud,
-    DepthMap
+    PointCloud,  // 頂点配列を元にオクルージョン計算に巻き込む
+    DepthMap     // 背景として扱い、奥行きのみを提供する
 }

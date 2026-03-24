@@ -2,6 +2,8 @@
 #define PCD_OCCLUSION_KERNELS_OCCLUSION_INCLUDED
 
 // 8a-1. Build Depth Pyramid L1
+// 距離計算やエッジ判定を効率化するためのMIPマップ(ピラミッド)構築
+// 前レベルの解像度を1/2にしながら、2x2の最小深度を下位レベルへ格納する
 [numthreads(8, 8, 1)]
 void BuildDepthPyramidL1(uint3 id : SV_DispatchThreadID)
 {
@@ -12,7 +14,7 @@ void BuildDepthPyramidL1(uint3 id : SV_DispatchThreadID)
     _DepthPyramidL1_RW[id.xy] = ZMinDownsample(_DepthMap, id.xy * 2u);
 }
 
-// 8a-2. Build Depth Pyramid L2
+// 8a-2. Build Depth Pyramid L2 (1/4 レベル)
 [numthreads(8, 8, 1)]
 void BuildDepthPyramidL2(uint3 id : SV_DispatchThreadID)
 {
@@ -23,7 +25,7 @@ void BuildDepthPyramidL2(uint3 id : SV_DispatchThreadID)
     _DepthPyramidL2_RW[id.xy] = ZMinDownsample(_DepthPyramidL1, id.xy * 2u);
 }
 
-// 8a-3. Build Depth Pyramid L3
+// 8a-3. Build Depth Pyramid L3 (1/8 レベル)
 [numthreads(8, 8, 1)]
 void BuildDepthPyramidL3(uint3 id : SV_DispatchThreadID)
 {
@@ -34,7 +36,7 @@ void BuildDepthPyramidL3(uint3 id : SV_DispatchThreadID)
     _DepthPyramidL3_RW[id.xy] = ZMinDownsample(_DepthPyramidL2, id.xy * 2u);
 }
 
-// 8a-4. Build Depth Pyramid L4
+// 8a-4. Build Depth Pyramid L4 (1/16 レベル)
 [numthreads(8, 8, 1)]
 void BuildDepthPyramidL4(uint3 id : SV_DispatchThreadID)
 {
@@ -46,6 +48,9 @@ void BuildDepthPyramidL4(uint3 id : SV_DispatchThreadID)
 }
 
 // 8b+8c. Apply Adaptive Gradient Correction
+// 近傍探索サイズ(Level)が輪郭(エッジ)を大きく跨いでおかしな箇所を参照しないように、
+// 適したレベルの深度ピラミッドでの勾配(ソーベルフィルタによるエッジ強度)を計算し、
+// 一定閾値以上なら探索エリアを縮小(レベル -1 等)する補正を行う。
 [numthreads(8, 8, 1)]
 void ApplyAdaptiveGradientCorrection(uint3 id : SV_DispatchThreadID)
 {
@@ -91,6 +96,10 @@ void ApplyAdaptiveGradientCorrection(uint3 id : SV_DispatchThreadID)
 }
 
 // 9. Occlusion and Filtering
+// 本シェーダーの中核を成すパス。
+// 自ピクセルと周囲ピクセルの深度や位置情報の差分(オクルージョンの度合い)を計算し、
+// 該当ピクセルの点群が表示されるべきか、あるい背後に隠れて見えないべきかを導出して、
+// 透過(アルファ)やジョイントバイラテラルライクのブレンドを適用する。穴埋め処理も内包。
 [numthreads(8, 8, 1)]
 void OcclusionAndFilter(uint3 id : SV_DispatchThreadID)
 {
@@ -123,25 +132,55 @@ void OcclusionAndFilter(uint3 id : SV_DispatchThreadID)
 
         uint thresholdDepth = (hasVirtualObj) ? vDepth_uint : DEPTH_MAX_UINT;
 
-        for (int y = -fillRadius; y <= fillRadius; y++)
+        // --- Pass 1: 最小深度の探索 ---
+        uint minDepth = thresholdDepth;
+
+        for (int searchY = -fillRadius; searchY <= fillRadius; searchY++)
         {
-            for (int x = -fillRadius; x <= fillRadius; x++)
+            for (int searchX = -fillRadius; searchX <= fillRadius; searchX++)
             {
-                if (x == 0 && y == 0)
+                if (searchX == 0 && searchY == 0)
                     continue;
 
-                float distSq = dot(float2(x, y), float2(x, y));
-                float weight = 1.0 / (1.0 + distSq * 0.5);
-
-                int2 offset = int2(x, y);
+                int2 offset = int2(searchX, searchY);
                 uint2 uv = clamp((int2) id.xy + offset, 0, (int2) _ScreenParams.xy - 1);
-
                 uint nDepth_uint = _DepthMap[uv];
 
-                if (nDepth_uint < DEPTH_MAX_UINT)
+                if (nDepth_uint < minDepth)
                 {
-                    if (nDepth_uint < thresholdDepth)
+                    minDepth = nDepth_uint;
+                }
+            }
+        }
+
+        // --- Pass 2: ジョイントバイラテラル加重平均 ---
+        if (minDepth < thresholdDepth)
+        {
+            // Z値の非線形性をある程度考慮し、深度に応じた許容値を近似的に算出
+            // ※カメラから遠い（値が大きい）ほど許容幅を広げ、固定値の限界を補う設計
+            // 最小許容値として DEPTH_MAX_UINT / 1000 は維持しつつ、深度に応じたマージンを加算
+            uint depthTolerance = (DEPTH_MAX_UINT / 1000) + (uint)((float)minDepth * 0.02);
+
+            for (int y = -fillRadius; y <= fillRadius; y++)
+            {
+                for (int x = -fillRadius; x <= fillRadius; x++)
+                {
+                    if (x == 0 && y == 0)
+                        continue;
+
+                    int2 offset = int2(x, y);
+                    uint2 uv = clamp((int2) id.xy + offset, 0, (int2) _ScreenParams.xy - 1);
+                    uint nDepth_uint = _DepthMap[uv];
+
+                    if (nDepth_uint < thresholdDepth && nDepth_uint >= minDepth && (nDepth_uint - minDepth) <= depthTolerance)
                     {
+                        float distSq = dot(float2(x, y), float2(x, y));
+                        float spatialWeight = 1.0 / (1.0 + distSq * 0.5);
+
+                        float depthDiff = (float)(nDepth_uint - minDepth) / (float)depthTolerance;
+                        float depthWeight = 1.0 - smoothstep(0.0, 1.0, depthDiff);
+                        float weight = spatialWeight * depthWeight;
+
                         float4 c = _ColorMap[uv];
                         accumulatedColor += c * weight;
                         totalWeight += weight;
@@ -153,7 +192,8 @@ void OcclusionAndFilter(uint3 id : SV_DispatchThreadID)
             }
         }
 
-        if (totalWeight > 0.3)
+        // 続く重みの判定処理等は元のロジックを維持
+        if (totalWeight > 0.01) // 重みが極端に小さくなる可能性があるため判定閾値を調整
         {
             _OcclusionResultMap_RW[id.xy] = accumulatedColor / totalWeight;
 

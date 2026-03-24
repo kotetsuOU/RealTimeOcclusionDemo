@@ -1,19 +1,30 @@
-#pragma kernel ClearMaps
-#pragma kernel ProjectPoints
-#pragma kernel CalculateGridZMin
-#pragma kernel CalculateDensity
-#pragma kernel CalculateGridLevel
-#pragma kernel GridMedianFilter
-#pragma kernel CalculateNeighborhoodSize
-#pragma kernel BuildDepthPyramidL1
-#pragma kernel BuildDepthPyramidL2
-#pragma kernel BuildDepthPyramidL3
-#pragma kernel BuildDepthPyramidL4
-#pragma kernel ApplyAdaptiveGradientCorrection
-#pragma kernel OcclusionAndFilter
-#pragma kernel Interpolate
-#pragma kernel MergeBuffer
-#pragma kernel InitFromCamera
+// ==========================================
+// PCD_Occulusion.compute
+// メインのコンピュートシェーダーエントリポイント
+// 各パス（カーネル）を定義し、関連するHLSLファイルをインクルードします。
+// ==========================================
+
+// --- Preprocess (前処理) ---
+#pragma kernel ClearMaps                 // マップ初期化
+#pragma kernel ProjectPoints             // 点群をスクリーン空間に投影し深度バッファを構築
+#pragma kernel CalculateGridZMin         // グリッドごとの最小深度(Z-Min)を計算
+#pragma kernel CalculateDensity          // グリッド内の点群の密度を計算
+#pragma kernel CalculateGridLevel        // 密度に基づいて近傍探索用のレベル(半径の指標)を算出
+#pragma kernel GridMedianFilter          // 周囲のグリッドレベルに対するメディアンフィルタによる平滑化
+#pragma kernel CalculateNeighborhoodSize // ピクセル単位の近傍サイズマップを生成
+
+// --- Occlusion (オクルージョン計算・フィルタリング) ---
+#pragma kernel BuildDepthPyramidL1       // 深度ピラミッド レベル1生成
+#pragma kernel BuildDepthPyramidL2       // 深度ピラミッド レベル2生成
+#pragma kernel BuildDepthPyramidL3       // 深度ピラミッド レベル3生成
+#pragma kernel BuildDepthPyramidL4       // 深度ピラミッド レベル4生成
+#pragma kernel ApplyAdaptiveGradientCorrection // 深度勾配(エッジ)に基づく適応的な近傍探索サイズの補正
+#pragma kernel OcclusionAndFilter        // 近傍深度との比較によるオクルージョン判定とフィルタリング実装
+
+// --- Post & Utility (ポストプロセス・ユーティリティ) ---
+#pragma kernel Interpolate               // 隙間(穴)を埋めるための1ピクセル補間(Dilation)
+#pragma kernel MergeBuffer               // 複数の点群バッファを1つのバッファに結合するユーティリティ
+#pragma kernel InitFromCamera            // URPカメラのカラー・深度情報をベースマップとして初期化(仮想オブジェクト合成用)
 
 #include "Assets/Shader&Material/Shader/ComputeShader/Rendering/PCD_Occlusion_Data.hlsl"
 #include "Assets/Shader&Material/Shader/ComputeShader/Rendering/PCD_Occlusion_Helpers.hlsl"

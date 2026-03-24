@@ -2,6 +2,7 @@
 #define PCD_OCCLUSION_KERNELS_PREPROCESS_INCLUDED
 
 // 0. Merge Buffer
+// 複数の点群のバッファを結合して1つのリストを作成するためのユーティリティカーネル
 [numthreads(256, 1, 1)]
 void MergeBuffer(uint3 id : SV_DispatchThreadID)
 {
@@ -11,6 +12,7 @@ void MergeBuffer(uint3 id : SV_DispatchThreadID)
 }
 
 // 1. Clear Maps
+// 描画ごとにすべての出力・計算用バッファをクリアして初期状態（背景や最大深度）に設定
 [numthreads(8, 8, 1)]
 void ClearMaps(uint3 id : SV_DispatchThreadID)
 {
@@ -29,6 +31,8 @@ void ClearMaps(uint3 id : SV_DispatchThreadID)
 }
 
 // 2. Project Points
+// 3D空間上の点群を行列変換し、スクリーン上のピクセル(2D)へ投影。
+// InterlockedMin を用いてアトミック(排他)に最もカメラに近接した点の情報(色・深度)を記録する
 [numthreads(256, 1, 1)]
 void ProjectPoints(uint3 id : SV_DispatchThreadID)
 {
@@ -60,6 +64,8 @@ void ProjectPoints(uint3 id : SV_DispatchThreadID)
 }
 
 // 3. Calculate Z-Min per Grid
+// GRID_SIZE (デフォルト16x16) の領域ごとに最も手前の深度(Z-Min)を算出
+// ThreadGroupごとの共有メモリを用いて排他処理を高速化
 [numthreads(GRID_SIZE, GRID_SIZE, 1)]
 void CalculateGridZMin(uint3 id : SV_DispatchThreadID, uint3 groupID : SV_GroupID, uint groupIndex : SV_GroupIndex)
 {
@@ -84,6 +90,8 @@ void CalculateGridZMin(uint3 id : SV_DispatchThreadID, uint3 groupID : SV_GroupI
 }
 
 // 4. Calculate Density per Grid
+// 各グリッド内の有効な(手前の表面に近い)点群の密度(占有率)を計算する。
+// 単純な個数ではなく、Z-Min + 閾値 の範囲内の点をカウントする。
 [numthreads(GRID_SIZE, GRID_SIZE, 1)]
 void CalculateDensity(uint3 id : SV_DispatchThreadID, uint3 groupID : SV_GroupID, uint groupIndex : SV_GroupIndex)
 {
@@ -119,6 +127,8 @@ void CalculateDensity(uint3 id : SV_DispatchThreadID, uint3 groupID : SV_GroupID
 }
 
 // 5. Calculate Grid Level
+// 密度とパラメータ(p_prime)に応じ、穴を埋めるために必要なグリッドごとの探索範囲(Level)を決定する
+// 密度が低いほど必要な探索半径(L)が大きくなるため Level(log2) も上がる。
 [numthreads(16, 16, 1)]
 void CalculateGridLevel(uint3 id : SV_DispatchThreadID)
 {
@@ -138,6 +148,8 @@ void CalculateGridLevel(uint3 id : SV_DispatchThreadID)
 }
 
 // 6. Grid Median Filter
+// グリッド単位で設定されたLevelマップに対し3x3のメディアンフィルタを適用し、
+// 一部の異常値や点群のムラによる極端な近傍サイズの変化を平滑化する。
 [numthreads(16, 16, 1)]
 void GridMedianFilter(uint3 id : SV_DispatchThreadID)
 {
@@ -176,6 +188,8 @@ void GridMedianFilter(uint3 id : SV_DispatchThreadID)
 }
 
 // 7. Calculate Neighborhood Size
+// ピクセル単位のスレッドが起動し、自身が属するグリッドのLevel(Neighborhood Size)を取得して
+// ピクセル解像度用マップ(ピクセルごとにどのサイズのブロック探索を行うか)に書き込む。
 [numthreads(8, 8, 1)]
 void CalculateNeighborhoodSize(uint3 id : SV_DispatchThreadID)
 {
