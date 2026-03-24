@@ -4,6 +4,10 @@ using UnityEngine;
 
 [ProcessingBlockData(typeof(RsColorBasedDepthCulling))]
 [HelpURL("https://github.com/IntelRealSense/librealsense/blob/master/doc/post-processing-filters.md")]
+/// <summary>
+/// 特定の色空間（HSVまたはYCbCr）閾値に基づいて、指定範囲外の色を持つ深度ピクセルを
+/// 除外（カリング）する画像処理ブロック。色に対応する深度を0に設定する。
+/// </summary>
 public class RsColorBasedDepthCulling : RsProcessingBlock
 {
     public enum ConversionMode

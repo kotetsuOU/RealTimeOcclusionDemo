@@ -2,11 +2,16 @@
 using System.Collections.Generic;
 using UnityEngine;
 
+/// <summary>
+/// 直列に実行する複数のRsProcessingBlock（フィルタ等）をまとめて管理するプロファイル。
+/// ScriptableObjectとして保存され、RsProcessingPipeにセットされる。
+/// </summary>
 [CreateAssetMenu]
 public class RsProcessingProfile : ScriptableObject, IEnumerable<RsProcessingBlock>
 {
     // [HideInInspector]
     [SerializeField]
+    [Tooltip("パイプラインで実行する順序に登録された処理ブロックのリスト")]
     public List<RsProcessingBlock> _processingBlocks;
 
     public IEnumerator<RsProcessingBlock> GetEnumerator()
@@ -21,6 +26,10 @@ public class RsProcessingProfile : ScriptableObject, IEnumerable<RsProcessingBlo
 
 
 #if UNITY_EDITOR
+    /// <summary>
+    /// エディタ上でコンポーネントがリセットされたり作成された場合の処理。
+    /// サブアセットとして保存されている各ブロックを検索し、自動的にリストに追加する。
+    /// </summary>
     void Reset()
     {
 

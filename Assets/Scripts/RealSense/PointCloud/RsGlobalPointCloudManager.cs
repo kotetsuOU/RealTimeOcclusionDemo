@@ -3,60 +3,68 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering;
 
+/// <summary>
+/// 複数のRealSenseカメラや入力デバイスからの点群を一つに統合し、
+/// 全体に対するPCA（主成分分析）やカメラ・フィルタのオンオフ制御を行うグローバルマネージャ。
+/// </summary>
 public class RsGlobalPointCloudManager : MonoBehaviour
 {
     public static RsGlobalPointCloudManager Instance { get; private set; }
 
     public enum OutputMode
     {
-        MergeAll,
-        SingleCamera,
-        None
+        MergeAll,      // 全てのカメラ点群を統合する
+        SingleCamera,  // 特定の一つのカメラ点群のみ出力する
+        None           // 出力しない
     }
 
     public enum PCAMode
     {
-        Individual,
-        Integrated,
-        None
+        Individual, // 各カメラ側で個別にPCA計算を行う
+        Integrated, // 全カメラの点群を統合した状態でPCA計算を行う
+        None        // PCAを行わない
     }
 
     [Header("Settings")]
+    [Tooltip("各カメラの点群を1つのバッファにまとめるためのComputeShader")]
     public ComputeShader mergeComputeShader;
+    [Tooltip("統合後の点群の最大許容数")]
     public int maxTotalPoints = 3000000;
 
     [Header("Debug Options")]
-    [Tooltip("出力モードを選択")]
+    [Tooltip("出力モードを選択（全て統合、単一カメラ、出力なし）")]
     public OutputMode outputMode = OutputMode.MergeAll;
 
     [Tooltip("SingleCameraモード時に表示するカメラのインデックス")]
     public int debugCameraIndex = 0;
 
     [Header("PCA Settings")]
-    [Tooltip("PCA推定モード：Individual=各カメラ個別、Integrated=統合後")]
+    [Tooltip("PCA推定モード：Individual=各カメラ個別、Integrated=統合後、None=なし")]
     public PCAMode pcaMode = PCAMode.Integrated;
 
     [Header("References")]
+    [Tooltip("管理対象となる各PCレンダラーのリスト。空の場合は自動で子オブジェクトから取得します。")]
     public List<RsPointCloudRenderer> renderers = new List<RsPointCloudRenderer>();
 
     private ComputeBuffer _globalBuffer;
     private int _kernelMerge;
-    private const int STRIDE = 28; // float3 pos(12) + float3 col(12) + uint type(4)
+    // float3 pos(12) + float3 col(12) + uint type(4) = 28 bytes
+    private const int STRIDE = 28;
 
     private Vector3 _integratedLinePoint = Vector3.zero;
     private Vector3 _integratedLineDir = Vector3.forward;
     private readonly List<RsSamplingResult> _samplingResults = new List<RsSamplingResult>();
-    
+
     private readonly Dictionary<RsPointCloudRenderer, RsSamplingResult> _cachedSamplingResults = 
         new Dictionary<RsPointCloudRenderer, RsSamplingResult>();
 
     [Header("Debug Statistics")]
-    [Tooltip("Enable stats tracking (exposed via public properties)")]
+    [Tooltip("パフォーマンス等の統計情報の追跡を有効にするかどうか")]
     [SerializeField] private bool _statsEnabled = true;
-    [Tooltip("Write PCA/cache stats to file (async, no main thread impact)")]
+    [Tooltip("PCAやキャッシュの統計をファイルへ非同期で書き出すか")]
     [SerializeField] private bool _asyncLoggingEnabled = false;
 
-    [Tooltip("Write GPU compute stats to CSV")]
+    [Tooltip("GPU計算のプロファイル情報をCSVへ書き出すか")]
     [SerializeField] private bool _gpuProfilerEnabled = false;
     
     private int _pcaCallsPerSec = 0;
@@ -198,6 +206,9 @@ public class RsGlobalPointCloudManager : MonoBehaviour
     public int PcaCacheHitsPerSec => _pcaCacheHitsPerSec;
     public int PcaCacheMissesPerSec => _pcaCacheMissesPerSec;
 
+    /// <summary>
+    /// 全ての管理対象カメラ（レンダラー）の点群を一つのグローバルバッファに統合する処理
+    /// </summary>
     private void ProcessMergeAll()
     {
         int currentTotalCount = 0;
@@ -206,15 +217,20 @@ public class RsGlobalPointCloudManager : MonoBehaviour
         {
             if (renderer == null) continue;
 
+            // コピーをキューに積み、コピーされた頂点数を加算する
             int copiedCount = DispatchCopy(renderer, currentTotalCount);
             currentTotalCount += copiedCount;
 
+            // 最大点数を超えた場合は後続の処理を打ち切る
             if (currentTotalCount >= maxTotalPoints) break;
         }
 
         CurrentTotalCount = currentTotalCount;
     }
 
+    /// <summary>
+    /// 指定された単一カメラの点群のみをグローバルバッファへコピーする処理
+    /// </summary>
     private void ProcessSingleCamera()
     {
         var activeRenderers = new List<RsPointCloudRenderer>();
@@ -236,6 +252,10 @@ public class RsGlobalPointCloudManager : MonoBehaviour
         CurrentTotalCount = copiedCount;
     }
 
+    /// <summary>
+    /// 各レンダラーの点群バッファから、統合バッファ(globalBuffer)へオフセット位置からコピーする。
+    /// CommandBufferを利用してGPU上で並列コピーを実行する。
+    /// </summary>
     private int DispatchCopy(RsPointCloudRenderer renderer, int dstOffset)
     {
         if (renderer == null) return 0;
@@ -245,12 +265,14 @@ public class RsGlobalPointCloudManager : MonoBehaviour
 
         if (srcBuffer == null || count <= 0) return 0;
 
+        // 最大許容数を超えないようにクリップ
         if (dstOffset + count > maxTotalPoints)
         {
             count = maxTotalPoints - dstOffset;
             if (count <= 0) return 0;
         }
 
+        // コピー用のComputeShaderにパラメータを設定
         mergeComputeShader.SetBuffer(_kernelMerge, "_SourceBuffer", srcBuffer);
         mergeComputeShader.SetBuffer(_kernelMerge, "_DestinationBuffer", _globalBuffer);
         mergeComputeShader.SetInt("_CopyCount", count);
@@ -270,6 +292,9 @@ public class RsGlobalPointCloudManager : MonoBehaviour
         return count;
     }
 
+    /// <summary>
+    /// 各レンダラーから得られたサンプリング結果から、全体でのPCA（主成分分析）の軸を計算する
+    /// </summary>
     private void ComputeIntegratedPCA()
     {
         _pcaCallsCounter++;
@@ -279,6 +304,7 @@ public class RsGlobalPointCloudManager : MonoBehaviour
         {
             if (renderer == null) continue;
 
+            // 最新のPCAサンプリング結果取得を試みる
             if (renderer.TryGetLatestSamplingResult(out var samplingResult))
             {
                 _samplingResults.Add(samplingResult);
@@ -286,6 +312,7 @@ public class RsGlobalPointCloudManager : MonoBehaviour
             }
             else if (_cachedSamplingResults.TryGetValue(renderer, out var cached) && cached.IsValid)
             {
+                // 新しい結果がない場合は、キャッシュされた前回の結果を利用する
                 _samplingResults.Add(cached);
                 _pcaCacheHitsCounter++;
             }
@@ -295,6 +322,7 @@ public class RsGlobalPointCloudManager : MonoBehaviour
             }
         }
 
+        // 統合された全サンプリング結果群から新しい直線（軸と中心）を推定しキャッシュする
         if (_samplingResults.Count > 0)
         {
             var (point, dir) = RsPointCloudCompute.EstimateLineFromMergedSamples(_samplingResults);
@@ -303,16 +331,26 @@ public class RsGlobalPointCloudManager : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// 統合PCAにより推定された主要な直線の点と方向ベクトルを取得する
+    /// </summary>
     public (Vector3 point, Vector3 dir) GetLineEstimation()
     {
         return (_integratedLinePoint, _integratedLineDir);
     }
 
+    /// <summary>
+    /// 結合された全ての点群データが格納されるグローバルバッファを取得する
+    /// </summary>
     public ComputeBuffer GetGlobalBuffer()
     {
         return _globalBuffer;
     }
 
+    /// <summary>
+    /// 管理対象となる全ての RsPointCloudRenderer を取得するイテレータ。
+    /// リストが設定されていればそれを、設定されていなければ子オブジェクトを検索して返す。
+    /// </summary>
     public IEnumerable<RsPointCloudRenderer> GetChildRenderers()
     {
         if (renderers != null && renderers.Count > 0)
@@ -338,6 +376,9 @@ public class RsGlobalPointCloudManager : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// 管理対象となっている最初の RsPointCloudRenderer を取得する
+    /// </summary>
     public RsPointCloudRenderer GetFirstRenderer()
     {
         foreach (var renderer in GetChildRenderers())
@@ -348,6 +389,9 @@ public class RsGlobalPointCloudManager : MonoBehaviour
         return null;
     }
 
+    /// <summary>
+    /// 全ての管理対象レンダラーに対して、指定したアクションを一括で実行する
+    /// </summary>
     public void ApplyToAllRenderers(Action<RsPointCloudRenderer> action)
     {
         if (action == null) return;
@@ -358,11 +402,17 @@ public class RsGlobalPointCloudManager : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// 全カメラの範囲フィルター(GlobalRangeFilter)の有効/無効状態を切り替える
+    /// </summary>
     public void ToggleAllRangeFilters()
     {
         ApplyToAllRenderers(r => r.IsGlobalRangeFilterEnabled = !r.IsGlobalRangeFilterEnabled);
     }
 
+    /// <summary>
+    /// 全てのカメラで範囲フィルターが有効になっているかどうかを判定する
+    /// </summary>
     public bool AreAllRangeFiltersEnabled()
     {
         bool hasRenderer = false;
@@ -379,6 +429,9 @@ public class RsGlobalPointCloudManager : MonoBehaviour
         return hasRenderer;
     }
 
+    /// <summary>
+    /// 一つでも範囲フィルターが有効になっているカメラが存在するかどうかを判定する
+    /// </summary>
     public bool AreAnyRangeFiltersEnabled()
     {
         foreach (var renderer in GetChildRenderers())
@@ -392,11 +445,17 @@ public class RsGlobalPointCloudManager : MonoBehaviour
         return false;
     }
 
+    /// <summary>
+    /// 全てのカメラの範囲フィルター状態を一括で設定する
+    /// </summary>
     public void SetAllRangeFilters(bool enabled)
     {
         ApplyToAllRenderers(r => r.IsGlobalRangeFilterEnabled = enabled);
     }
 
+    /// <summary>
+    /// 全てのカメラでパフォーマンスの計測（ロギング）を開始する
+    /// </summary>
     public void StartAllPerformanceLogs(bool append = false)
     {
         ApplyToAllRenderers(r =>
@@ -406,17 +465,26 @@ public class RsGlobalPointCloudManager : MonoBehaviour
         });
     }
 
+    /// <summary>
+    /// 全てのカメラのパフォーマンス計測（ロギング）を停止する
+    /// </summary>
     public void StopAllPerformanceLogs()
     {
         ApplyToAllRenderers(r => r.StopPerformanceLog());
     }
 
+    /// <summary>
+    /// いずれかのレンダラーでパフォーマンス計測が実行中かどうか調べる
+    /// </summary>
     public bool IsAnyPerformanceLogging()
     {
         var first = GetFirstRenderer();
         return first != null && first.IsPerformanceLogging;
     }
 
+    /// <summary>
+    /// 管理対象となっているレンダラーの総数を取得する
+    /// </summary>
     public int GetRendererCount()
     {
         int count = 0;
@@ -430,6 +498,7 @@ public class RsGlobalPointCloudManager : MonoBehaviour
 
     private void OnDestroy()
     {
+        // 確保しているグローバルバッファ等のネイティブリソースを解放
         _globalBuffer?.Release();
         _asyncLogger?.Dispose();
         _gpuProfiler?.Dispose();

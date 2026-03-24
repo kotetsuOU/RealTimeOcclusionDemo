@@ -6,6 +6,10 @@ using Intel.RealSense;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 
+/// <summary>
+/// ComputeShaderを利用してDepthFrameとColorFrameを合成し、
+/// 色ベースのカリング（抽出）と座標変換を行いながら点群のComputeBufferを生成・更新する専用プロセッサ。
+/// </summary>
 public class RsIntegratedPointCloudProcessor : IDisposable
 {
     [StructLayout(LayoutKind.Sequential)]
@@ -133,6 +137,10 @@ public class RsIntegratedPointCloudProcessor : IDisposable
         _shader.SetBuffer(_kernelIndex, "_OutputPointCloud", _pointCloudBuffer);
     }
 
+    /// <summary>
+    /// 各フレームの画像データを受け取り、GPUへ転送するためのキャッシュにコピーします。
+    /// 実際のComputeShader呼び出しはUnityのメインスレッドで実行されるようキューに積まれます。
+    /// </summary>
     public Vector3[] Process(VideoFrame colorFrame, DepthFrame depthFrame, RsIntegratedPointCloud parent)
     {
         if (!_initialized) return null;
@@ -146,11 +154,14 @@ public class RsIntegratedPointCloudProcessor : IDisposable
         int colorBytes = colorFrame.Stride * colorFrame.Height;
         int depthBytes = depthFrame.Stride * depthFrame.Height;
 
+        // 非同期スレッドから呼ばれる可能性を考慮し、キャッシュバッファへのコピースレッドを保護する
         lock (_frameLock)
         {
+            // RealSenseのC++側(アンマネージド)メモリからC#のマネージド配列へ高速にコピー
             Marshal.Copy(colorFrame.Data, _colorDataCache, 0, System.Math.Min(colorBytes, _colorDataCache.Length));
             Marshal.Copy(depthFrame.Data, _depthDataCache, 0, System.Math.Min(depthBytes, _depthDataCache.Length));
-            
+
+            // 現在の閾値パラメータや変換行列などの状態を退避させる
             _pendingParams = new CullingParams
             {
                 width = _dIntrin.width,
@@ -177,11 +188,16 @@ public class RsIntegratedPointCloudProcessor : IDisposable
             _hasPendingFrame = true;
         }
 
+        // Textureの更新やComputeShaderのDispatch等、Unityの一部のAPIはメインスレッドでのみ実行可能なため委譲する
         dispatcher.Enqueue(ProcessPendingFrame);
 
         return null;
     }
 
+    /// <summary>
+    /// メインスレッド上で実行され、キャッシュされたカラー・深度データをGPUへ送り、
+    /// 点群生成およびフィルタリングを行うComputeShaderカーネルをディスパッチ(実行)します。
+    /// </summary>
     private void ProcessPendingFrame()
     {
         if (!_hasPendingFrame) return;
@@ -190,20 +206,27 @@ public class RsIntegratedPointCloudProcessor : IDisposable
         {
             _hasPendingFrame = false;
 
+            // テクスチャにカラーデータをロードしGPU側に反映させる
             _colorTexture.LoadRawTextureData(_colorDataCache);
             _colorTexture.Apply();
             _shader.SetTexture(_kernelIndex, "_InputColorTexture", _colorTexture);
 
+            // 深度データをバッファにセット
             _inputDepthBuffer.SetData(_depthDataCache);
 
+            // カリング用のパラメータを更新
             _cullingParamsCache[0] = _pendingParams;
             _paramsBuffer.SetData(_cullingParamsCache);
             _shader.SetBuffer(_kernelIndex, "_Params", _paramsBuffer);
 
+            // 出力用Appendバッファ内の要素数(カウンタ)を0にリセットして初期化する
             _pointCloudBuffer.SetCounterValue(0);
+
+            // 深度画像の総ピクセル数に応じたスレッドグループ数を計算してComputeShaderを実行
             int threadGroups = Mathf.CeilToInt((_dIntrin.width * _dIntrin.height) / 64.0f);
             _shader.Dispatch(_kernelIndex, threadGroups, 1, 1);
 
+            // フィルタリングされた点群の数を非同期にCPUへ読み戻すリクエストを発行
             if (!_countReadbackPending) RequestAsyncReadback();
         }
     }

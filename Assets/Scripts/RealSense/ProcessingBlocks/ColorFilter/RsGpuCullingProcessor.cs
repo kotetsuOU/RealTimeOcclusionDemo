@@ -4,6 +4,10 @@ using UnityEngine;
 using Intel.RealSense;
 using System.Diagnostics;
 
+/// <summary>
+/// ComputeShaderを利用してDepth画像とColor画像のマッピング及び
+/// 色ベースのカリング（特定の色の深度を無効化する）処理をGPUで高速に実行するヘルパークラス。
+/// </summary>
 public class RsGpuCullingProcessor : IDisposable
 {
     [StructLayout(LayoutKind.Sequential)]
@@ -159,6 +163,10 @@ public class RsGpuCullingProcessor : IDisposable
         _shader.SetBuffer(_kernelIndex, "_OutputDepthBuffer", _depthDataBuffer);
     }
 
+    /// <summary>
+    /// 取得したカラー・深度フレームを元に、ComputeShaderで直接深度データの無効化（カリング処理）を行います。
+    /// 指定された色空間範囲外の深度データを0にクリアし、元のフレームへ書き戻します。
+    /// </summary>
     public void Process(VideoFrame colorFrame, DepthFrame depthFrame, RsColorBasedDepthCulling parent)
     {
         if (!_initialized) return;
@@ -171,24 +179,32 @@ public class RsGpuCullingProcessor : IDisposable
 
         _stopwatch.Restart();
 
+        // ネイティブポインタが持つ深度データ(ushort等)をComputeShaderで扱いやすいようにInt配列キャッシュへコピー
         CopyDepthDataToIntArray(depthFrame, _depthDataCache);
 
+        // UnityのグラフィックスAPI（TextureやComputeBuffer操作など）はメインスレッドで実行する必要があるため同期待ちを行う
         RsUnityMainThreadDispatcher.Instance.EnqueueAndWait(() =>
         {
+            // カラー画像をテクスチャに流し込み変更を適用
             _colorTexture.LoadRawTextureData(colorFrame.Data, colorFrame.Stride * colorFrame.Height);
             _colorTexture.Apply();
             _shader.SetTexture(_kernelIndex, "_InputColorTexture", _colorTexture);
 
+            // 深度データをバッファへセット
             _depthDataBuffer.SetData(_depthDataCache);
 
+            // 引数から閾値パラメータを更新
             UpdateParams(parent);
 
+            // 画面のピクセル数に応じてスレッドグループを計算し、フィルタを実行
             int threadGroups = Mathf.CeilToInt((_dIntrin.width * _dIntrin.height) / 64.0f);
             _shader.Dispatch(_kernelIndex, threadGroups, 1, 1);
 
+            // フィルタ結果（0で上書きされた不要データ等）をキャッシュに書き戻す
             _depthDataBuffer.GetData(_depthDataCache);
         });
 
+        // フィルタ後のキャッシュデータを、RealSense側が後続処理で利用できるように元のネイティブ深度フレームに上書きする
         CopyIntArrayToDepthFrame(_depthDataCache, depthFrame);
 
         _stopwatch.Stop();
