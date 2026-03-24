@@ -86,7 +86,7 @@ public static class PCDOcclusionDebugExporter
             }
             else if (occlusionValue <= 0.0001f) // Treat exactly 0 or near-0 as black
             {
-                pixels[i] = Color.white;
+                pixels[i] = Color.gray;
                 continue;
             }
             else if (occlusionValue >= RangeMax)

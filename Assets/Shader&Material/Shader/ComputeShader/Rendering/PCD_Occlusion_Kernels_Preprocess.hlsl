@@ -95,9 +95,12 @@ void CalculateDensity(uint3 id : SV_DispatchThreadID, uint3 groupID : SV_GroupID
 
     uint z_min_uint = _GridZMinMap[groupID.xy];
     float z_min = (float) z_min_uint / (float) DEPTH_MAX_UINT;
-
     uint depth_uint = _DepthMap[id.xy];
-    if (depth_uint < DEPTH_MAX_UINT)
+    
+    // OriginType fetch. 0 = PointCloud (Dynamic), 1 = StaticMesh, 2 = Background
+    uint originType = _OriginTypeMap[id.xy];
+
+    if (depth_uint < DEPTH_MAX_UINT && originType == 0u)
     {
         float depth = (float) depth_uint / (float) DEPTH_MAX_UINT;
         if ((depth - z_min) < _DensityThreshold_e)
