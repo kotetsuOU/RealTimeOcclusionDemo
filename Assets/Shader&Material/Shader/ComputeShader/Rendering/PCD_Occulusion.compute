@@ -1,3 +1,30 @@
+// PCD_Occulusion.compute  (note: filename uses the original 'Occulusion' spelling)
+// Point Cloud Depth (PCD) Occlusion Compute Shader
+//
+// This shader implements a multi-pass pipeline that renders a point cloud with
+// correct depth-based occlusion against virtual (camera/mesh) objects.
+//
+// Pipeline overview:
+//   [Preprocess]
+//     MergeBuffer                  - Copy point data between structured buffers
+//     ClearMaps                    - Reset all render maps to initial values
+//     ProjectPoints                - Project 3D points onto the screen and write depth/color
+//     CalculateGridZMin            - Find the minimum depth value per screen-space grid cell
+//     CalculateDensity             - Calculate point density per grid cell
+//     CalculateGridLevel           - Derive LOD level from density using a log2 formula
+//     GridMedianFilter             - Smooth grid-level map with a 3x3 median filter
+//     CalculateNeighborhoodSize    - Map filtered grid level back to per-pixel neighborhood size
+//   [Occlusion]
+//     BuildDepthPyramidL1-L4       - Build a 4-level depth mip-pyramid (min-downsampling)
+//     ApplyAdaptiveGradientCorrection - Reduce neighborhood level at depth-edge pixels (Sobel)
+//     OcclusionAndFilter           - Compute per-point occlusion factor; blend / discard points
+//   [Post]
+//     Interpolate                  - Fill holes via 1-pixel dilation of the occlusion result
+//     InitFromCamera               - Seed depth/color maps from the URP camera depth texture
+
+// --- Kernel declarations ---
+
+// Preprocess kernels
 #pragma kernel ClearMaps
 #pragma kernel ProjectPoints
 #pragma kernel CalculateGridZMin
@@ -5,18 +32,31 @@
 #pragma kernel CalculateGridLevel
 #pragma kernel GridMedianFilter
 #pragma kernel CalculateNeighborhoodSize
+
+// Occlusion kernels
 #pragma kernel BuildDepthPyramidL1
 #pragma kernel BuildDepthPyramidL2
 #pragma kernel BuildDepthPyramidL3
 #pragma kernel BuildDepthPyramidL4
 #pragma kernel ApplyAdaptiveGradientCorrection
 #pragma kernel OcclusionAndFilter
+
+// Post-process kernels
 #pragma kernel Interpolate
 #pragma kernel MergeBuffer
 #pragma kernel InitFromCamera
 
+// --- Shared data (buffers, textures, uniforms, constants) ---
 #include "Assets/Shader&Material/Shader/ComputeShader/Rendering/PCD_Occlusion_Data.hlsl"
+
+// --- Utility / helper functions ---
 #include "Assets/Shader&Material/Shader/ComputeShader/Rendering/PCD_Occlusion_Helpers.hlsl"
+
+// --- Preprocess kernel implementations ---
 #include "Assets/Shader&Material/Shader/ComputeShader/Rendering/PCD_Occlusion_Kernels_Preprocess.hlsl"
+
+// --- Occlusion kernel implementations ---
 #include "Assets/Shader&Material/Shader/ComputeShader/Rendering/PCD_Occlusion_Kernels_Occlusion.hlsl"
+
+// --- Post-process kernel implementations ---
 #include "Assets/Shader&Material/Shader/ComputeShader/Rendering/PCD_Occlusion_Kernels_Post.hlsl"
