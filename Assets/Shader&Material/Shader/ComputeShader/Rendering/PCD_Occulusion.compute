@@ -1,3 +1,41 @@
+// =============================================================================
+// PCD_Occulusion.compute
+// Point Cloud Depth-based Occlusion Rendering Pipeline
+//
+// This compute shader implements a multi-pass pipeline that renders a point cloud
+// with proper occlusion against virtual (URP camera) objects. The pipeline is
+// divided into the following stages:
+//
+// [Preprocessing]
+//   MergeBuffer               - Copy points from a source buffer into the working buffer
+//   ClearMaps                 - Initialize all render maps to their default values
+//   ProjectPoints             - Project world-space points onto the screen and write
+//                               depth/color/view-position maps
+//   CalculateGridZMin         - Find the minimum depth value per GRID_SIZE x GRID_SIZE tile
+//   CalculateDensity          - Count how many points fall within the density threshold
+//                               of the tile's minimum depth (point cloud density map)
+//   CalculateGridLevel        - Convert per-tile density to a LOD level (neighborhood size)
+//   GridMedianFilter          - Apply a 3x3 median filter to smooth the LOD level map
+//   CalculateNeighborhoodSize - Propagate the tile-level LOD to every screen pixel
+//
+// [Occlusion]
+//   BuildDepthPyramidL1-L4    - Build a 4-level min-depth mipmap pyramid for gradient
+//                               detection at multiple resolutions
+//   ApplyAdaptiveGradientCorrection
+//                             - Reduce the neighborhood LOD by one at depth edges to
+//                               avoid occlusion bleeding across object boundaries
+//   OcclusionAndFilter        - Perform the main occlusion test: for each pixel, compare
+//                               the point depth against its neighbors and the virtual
+//                               depth map, then compute an opacity value
+//
+// [Post-processing]
+//   Interpolate               - Fill holes by averaging valid neighbor colors (dilation)
+//   InitFromCamera            - Pre-fill depth/color maps from the URP camera texture so
+//                               that static mesh pixels participate in the same pipeline
+// =============================================================================
+
+// --- Kernel declarations ---
+// Preprocessing kernels
 #pragma kernel ClearMaps
 #pragma kernel ProjectPoints
 #pragma kernel CalculateGridZMin
@@ -5,16 +43,20 @@
 #pragma kernel CalculateGridLevel
 #pragma kernel GridMedianFilter
 #pragma kernel CalculateNeighborhoodSize
+// Occlusion kernels
 #pragma kernel BuildDepthPyramidL1
 #pragma kernel BuildDepthPyramidL2
 #pragma kernel BuildDepthPyramidL3
 #pragma kernel BuildDepthPyramidL4
 #pragma kernel ApplyAdaptiveGradientCorrection
 #pragma kernel OcclusionAndFilter
+// Post-processing kernels
 #pragma kernel Interpolate
+// Utility kernels
 #pragma kernel MergeBuffer
 #pragma kernel InitFromCamera
 
+// --- Include shared data, helpers, and kernel implementations ---
 #include "Assets/Shader&Material/Shader/ComputeShader/Rendering/PCD_Occlusion_Data.hlsl"
 #include "Assets/Shader&Material/Shader/ComputeShader/Rendering/PCD_Occlusion_Helpers.hlsl"
 #include "Assets/Shader&Material/Shader/ComputeShader/Rendering/PCD_Occlusion_Kernels_Preprocess.hlsl"
