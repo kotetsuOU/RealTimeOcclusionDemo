@@ -1,20 +1,42 @@
-#pragma kernel ClearMaps
-#pragma kernel ProjectPoints
-#pragma kernel CalculateGridZMin
-#pragma kernel CalculateDensity
-#pragma kernel CalculateGridLevel
-#pragma kernel GridMedianFilter
-#pragma kernel CalculateNeighborhoodSize
-#pragma kernel BuildDepthPyramidL1
-#pragma kernel BuildDepthPyramidL2
-#pragma kernel BuildDepthPyramidL3
-#pragma kernel BuildDepthPyramidL4
-#pragma kernel ApplyAdaptiveGradientCorrection
-#pragma kernel OcclusionAndFilter
-#pragma kernel Interpolate
-#pragma kernel MergeBuffer
-#pragma kernel InitFromCamera
+// --------------------------------------------------------------------------
+// PCD_Occulusion.compute
+// Main compute shader for point cloud occlusion processing.
+// Implements a multi-pass pipeline:
+//   Preprocess  -> Project points onto screen and build grid statistics
+//   Occlusion   -> Build depth pyramid and compute per-pixel occlusion
+//   Post        -> Hole-filling, dilation, and camera initialization
+// --------------------------------------------------------------------------
 
+// --- Preprocessing kernels ---
+#pragma kernel ClearMaps               // Zero/reset all render targets before a new frame
+#pragma kernel ProjectPoints           // Transform world-space points to screen-space pixels
+#pragma kernel CalculateGridZMin       // Find the minimum depth in each 16x16 grid cell
+#pragma kernel CalculateDensity        // Compute the ratio of filled pixels per grid cell
+#pragma kernel CalculateGridLevel      // Derive a neighborhood level from density (log2 scale)
+#pragma kernel GridMedianFilter        // Smooth grid levels via 3x3 median filter
+#pragma kernel CalculateNeighborhoodSize // Propagate per-grid level to per-pixel map
+
+// --- Depth pyramid kernels (hierarchical min-depth, 4 mip levels) ---
+#pragma kernel BuildDepthPyramidL1     // Downsample full-res depth map to 1/2 resolution
+#pragma kernel BuildDepthPyramidL2     // Downsample L1 to 1/4 resolution
+#pragma kernel BuildDepthPyramidL3     // Downsample L2 to 1/8 resolution
+#pragma kernel BuildDepthPyramidL4     // Downsample L3 to 1/16 resolution
+
+// --- Occlusion kernels ---
+#pragma kernel ApplyAdaptiveGradientCorrection // Reduce neighborhood level near depth edges
+#pragma kernel OcclusionAndFilter      // Compute occlusion values and write final colors
+
+// --- Post-process kernels ---
+#pragma kernel Interpolate             // Dilate/fill small holes in the occlusion result
+#pragma kernel MergeBuffer             // Copy point data between structured buffers
+#pragma kernel InitFromCamera          // Seed depth/color maps from the URP camera textures
+
+// --------------------------------------------------------------------------
+// Include order must be respected:
+//   Data      defines all buffers, textures, and uniforms
+//   Helpers   provides ZMinDownsample and SobelOnPyramid utilities
+//   Preprocess, Occlusion, Post contain the kernel implementations
+// --------------------------------------------------------------------------
 #include "Assets/Shader&Material/Shader/ComputeShader/Rendering/PCD_Occlusion_Data.hlsl"
 #include "Assets/Shader&Material/Shader/ComputeShader/Rendering/PCD_Occlusion_Helpers.hlsl"
 #include "Assets/Shader&Material/Shader/ComputeShader/Rendering/PCD_Occlusion_Kernels_Preprocess.hlsl"
