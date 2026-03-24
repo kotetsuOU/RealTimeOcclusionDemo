@@ -3,7 +3,7 @@ using UnityEngine.Rendering;
 
 public class RsFilterShaderDispatcher
 {
-    private const int THREAD_GROUP_SIZE = 256;
+    private const int THREAD_GROUP_SIZE = 256; // Shader側と合わせる
 
     private readonly ComputeShader _filterShader;
     private readonly ComputeShader _transformShader;
@@ -11,6 +11,7 @@ public class RsFilterShaderDispatcher
     private readonly int _filterKernel;
     private readonly int _transformKernel;
 
+    // パラメータの設定対象となるカーネルインデックスを初期化時に取得して保持
     public RsFilterShaderDispatcher(ComputeShader filterShader, ComputeShader transformShader)
     {
         _filterShader = filterShader;
@@ -20,6 +21,7 @@ public class RsFilterShaderDispatcher
         _transformKernel = _transformShader.FindKernel("CSMain");
     }
 
+    // フィルタリング・サンプリングパスのDispatch
     public void DispatchFilter(
         CommandBuffer cmd,
         ComputeBuffer rawVertices,
@@ -54,12 +56,13 @@ public class RsFilterShaderDispatcher
         cmd.SetComputeVectorParam(_filterShader, "linePoint", linePoint);
         cmd.SetComputeVectorParam(_filterShader, "lineDir", lineDir);
         cmd.SetComputeFloatParam(_filterShader, "samplingRate", samplingRate);
-        cmd.SetComputeIntParam(_filterShader, "randomSeed", randomSeed);
+        cmd.SetComputeIntParam(_filterShader, "randomSeed", randomSeed); // フレーム数等をシードとしサンプリングを揺らがせる
 
         int threadGroups = Mathf.CeilToInt(vertexCount / (float)THREAD_GROUP_SIZE);
         cmd.DispatchCompute(_filterShader, _filterKernel, threadGroups, 1, 1);
     }
 
+    // 基本的な位置変換(Transform)だけを行うパスのDispatch
     public void DispatchTransform(
         CommandBuffer cmd,
         ComputeBuffer rawVertices,
