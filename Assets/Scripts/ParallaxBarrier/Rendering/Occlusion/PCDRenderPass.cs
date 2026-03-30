@@ -141,6 +141,12 @@ public partial class PCDRenderPass : ScriptableRenderPass
         _bufferManager.AddStaticMesh(mesh, transform, mode);
     }
 
+    /// <summary> Marks the point cloud data as dirty to force buffer update. </summary>
+    public void MarkPointCloudDataDirty()
+    {
+        _bufferManager.SetDataDirty();
+    }
+
     /// <summary> Unregisters a tracked static Unity Mesh. </summary>
     public void RemoveStaticMesh(Mesh mesh, Transform transform)
     {

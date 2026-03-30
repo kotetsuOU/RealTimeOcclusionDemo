@@ -37,6 +37,10 @@ public class PCDPointBufferManager
     private List<MeshTransformPair> _staticMeshes = new List<MeshTransformPair>();
     private const int STRIDE = 28; // 1要素のデータサイズ: sizeof(float)*3 + sizeof(float)*3 + sizeof(uint)
 
+    // GC回避用の使い回しリスト
+    private List<Vector3> _tempVertices = new List<Vector3>();
+    private List<Color> _tempColors = new List<Color>();
+
     // 各種プロパティへのアクセス
     public ComputeBuffer PointBuffer => _pointBuffer;
     public int PointCount => _pointCount;
@@ -105,6 +109,12 @@ public class PCDPointBufferManager
                 _isDataDirty = true;
             }
         }
+    }
+
+    // 動的メッシュの更新を強制するためにダーティフラグを立てる
+    public void SetDataDirty()
+    {
+        _isDataDirty = true;
     }
 
     // 登録されている静的メッシュを削除する
@@ -215,17 +225,19 @@ public class PCDPointBufferManager
             int meshPointCount = pair.mesh.vertexCount;
             if (meshPointCount == 0) continue;
 
-            Vector3[] meshVertices = pair.mesh.vertices;
-            Color[] meshColors = pair.mesh.colors;
-            bool hasMeshColors = meshColors != null && meshColors.Length == meshPointCount;
+            // GC（ゴミ）の発生を防ぐため、毎回新しい配列を生成するmesh.verticesではなく
+            // GetVertices / GetColors を使って事前確保したリストに流し込む
+            pair.mesh.GetVertices(_tempVertices);
+            pair.mesh.GetColors(_tempColors);
+            bool hasMeshColors = _tempColors.Count == meshPointCount;
 
             // ローカル座標からワールド座標へ変換するための行列
             Matrix4x4 localToWorld = pair.transform.localToWorldMatrix;
 
             for (int i = 0; i < meshPointCount; i++)
             {
-                Vector3 color = hasMeshColors ? new Vector3(meshColors[i].r, meshColors[i].g, meshColors[i].b) : defaultColor;
-                Vector3 worldPos = localToWorld.MultiplyPoint3x4(meshVertices[i]);
+                Vector3 color = hasMeshColors ? new Vector3(_tempColors[i].r, _tempColors[i].g, _tempColors[i].b) : defaultColor;
+                Vector3 worldPos = localToWorld.MultiplyPoint3x4(_tempVertices[i]);
 
                 _pointsCache[cacheIndex] = new Point
                 {

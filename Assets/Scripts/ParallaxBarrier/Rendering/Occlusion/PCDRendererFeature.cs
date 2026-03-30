@@ -164,7 +164,13 @@ public class PCDRendererFeature : ScriptableRendererFeature
         _scriptablePass?.RemoveStaticMesh(mesh, transform);
     }
 
-    // 毎フレーム呼ばれ、RenderGraphにパスをエンキューする
+    // 動的オブジェクト用にデータ再構築をリクエストする
+    public void MarkPointCloudDataDirty()
+    {
+        _scriptablePass?.MarkPointCloudDataDirty();
+    }
+
+    // t[??ARenderGraph?pXGL[
     public override void AddRenderPasses(ScriptableRenderer renderer, ref RenderingData renderingData)
     {
         // 毎フレーム、メッシュのカリング設定やレイヤーを強制適用する

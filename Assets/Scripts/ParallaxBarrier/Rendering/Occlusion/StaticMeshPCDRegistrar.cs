@@ -7,9 +7,16 @@ public class StaticMeshPCDRegistrar : MonoBehaviour
     [Tooltip("PointCloud: メッシュの頂点を点群として扱う / DepthMap: URPの深度情報として扱う")]
     public PCDProcessingMode mode = PCDProcessingMode.DepthMap;
 
+    [Tooltip("有効にすると、毎フレームTransformの更新を検知して点群データを再構築します")]
+    public bool isDynamic = false;
+
     private MeshFilter _meshFilter;
     private MeshRenderer _meshRenderer;
     private bool _isRegistered = false;
+    
+    private Vector3 _lastPosition;
+    private Quaternion _lastRotation;
+    private Vector3 _lastScale;
 
     // コンポーネントが有効になった際に、レンダラーFeatureへメッシュを登録する
     private void OnEnable()
@@ -48,6 +55,7 @@ public class StaticMeshPCDRegistrar : MonoBehaviour
         {
             PCDRendererFeature.Instance.AddStaticMesh(_meshFilter.sharedMesh, transform, mode);
             _isRegistered = true;
+            SaveTransformState();
             Debug.Log("[StaticMeshPCDRegistrar] Mesh registered: " + _meshFilter.mesh.name + " Mode: " + mode);
         }
         else
@@ -71,6 +79,7 @@ public class StaticMeshPCDRegistrar : MonoBehaviour
             Debug.Log("[StaticMeshPCDRegistrar] PCDRendererFeature found. Registering: " + _meshFilter.mesh.name + " Mode: " + mode);
             PCDRendererFeature.Instance.AddStaticMesh(_meshFilter.sharedMesh, transform, mode);
             _isRegistered = true;
+            SaveTransformState();
         }
     }
 
@@ -86,6 +95,30 @@ public class StaticMeshPCDRegistrar : MonoBehaviour
             }
         }
         _isRegistered = false;
+    }
+
+    private void Update()
+    {
+        // 登録済みかつ動的オブジェクトで、 Transform に変更があった場合
+        // （DepthMap モードは URP 側で自動的に描画されるため点群バッファの再構築は不要）
+        if (_isRegistered && isDynamic && mode == PCDProcessingMode.PointCloud)
+        {
+            if (transform.position != _lastPosition || transform.rotation != _lastRotation || transform.localScale != _lastScale)
+            {
+                if (PCDRendererFeature.Instance != null)
+                {
+                    PCDRendererFeature.Instance.MarkPointCloudDataDirty();
+                }
+                SaveTransformState();
+            }
+        }
+    }
+
+    private void SaveTransformState()
+    {
+        _lastPosition = transform.position;
+        _lastRotation = transform.rotation;
+        _lastScale = transform.localScale;
     }
 }
 
