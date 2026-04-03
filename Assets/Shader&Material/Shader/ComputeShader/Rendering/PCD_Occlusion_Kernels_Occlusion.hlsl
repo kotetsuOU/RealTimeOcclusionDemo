@@ -95,18 +95,21 @@ void ApplyAdaptiveGradientCorrection(uint3 id : SV_DispatchThreadID)
     _CorrectedNeighborhoodSizeMap_RW[fullResUV] = correctedLevel;
 }
 
-// 9. Occlusion and Filtering
-// 本シェーダーの中核を成すパス。
-// 自ピクセルと周囲ピクセルの深度や位置情報の差分(オクルージョンの度合い)を計算し、
-// 該当ピクセルの点群が表示されるべきか、あるい背後に隠れて見えないべきかを導出して、
-// 透過(アルファ)やジョイントバイラテラルライクのブレンドを適用する。穴埋め処理も内包。
+// 9. Compute Occlusion
+// 点群が描画されているピクセル（深度があるピクセル）のみを対象としたオクルージョン計算
 [numthreads(8, 8, 1)]
-void OcclusionAndFilter(uint3 id : SV_DispatchThreadID)
+void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
 {
     if (id.x >= (uint) _ScreenParams.x || id.y >= (uint) _ScreenParams.y)
         return;
 
     uint pointDepth_uint = _DepthMap[id.xy];
+
+    if (pointDepth_uint >= DEPTH_MAX_UINT)
+    {
+        // ここはFillHolesカーネルに任せるためスキップ
+        return;
+    }
 
     uint vDepth_uint = DEPTH_MAX_UINT;
     bool hasVirtualObj = false;
@@ -123,111 +126,6 @@ void OcclusionAndFilter(uint3 id : SV_DispatchThreadID)
         }
     }
 
-    if (pointDepth_uint >= DEPTH_MAX_UINT)
-    {
-        int fillRadius = 2;
-        float totalWeight = 0.0;
-        float4 accumulatedColor = float4(0, 0, 0, 0);
-        float weightedOriginSum = 0.0;
-
-        uint thresholdDepth = (hasVirtualObj) ? vDepth_uint : DEPTH_MAX_UINT;
-
-        // --- Pass 1: 最小深度の探索 ---
-        uint minDepth = thresholdDepth;
-
-        int2 minBound = max(int2(0, 0), (int2)id.xy - fillRadius);
-        int2 maxBound = min((int2)_ScreenParams.xy - 1, (int2)id.xy + fillRadius);
-
-        for (int searchY = minBound.y; searchY <= maxBound.y; searchY++)
-        {
-            for (int searchX = minBound.x; searchX <= maxBound.x; searchX++)
-            {
-                if (searchX == (int)id.x && searchY == (int)id.y)
-                    continue;
-
-                uint2 uv = uint2(searchX, searchY);
-                uint nDepth_uint = _DepthMap[uv];
-
-                if (nDepth_uint < minDepth)
-                {
-                    minDepth = nDepth_uint;
-                }
-            }
-        }
-
-        // --- Pass 2: ジョイントバイラテラル加重平均 ---
-        if (minDepth < thresholdDepth)
-        {
-            // Z値の非線形性をある程度考慮し、深度に応じた許容値を近似的に算出
-            // ※カメラから遠い（値が大きい）ほど許容幅を広げ、固定値の限界を補う設計
-            // 最小許容値として DEPTH_MAX_UINT / 1000 は維持しつつ、深度に応じたマージンを加算
-            uint depthTolerance = (DEPTH_MAX_UINT / 1000) + (uint)((float)minDepth * 0.02);
-
-            for (int searchY = minBound.y; searchY <= maxBound.y; searchY++)
-            {
-                for (int searchX = minBound.x; searchX <= maxBound.x; searchX++)
-                {
-                    if (searchX == (int)id.x && searchY == (int)id.y)
-                        continue;
-
-                    uint2 uv = uint2(searchX, searchY);
-                    uint nDepth_uint = _DepthMap[uv];
-
-                    if (nDepth_uint < thresholdDepth && nDepth_uint >= minDepth && (nDepth_uint - minDepth) <= depthTolerance)
-                    {
-                        float2 offset = float2(searchX - (int)id.x, searchY - (int)id.y);
-                        float distSq = dot(offset, offset);
-                        float spatialWeight = 1.0 / (1.0 + distSq * 0.5);
-
-                        float depthDiff = (float)(nDepth_uint - minDepth) / (float)depthTolerance;
-                        float depthWeight = 1.0 - smoothstep(0.0, 1.0, depthDiff);
-                        float weight = spatialWeight * depthWeight;
-
-                        float4 c = _ColorMap[uv];
-                        accumulatedColor += c * weight;
-                        totalWeight += weight;
-
-                        uint nType = _OriginTypeMap[uv];
-                        weightedOriginSum += (float) nType * weight;
-                    }
-                }
-            }
-        }
-
-        // 続く重みの判定処理等は元のロジックを維持
-        if (totalWeight > 0.01) // 重みが極端に小さくなる可能性があるため判定閾値を調整
-        {
-            _OcclusionResultMap_RW[id.xy] = accumulatedColor / totalWeight;
-
-            float avgType = weightedOriginSum / totalWeight;
-            if (avgType < 0.5)
-            {
-                _OriginMap_RW[id.xy] = float4(0, 0, 0, 1);
-                _OriginTypeMap_RW[id.xy] = 0u;
-            }
-            else
-            {
-                _OriginMap_RW[id.xy] = float4(1, 1, 1, 1);
-                _OriginTypeMap_RW[id.xy] = 1u;
-            }
-        }
-        else
-        {
-            _OcclusionResultMap_RW[id.xy] = float4(0, 0, 0, 0);
-
-            if (hasVirtualObj)
-            {
-                _OriginMap_RW[id.xy] = float4(1, 1, 1, 1);
-                _OriginTypeMap_RW[id.xy] = 1u;
-            }
-            else
-            {
-                _OriginTypeMap_RW[id.xy] = 2u;
-            }
-        }
-        return;
-    }
-
     uint depthBias = DEPTH_MAX_UINT / 1000;
 
     if (hasVirtualObj && (vDepth_uint + depthBias) < pointDepth_uint)
@@ -240,6 +138,7 @@ void OcclusionAndFilter(uint3 id : SV_DispatchThreadID)
 
     float3 currentPos = _ViewPositionMap[id.xy].xyz;
     float currentDepth = _ViewPositionMap[id.xy].w;
+    float currentPosSq = dot(currentPos, currentPos);
 
     int level = _FinalNeighborhoodSizeMap[id.xy];
     uint radius = max(1u << (uint)max(0, level), 1u);
@@ -254,9 +153,6 @@ void OcclusionAndFilter(uint3 id : SV_DispatchThreadID)
     {
         for (int searchX = minBound.x; searchX <= maxBound.x; searchX++)
         {
-            if (searchX == (int)id.x && searchY == (int)id.y)
-                continue;
-
             uint2 uv = uint2(searchX, searchY);
 
             uint neighborDepth_uint = _DepthMap[uv];
@@ -266,21 +162,23 @@ void OcclusionAndFilter(uint3 id : SV_DispatchThreadID)
                 float neighborDepth = _ViewPositionMap[uv].w;
                 float3 neighborPos = _ViewPositionMap[uv].xyz;
 
-                // if (currentDepth - neighborDepth > 0.01)
-                // {
-                    float3 y_minus_x = neighborPos - currentPos;
-
-                    float sqLen1 = dot(y_minus_x, y_minus_x);
+                 if (currentDepth - neighborDepth > 0.01)
+                 {
                     float sqLen2 = dot(neighborPos, neighborPos);
+                    float dotP = dot(currentPos, neighborPos);
+
+                    // Math展開: sqLen1 = |neighborPos - currentPos|^2
+                    float sqLen1 = sqLen2 - 2.0 * dotP + currentPosSq;
 
                     if (sqLen1 > 1e-12 && sqLen2 > 1e-12)
                     {
-                        float d = -dot(y_minus_x, neighborPos);
+                        // Math展開: d = -dot(neighborPos - currentPos, neighborPos) = dotP - sqLen2
+                        float d = dotP - sqLen2;
                         float occlusionValue = 1.0 - d * rsqrt(sqLen1 * sqLen2);
                         occlusionSum += occlusionValue;
                         neighborCount++;
                     }
-                // }
+                 }
             }
         }
     }
@@ -326,5 +224,124 @@ void OcclusionAndFilter(uint3 id : SV_DispatchThreadID)
             _OriginMap_RW[id.xy] = float4(1, 1, 1, 1);
     }
 }
+
+// 10. Fill Holes
+// 点群が描画されなかったピクセル（深度がないピクセル）を対象としたジョイントバイラテラルライクの穴埋め
+[numthreads(8, 8, 1)]
+void FillHoles(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint) _ScreenParams.x || id.y >= (uint) _ScreenParams.y)
+        return;
+
+    uint pointDepth_uint = _DepthMap[id.xy];
+
+    if (pointDepth_uint < DEPTH_MAX_UINT)
+    {
+        // 既にオクルージョン計算済みのピクセルはスキップ
+        return;
+    }
+
+    uint vDepth_uint = DEPTH_MAX_UINT;
+    bool hasVirtualObj = false;
+
+    if (_UseVirtualDepth > 0)
+    {
+        float vDepthRaw = _VirtualDepthMap[id.xy];
+        float vDepth = 1.0 - vDepthRaw;
+
+        if (vDepth < 0.9999)
+        {
+            hasVirtualObj = true;
+            vDepth_uint = (uint) (vDepth * (float) DEPTH_MAX_UINT);
+        }
+    }
+
+    int fillRadius = 2;
+    float totalWeight = 0.0;
+    float4 accumulatedColor = float4(0, 0, 0, 0);
+    float weightedOriginSum = 0.0;
+
+    uint thresholdDepth = (hasVirtualObj) ? vDepth_uint : DEPTH_MAX_UINT;
+
+    // --- Pass 1: 最小深度の探索 ---
+    uint minDepth = thresholdDepth;
+
+    int2 minBound = max(int2(0, 0), (int2)id.xy - fillRadius);
+    int2 maxBound = min((int2)_ScreenParams.xy - 1, (int2)id.xy + fillRadius);
+
+    for (int searchY = minBound.y; searchY <= maxBound.y; searchY++)
+    {
+        for (int searchX = minBound.x; searchX <= maxBound.x; searchX++)
+        {
+            uint2 uv = uint2(searchX, searchY);
+            minDepth = min(minDepth, _DepthMap[uv]);
+        }
+    }
+
+    // --- Pass 2: ジョイントバイラテラル加重平均 ---
+    if (minDepth < thresholdDepth)
+    {
+        uint depthTolerance = (DEPTH_MAX_UINT / 1000) + (uint)((float)minDepth * 0.02);
+
+        for (int searchY = minBound.y; searchY <= maxBound.y; searchY++)
+        {
+            for (int searchX = minBound.x; searchX <= maxBound.x; searchX++)
+            {
+                uint2 uv = uint2(searchX, searchY);
+                uint nDepth_uint = _DepthMap[uv];
+
+                if (nDepth_uint < thresholdDepth && nDepth_uint >= minDepth && (nDepth_uint - minDepth) <= depthTolerance)
+                {
+                    float2 offset = float2(searchX - (int)id.x, searchY - (int)id.y);
+                    float distSq = dot(offset, offset);
+                    float spatialWeight = 1.0 / (1.0 + distSq * 0.5);
+
+                    float depthDiff = (float)(nDepth_uint - minDepth) / (float)depthTolerance;
+                    float depthWeight = 1.0 - smoothstep(0.0, 1.0, depthDiff);
+                    float weight = spatialWeight * depthWeight;
+
+                    float4 c = _ColorMap[uv];
+                    accumulatedColor += c * weight;
+                    totalWeight += weight;
+
+                    uint nType = _OriginTypeMap[uv];
+                    weightedOriginSum += (float) nType * weight;
+                }
+            }
+        }
+    }
+
+    if (totalWeight > 0.01)
+    {
+        _OcclusionResultMap_RW[id.xy] = accumulatedColor / totalWeight;
+
+        float avgType = weightedOriginSum / totalWeight;
+        if (avgType < 0.5)
+        {
+            _OriginMap_RW[id.xy] = float4(0, 0, 0, 1);
+            _OriginTypeMap_RW[id.xy] = 0u;
+        }
+        else
+        {
+            _OriginMap_RW[id.xy] = float4(1, 1, 1, 1);
+            _OriginTypeMap_RW[id.xy] = 1u;
+        }
+    }
+    else
+    {
+        _OcclusionResultMap_RW[id.xy] = float4(0, 0, 0, 0);
+
+        if (hasVirtualObj)
+        {
+            _OriginMap_RW[id.xy] = float4(1, 1, 1, 1);
+            _OriginTypeMap_RW[id.xy] = 1u;
+        }
+        else
+        {
+            _OriginTypeMap_RW[id.xy] = 2u;
+        }
+    }
+}
+
 
 #endif // PCD_OCCLUSION_KERNELS_OCCLUSION_INCLUDED

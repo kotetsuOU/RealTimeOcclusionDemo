@@ -160,22 +160,32 @@ public partial class PCDRenderPass
         }
 
         // --- ステージ10: 近傍オクルージョンテストを実行し、奥にあるポイントを破棄し、手前にあるポイントをフィルタリング ---
-        cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, ShaderIDs.ColorMap, passData.colorMap);
-        cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, ShaderIDs.DepthMap, passData.depthMap);
-        cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, ShaderIDs.ViewPositionMap, passData.viewPositionMap);
-        cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, ShaderIDs.VirtualDepthMap, passData.virtualDepthTexture);
-        cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, ShaderIDs.OriginTypeMap, passData.originTypeMap);
-        cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, ShaderIDs.OriginTypeMap_RW, passData.originTypeMap);
-        cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, ShaderIDs.FinalNeighborhoodSizeMap, passData.settings.enableGradientCorrection ? passData.correctedNeighborhoodSizeMap : passData.neighborhoodSizeMap);
-        cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, ShaderIDs.OcclusionResultMap_RW, passData.occlusionResultMap);
-        
+        cmd.SetComputeTextureParam(cs, passData.kernelComputeOcclusion, ShaderIDs.ColorMap, passData.colorMap);
+        cmd.SetComputeTextureParam(cs, passData.kernelComputeOcclusion, ShaderIDs.DepthMap, passData.depthMap);
+        cmd.SetComputeTextureParam(cs, passData.kernelComputeOcclusion, ShaderIDs.ViewPositionMap, passData.viewPositionMap);
+        cmd.SetComputeTextureParam(cs, passData.kernelComputeOcclusion, ShaderIDs.VirtualDepthMap, passData.virtualDepthTexture);
+        cmd.SetComputeTextureParam(cs, passData.kernelComputeOcclusion, ShaderIDs.OriginTypeMap, passData.originTypeMap);
+        cmd.SetComputeTextureParam(cs, passData.kernelComputeOcclusion, ShaderIDs.OriginTypeMap_RW, passData.originTypeMap);
+        cmd.SetComputeTextureParam(cs, passData.kernelComputeOcclusion, ShaderIDs.FinalNeighborhoodSizeMap, passData.settings.enableGradientCorrection ? passData.correctedNeighborhoodSizeMap : passData.neighborhoodSizeMap);
+        cmd.SetComputeTextureParam(cs, passData.kernelComputeOcclusion, ShaderIDs.OcclusionResultMap_RW, passData.occlusionResultMap);
+
         cmd.SetComputeIntParam(cs, ShaderIDs.RecordOcclusionDebug, passData.settings.recordOcclusionDebugMap ? 1 : 0);
-        cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, ShaderIDs.OcclusionValueMap_RW, passData.occlusionValueMap);
+        cmd.SetComputeTextureParam(cs, passData.kernelComputeOcclusion, ShaderIDs.OcclusionValueMap_RW, passData.occlusionValueMap);
 
-        cmd.SetComputeTextureParam(cs, passData.kernelOcclusion, ShaderIDs.OriginMap_RW, passData.originDebugMap);
-        cmd.DispatchCompute(cs, passData.kernelOcclusion, threadGroupsX, threadGroupsY, 1);
+        cmd.SetComputeTextureParam(cs, passData.kernelComputeOcclusion, ShaderIDs.OriginMap_RW, passData.originDebugMap);
+        cmd.DispatchCompute(cs, passData.kernelComputeOcclusion, threadGroupsX, threadGroupsY, 1);
 
-        // --- ステージ11: オクルージョンによってできた穴を補完し、仮想深度マップやカメラバッファとマージ ---
+        // --- ステージ11: 点群が描画されなかったピクセルに対する穴埋め（バイラテラル） ---
+        cmd.SetComputeTextureParam(cs, passData.kernelFillHoles, ShaderIDs.ColorMap, passData.colorMap);
+        cmd.SetComputeTextureParam(cs, passData.kernelFillHoles, ShaderIDs.DepthMap, passData.depthMap);
+        cmd.SetComputeTextureParam(cs, passData.kernelFillHoles, ShaderIDs.VirtualDepthMap, passData.virtualDepthTexture);
+        cmd.SetComputeTextureParam(cs, passData.kernelFillHoles, ShaderIDs.OriginTypeMap, passData.originTypeMap);
+        cmd.SetComputeTextureParam(cs, passData.kernelFillHoles, ShaderIDs.OriginTypeMap_RW, passData.originTypeMap);
+        cmd.SetComputeTextureParam(cs, passData.kernelFillHoles, ShaderIDs.OcclusionResultMap_RW, passData.occlusionResultMap);
+        cmd.SetComputeTextureParam(cs, passData.kernelFillHoles, ShaderIDs.OriginMap_RW, passData.originDebugMap);
+        cmd.DispatchCompute(cs, passData.kernelFillHoles, threadGroupsX, threadGroupsY, 1);
+
+        // --- ステージ12: オクルージョンによってできた穴を補完し、仮想深度マップやカメラバッファとマージ ---
         cmd.SetComputeTextureParam(cs, passData.kernelInterpolate, ShaderIDs.OcclusionResultMap, passData.occlusionResultMap);
         cmd.SetComputeTextureParam(cs, passData.kernelInterpolate, ShaderIDs.VirtualDepthMap, passData.virtualDepthTexture);
         cmd.SetComputeTextureParam(cs, passData.kernelInterpolate, ShaderIDs.CameraColorTexture, passData.cameraColorTexture);

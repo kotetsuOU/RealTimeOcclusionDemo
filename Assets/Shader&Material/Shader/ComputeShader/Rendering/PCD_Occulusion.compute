@@ -19,7 +19,8 @@
 #pragma kernel BuildDepthPyramidL3       // 深度ピラミッド レベル3生成
 #pragma kernel BuildDepthPyramidL4       // 深度ピラミッド レベル4生成
 #pragma kernel ApplyAdaptiveGradientCorrection // 深度勾配(エッジ)に基づく適応的な近傍探索サイズの補正
-#pragma kernel OcclusionAndFilter        // 近傍深度との比較によるオクルージョン判定とフィルタリング実装
+#pragma kernel ComputeOcclusion          // 点群が存在するピクセル用のオクルージョン計算
+#pragma kernel FillHoles                 // 点群が存在しない（空き）ピクセル用のオクルージョン補間（バイラテラルフィルタ）
 
 // --- Post & Utility (ポストプロセス・ユーティリティ) ---
 #pragma kernel Interpolate               // 隙間(穴)を埋めるための1ピクセル補間(Dilation)

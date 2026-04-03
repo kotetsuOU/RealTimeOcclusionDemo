@@ -178,7 +178,8 @@ public partial class PCDRenderPass
             data.kernelBuildDepthPyramidL3 = _kernelBuildDepthPyramidL3;
             data.kernelBuildDepthPyramidL4 = _kernelBuildDepthPyramidL4;
             data.kernelApplyGradient = _kernelApplyGradient;
-            data.kernelOcclusion = _kernelOcclusion;
+            data.kernelComputeOcclusion = _kernelComputeOcclusion;
+            data.kernelFillHoles = _kernelFillHoles;
             data.kernelInterpolate = _kernelInterpolate;
             data.kernelMerge = _kernelMerge;
             data.kernelInitFromCamera = _kernelInitFromCamera;

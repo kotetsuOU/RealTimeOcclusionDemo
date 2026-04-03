@@ -11,7 +11,7 @@ public partial class PCDRenderPass : ScriptableRenderPass
 {
     private const string PROFILER_TAG = "PCDRendering";
 
-    // Cache shader property IDs to avoid string lookups per frame
+    // フレームごとの文字列ルックアップを避けるためにシェーダープロパティIDをキャッシュ
     private static class ShaderIDs
     {
         public static readonly int PointCount = Shader.PropertyToID("_PointCount");
@@ -76,28 +76,28 @@ public partial class PCDRenderPass : ScriptableRenderPass
         public static readonly int CameraColorTexture = Shader.PropertyToID("_CameraColorTexture");
     }
 
-    private ComputeShader pointCloudCompute; // The core compute shader defining the occlusion pipeline
-    private Material m_BlendMaterial;        // Material used for blending the resulting image onto the screen
-    private bool _enableAlphaBlend;          // Whether the final point cloud result should be alpha blended
-    private PCDRendererFeature.PCDRenderSettings _settings; // Current settings corresponding to the feature inspector values
+    private ComputeShader pointCloudCompute; // オクルージョンパイプラインを定義するコアコンピュートシェーダー
+    private Material m_BlendMaterial;        // 結果として得られた画像を画面上でブレンドするために使用されるマテリアル
+    private bool _enableAlphaBlend;          // 最終的な点群の結果をアルファブレンドするかどうか
+    private PCDRendererFeature.PCDRenderSettings _settings; // 機能インスペクターの値に対応する現在の設定
 
-    // Kernel IDs corresponding to individual compute shader functions
+    // 個々のコンピュートシェーダー関数に対応するカーネルID
     private int _kernelClear, _kernelProject, _kernelCalcGridZMin, _kernelCalcDensity,
                 _kernelCalcGridLevel, _kernelGridMedianFilter,
                 _kernelCalcNeighborhoodSize,
                 _kernelBuildDepthPyramidL1, _kernelBuildDepthPyramidL2,
                 _kernelBuildDepthPyramidL3, _kernelBuildDepthPyramidL4,
                 _kernelApplyGradient,
-                _kernelOcclusion, _kernelInterpolate,
+                _kernelComputeOcclusion, _kernelFillHoles, _kernelInterpolate,
                 _kernelMerge, _kernelInitFromCamera;
 
-    // Output and debug maps
+    // 出力およびデバッグマップ
     private RTHandle _originDebugMapHandle;
     private RTHandle _occlusionValueMapHandle;
     private bool _isInitialized = false;
-    private const int STRIDE = 28; // Represents size of one point data: sizeof(float)*3 + sizeof(float)*3 + sizeof(uint)
+    private const int STRIDE = 28; // 1つのポイントデータのサイズを表す: sizeof(float)*3 + sizeof(float)*3 + sizeof(uint)
 
-    // --- Buffer Manager ---
+    // --- バッファ マネージャー ---
     private PCDPointBufferManager _bufferManager;
 
     public PCDRenderPass(ComputeShader computeShader, PCDRendererFeature.PCDRenderSettings settings, Material blendMaterial, bool enableAlphaBlend)
@@ -108,52 +108,52 @@ public partial class PCDRenderPass : ScriptableRenderPass
         this.m_BlendMaterial = blendMaterial;
         this._enableAlphaBlend = enableAlphaBlend;
 
-        _bufferManager = new PCDPointBufferManager(); // Initialize the data manager for static meshes and points
+        _bufferManager = new PCDPointBufferManager(); // 静的メッシュや点群のためのデータマネージャーを初期化します
     }
 
-    /// <summary> Updates renderer settings externally (e.g., via script or inspector changes). </summary>
+    /// <summary> 外部（スクリプトやインスペクターの変更など）からレンダラーの設定を更新します。 </summary>
     public void UpdateSettings(PCDRendererFeature.PCDRenderSettings settings)
     {
         this._settings = settings;
     }
 
-    /// <summary> Toggles the rendering of the origin debug map. </summary>
+    /// <summary> オリジンデバッグマップのレンダリングを切り替えます。 </summary>
     public void SetDebugFlag(bool enableDebugMap)
     {
         this._settings.enableOriginDebugMap = enableDebugMap;
     }
 
-    /// <summary> Allows injecting an external compute buffer directly. </summary>
+    /// <summary> 外部のコンピュートバッファを直接注入できるようにします。 </summary>
     public void SetExternalBuffer(ComputeBuffer buffer, int count)
     {
         _bufferManager.SetExternalBuffer(buffer, count);
     }
 
-    /// <summary> Sets the point cloud data from an internal PCV_Data object. </summary>
+    /// <summary> 内部のPCV_Dataオブジェクトから点群データを設定します。 </summary>
     public void SetPointCloudData(PCV_Data data)
     {
         _bufferManager.SetPointCloudData(data);
     }
 
-    /// <summary> Registers a static Unity Mesh to interact with point cloud occlusion. </summary>
+    /// <summary> 点群のオクルージョンと相互作用するように静的なUnityメッシュを登録します。 </summary>
     public void AddStaticMesh(Mesh mesh, Transform transform, PCDProcessingMode mode)
     {
         _bufferManager.AddStaticMesh(mesh, transform, mode);
     }
 
-    /// <summary> Marks the point cloud data as dirty to force buffer update. </summary>
+    /// <summary> バッファの更新を強制するために、点群データをダーティとしてマークします。 </summary>
     public void MarkPointCloudDataDirty()
     {
         _bufferManager.SetDataDirty();
     }
 
-    /// <summary> Unregisters a tracked static Unity Mesh. </summary>
+    /// <summary> トラックされている静的なUnityメッシュの登録を解除します。 </summary>
     public void RemoveStaticMesh(Mesh mesh, Transform transform)
     {
         _bufferManager.RemoveStaticMesh(mesh, transform);
     }
 
-    /// <summary> Fetches kernel index IDs from the compute shader configuration. </summary>
+    /// <summary> コンピュートシェーダーの設定からカーネルのインデックスIDを取得します。 </summary>
     private void Initialize()
     {
         if (pointCloudCompute == null)
@@ -180,7 +180,8 @@ public partial class PCDRenderPass : ScriptableRenderPass
             _kernelApplyGradient = pointCloudCompute.FindKernel("ApplyAdaptiveGradientCorrection");
         }
 
-        _kernelOcclusion = pointCloudCompute.FindKernel("OcclusionAndFilter");
+        _kernelComputeOcclusion = pointCloudCompute.FindKernel("ComputeOcclusion");
+        _kernelFillHoles = pointCloudCompute.FindKernel("FillHoles");
         _kernelInterpolate = pointCloudCompute.FindKernel("Interpolate");
         _kernelMerge = pointCloudCompute.FindKernel("MergeBuffer");
         _kernelInitFromCamera = pointCloudCompute.FindKernel("InitFromCamera");
@@ -204,16 +205,16 @@ public partial class PCDRenderPass : ScriptableRenderPass
                      kernelBuildDepthPyramidL1, kernelBuildDepthPyramidL2,
                      kernelBuildDepthPyramidL3, kernelBuildDepthPyramidL4,
                      kernelApplyGradient,
-                     kernelOcclusion, kernelInterpolate,
+                     kernelComputeOcclusion, kernelFillHoles, kernelInterpolate,
                      kernelMerge, kernelInitFromCamera;
 
-        // Buffers for Copy
+        // コピー用バッファ
         internal bool useExternal;
         internal ComputeBuffer externalBuffer;
         internal ComputeBuffer internalBuffer;
         internal int externalCount;
         internal int internalCount;
-        internal ComputeBuffer combinedBuffer; // Target buffer
+        internal ComputeBuffer combinedBuffer; // ターゲットバッファ
         internal ComputeBuffer pointBuffer;
 
         internal TextureHandle colorMap;
@@ -250,7 +251,7 @@ public partial class PCDRenderPass : ScriptableRenderPass
         internal bool enableOriginDebugMap;
     }
 
-    /// <summary> Returns the origin debug map if it's generated, otherwise null. </summary>
+    /// <summary> オリジンデバッグマップが生成されている場合はそれを返し、そうでない場合はnullを返します。 </summary>
     public Texture GetOriginDebugMap()
     {
         if (_settings.enableOriginDebugMap && _originDebugMapHandle != null)
@@ -260,29 +261,29 @@ public partial class PCDRenderPass : ScriptableRenderPass
         return null;
     }
 
-    /// <summary> Determines if the occlusion pass pipeline should be bypassed this frame. </summary>
+    /// <summary> このフレームでオクルージョンパスのパイプラインをスキップするかどうかを決定します。 </summary>
     public bool ShouldSkipRendering()
     {
-        // Check for external buffer
+        // 外部バッファの確認
         bool hasExternalData = _bufferManager.UseExternalBuffer && _bufferManager.ExternalPointBuffer != null && _bufferManager.ExternalPointBuffer.IsValid() && _bufferManager.ExternalPointCount > 0;
 
-        // Check for internal buffer
+        // 内部バッファの確認
         bool hasInternalData = _bufferManager.PointBuffer != null && _bufferManager.PointBuffer.IsValid() && _bufferManager.PointCount > 0;
 
-        // Check if we have DepthMap mode meshes
+        // DepthMapモードのメッシュがあるか確認
         bool hasDepthMapMeshes = _bufferManager.HasDepthMapMeshes();
 
-        // Check if we have PointCloud mode meshes
+        // PointCloudモードのメッシュがあるか確認
         bool hasPointCloudMeshes = _bufferManager.HasPointCloudMeshes();
 
-        // Skip rendering if there is no point cloud data and no meshes to inject (or if only generating background depths).
+        // 点群データがなく、注入するメッシュもない場合（または背景の深度のみを生成する場合）、レンダリングをスキップします。
         bool noPointCloudData = !hasExternalData && !hasInternalData && !hasPointCloudMeshes;
         bool depthMapOnlyMode = hasDepthMapMeshes && noPointCloudData;
 
         return depthMapOnlyMode;
     }
 
-    /// <summary> Releases resources and references properly to prevent memory leaks. </summary>
+    /// <summary> メモリリークを防ぐために、リソースと参照を適切に解放します。 </summary>
     public void Cleanup()
     {
         _bufferManager.Cleanup();
