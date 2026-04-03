@@ -24,11 +24,13 @@
   <Project Path="Unity.VisualStudio.Editor.csproj" />
   <Project Path="Assembly-CSharp.csproj" />
   <Project Path="PPv2URPConverters.csproj" />
+  <Project Path="Mediapipe.Runtime.csproj" />
   <Project Path="Unity.Searcher.Editor.csproj" />
   <Project Path="Unity.ProBuilder.Editor.csproj" />
   <Project Path="UnityEditor.TestRunner.csproj" />
   <Project Path="Unity.VisualScripting.Core.csproj" />
   <Project Path="Unity.RenderPipelines.Universal.Runtime.csproj" />
+  <Project Path="Mediapipe.Unity.Sample.csproj" />
   <Project Path="Unity.UnifiedRayTracing.Runtime.csproj" />
   <Project Path="Unity.VisualScripting.State.Editor.csproj" />
   <Project Path="Unity.Burst.CodeGen.csproj" />
