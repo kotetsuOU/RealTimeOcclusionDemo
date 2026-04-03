@@ -223,7 +223,7 @@ public class RsIntegratedPointCloudProcessor : IDisposable
             _pointCloudBuffer.SetCounterValue(0);
 
             // 深度画像の総ピクセル数に応じたスレッドグループ数を計算してComputeShaderを実行
-            int threadGroups = Mathf.CeilToInt((_dIntrin.width * _dIntrin.height) / 64.0f);
+            int threadGroups = ((_dIntrin.width * _dIntrin.height) + 63) / 64;
             _shader.Dispatch(_kernelIndex, threadGroups, 1, 1);
 
             // フィルタリングされた点群の数を非同期にCPUへ読み戻すリクエストを発行

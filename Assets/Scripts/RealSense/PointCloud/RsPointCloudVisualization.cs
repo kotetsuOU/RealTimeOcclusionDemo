@@ -5,6 +5,9 @@ public class RsPointCloudVisualization
     private readonly MeshRenderer _renderer;
     private readonly MaterialPropertyBlock _props;
 
+    private static readonly int _VerticesID = Shader.PropertyToID("_Vertices");
+    private static readonly int _ColorID = Shader.PropertyToID("_Color");
+
     public RsPointCloudVisualization(MeshRenderer renderer)
     {
         _renderer = renderer;
@@ -18,13 +21,13 @@ public class RsPointCloudVisualization
             return;
         }
 
-        _props.SetBuffer("_Vertices", verticesBuffer);
-        _props.SetColor("_Color", pointCloudColor);
+        _props.SetBuffer(_VerticesID, verticesBuffer);
+        _props.SetColor(_ColorID, pointCloudColor);
 
         Bounds bounds = new Bounds(Vector3.zero, Vector3.one * 50f);
 
         Graphics.DrawProceduralIndirect(
-            _renderer.material,
+            _renderer.sharedMaterial,
             bounds,
             MeshTopology.Points,
             argsBuffer,

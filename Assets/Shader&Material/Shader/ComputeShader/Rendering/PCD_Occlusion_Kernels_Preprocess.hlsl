@@ -48,7 +48,7 @@ void ProjectPoints(uint3 id : SV_DispatchThreadID)
     if (ndc.x < -1 || ndc.x > 1 || ndc.y < -1 || ndc.y > 1 || ndc.z < 0 || ndc.z > 1)
         return;
 
-    uint2 screenUV = uint2((ndc.x * 0.5 + 0.5) * _ScreenParams.x, (ndc.y * 0.5 + 0.5) * _ScreenParams.y);
+    uint2 screenUV = uint2((ndc.xy * 0.5 + 0.5) * _ScreenParams.xy);
     float depth = ndc.z;
     uint depth_uint = (uint) (depth * (float) DEPTH_MAX_UINT);
 
@@ -102,16 +102,16 @@ void CalculateDensity(uint3 id : SV_DispatchThreadID, uint3 groupID : SV_GroupID
     GroupMemoryBarrierWithGroupSync();
 
     uint z_min_uint = _GridZMinMap[groupID.xy];
-    float z_min = (float) z_min_uint / (float) DEPTH_MAX_UINT;
     uint depth_uint = _DepthMap[id.xy];
-    
+
     // OriginType fetch. 0 = PointCloud (Dynamic), 1 = StaticMesh, 2 = Background
     uint originType = _OriginTypeMap[id.xy];
 
     if (depth_uint < DEPTH_MAX_UINT && originType == 0u)
     {
-        float depth = (float) depth_uint / (float) DEPTH_MAX_UINT;
-        if ((depth - z_min) < _DensityThreshold_e)
+        uint diff = depth_uint - z_min_uint;
+        uint threshold_uint = (uint)(_DensityThreshold_e * (float)DEPTH_MAX_UINT);
+        if (diff < threshold_uint)
         {
             InterlockedAdd(shared_point_count, 1u);
         }

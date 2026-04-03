@@ -17,6 +17,10 @@ public class PCDPointBufferManager
         public Mesh mesh;
         public Transform transform;
         public PCDProcessingMode mode;
+
+        // 計算済みのワールド座標ポイントキャッシュ
+        public Point[] cachedPoints;
+        public Matrix4x4 lastMatrix;
     }
 
     // --- 内部バッファ管理 (静的メッシュ及びCPUベースの点群用) ---
@@ -192,10 +196,11 @@ public class PCDPointBufferManager
             return;
         }
 
-        // 配列の確保が必要なら再生成する
-        if (_pointsCache == null || _pointsCache.Length != _pointCount)
+        // 配列の確保が必要なら十分なサイズを確保する（再生成によるGCを削減）
+        if (_pointsCache == null || _pointsCache.Length < _pointCount)
         {
-            _pointsCache = new Point[_pointCount];
+            int newSize = Mathf.Max(_pointCount, _pointsCache != null ? _pointsCache.Length * 2 : 1024);
+            _pointsCache = new Point[newSize];
         }
 
         int cacheIndex = 0;
@@ -215,7 +220,6 @@ public class PCDPointBufferManager
             }
         }
 
-        Vector3 defaultColor = new Vector3(1.0f, 1.0f, 1.0f);
         // 2. 静的メッシュ（PointCloudモード）の頂点情報を順番に配列へ格納
         foreach (var pair in _staticMeshes)
         {
@@ -225,28 +229,39 @@ public class PCDPointBufferManager
             int meshPointCount = pair.mesh.vertexCount;
             if (meshPointCount == 0) continue;
 
-            // GC（ゴミ）の発生を防ぐため、毎回新しい配列を生成するmesh.verticesではなく
-            // GetVertices / GetColors を使って事前確保したリストに流し込む
-            pair.mesh.GetVertices(_tempVertices);
-            pair.mesh.GetColors(_tempColors);
-            bool hasMeshColors = _tempColors.Count == meshPointCount;
-
             // ローカル座標からワールド座標へ変換するための行列
             Matrix4x4 localToWorld = pair.transform.localToWorldMatrix;
 
-            for (int i = 0; i < meshPointCount; i++)
+            // 行列が変わっているか、キャッシュがなければ再計算（毎フレームのVector3計算を避ける）
+            if (pair.cachedPoints == null || pair.cachedPoints.Length != meshPointCount || pair.lastMatrix != localToWorld)
             {
-                Vector3 color = hasMeshColors ? new Vector3(_tempColors[i].r, _tempColors[i].g, _tempColors[i].b) : defaultColor;
-                Vector3 worldPos = localToWorld.MultiplyPoint3x4(_tempVertices[i]);
+                pair.mesh.GetVertices(_tempVertices);
+                pair.mesh.GetColors(_tempColors);
+                bool hasMeshColors = _tempColors.Count == meshPointCount;
 
-                _pointsCache[cacheIndex] = new Point
+                if (pair.cachedPoints == null || pair.cachedPoints.Length != meshPointCount)
                 {
-                    position = worldPos,
-                    color = color,
-                    originType = 1 // メッシュ由来フラグ
-                };
-                cacheIndex++;
+                    pair.cachedPoints = new Point[meshPointCount];
+                }
+
+                for (int i = 0; i < meshPointCount; i++)
+                {
+                    Vector3 color = hasMeshColors ? new Vector3(_tempColors[i].r, _tempColors[i].g, _tempColors[i].b) : Vector3.one;
+                    Vector3 worldPos = localToWorld.MultiplyPoint3x4(_tempVertices[i]);
+
+                    pair.cachedPoints[i] = new Point
+                    {
+                        position = worldPos,
+                        color = color,
+                        originType = 1 // メッシュ由来フラグ
+                    };
+                }
+                pair.lastMatrix = localToWorld;
             }
+
+            // 計算済みのキャッシュから高速コピー（1万以上の反復処理を省略）
+            System.Array.Copy(pair.cachedPoints, 0, _pointsCache, cacheIndex, meshPointCount);
+            cacheIndex += meshPointCount;
         }
 
         if (_isDataDirty)
@@ -268,15 +283,16 @@ public class PCDPointBufferManager
             return;
         }
 
-        // バッファが未割り当てか、サイズが変わっている場合のみ再生成する
-        if (_pointBuffer == null || !_pointBuffer.IsValid() || _pointBuffer.count != _pointCount)
+        // バッファが未割り当てか、サイズが不足している場合のみ再生成する
+        if (_pointBuffer == null || !_pointBuffer.IsValid() || _pointBuffer.count < _pointCount)
         {
             _pointBuffer?.Release();
-            _pointBuffer = new ComputeBuffer(_pointCount, STRIDE);
+            int newSize = Mathf.Max(_pointCount, _pointBuffer != null ? _pointBuffer.count * 2 : 1024);
+            _pointBuffer = new ComputeBuffer(newSize, STRIDE);
         }
 
-        // キャッシュした頂点配列をGPU側へ転送
-        _pointBuffer.SetData(_pointsCache);
+        // キャッシュした頂点配列のうち、有効な部分だけをGPU側へ転送
+        _pointBuffer.SetData(_pointsCache, 0, 0, _pointCount);
         if (_pointCount > 0 && _isDataDirty)
         {
             UnityEngine.Debug.Log($"[PCDPointBufferManager] ComputeBuffer updated with {_pointCount} points (Static/Internal).");

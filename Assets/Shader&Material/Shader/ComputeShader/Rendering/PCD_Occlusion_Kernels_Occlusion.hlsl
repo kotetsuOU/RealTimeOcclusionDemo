@@ -135,15 +135,17 @@ void OcclusionAndFilter(uint3 id : SV_DispatchThreadID)
         // --- Pass 1: 最小深度の探索 ---
         uint minDepth = thresholdDepth;
 
-        for (int searchY = -fillRadius; searchY <= fillRadius; searchY++)
+        int2 minBound = max(int2(0, 0), (int2)id.xy - fillRadius);
+        int2 maxBound = min((int2)_ScreenParams.xy - 1, (int2)id.xy + fillRadius);
+
+        for (int searchY = minBound.y; searchY <= maxBound.y; searchY++)
         {
-            for (int searchX = -fillRadius; searchX <= fillRadius; searchX++)
+            for (int searchX = minBound.x; searchX <= maxBound.x; searchX++)
             {
-                if (searchX == 0 && searchY == 0)
+                if (searchX == (int)id.x && searchY == (int)id.y)
                     continue;
 
-                int2 offset = int2(searchX, searchY);
-                uint2 uv = clamp((int2) id.xy + offset, 0, (int2) _ScreenParams.xy - 1);
+                uint2 uv = uint2(searchX, searchY);
                 uint nDepth_uint = _DepthMap[uv];
 
                 if (nDepth_uint < minDepth)
@@ -161,20 +163,20 @@ void OcclusionAndFilter(uint3 id : SV_DispatchThreadID)
             // 最小許容値として DEPTH_MAX_UINT / 1000 は維持しつつ、深度に応じたマージンを加算
             uint depthTolerance = (DEPTH_MAX_UINT / 1000) + (uint)((float)minDepth * 0.02);
 
-            for (int y = -fillRadius; y <= fillRadius; y++)
+            for (int searchY = minBound.y; searchY <= maxBound.y; searchY++)
             {
-                for (int x = -fillRadius; x <= fillRadius; x++)
+                for (int searchX = minBound.x; searchX <= maxBound.x; searchX++)
                 {
-                    if (x == 0 && y == 0)
+                    if (searchX == (int)id.x && searchY == (int)id.y)
                         continue;
 
-                    int2 offset = int2(x, y);
-                    uint2 uv = clamp((int2) id.xy + offset, 0, (int2) _ScreenParams.xy - 1);
+                    uint2 uv = uint2(searchX, searchY);
                     uint nDepth_uint = _DepthMap[uv];
 
                     if (nDepth_uint < thresholdDepth && nDepth_uint >= minDepth && (nDepth_uint - minDepth) <= depthTolerance)
                     {
-                        float distSq = dot(float2(x, y), float2(x, y));
+                        float2 offset = float2(searchX - (int)id.x, searchY - (int)id.y);
+                        float distSq = dot(offset, offset);
                         float spatialWeight = 1.0 / (1.0 + distSq * 0.5);
 
                         float depthDiff = (float)(nDepth_uint - minDepth) / (float)depthTolerance;
@@ -240,53 +242,45 @@ void OcclusionAndFilter(uint3 id : SV_DispatchThreadID)
     float currentDepth = _ViewPositionMap[id.xy].w;
 
     int level = _FinalNeighborhoodSizeMap[id.xy];
-    uint radius = (uint) pow(2.0, (float) level);
-    radius = max(radius, 1u);
+    uint radius = max(1u << (uint)max(0, level), 1u);
 
     float occlusionSum = 0.0;
     uint neighborCount = 0u;
 
-    for (uint y = 0u; y <= radius * 2u; y++)
+    int2 minBound = max(int2(0, 0), (int2)id.xy - (int)radius);
+    int2 maxBound = min((int2)_ScreenParams.xy - 1, (int2)id.xy + (int)radius);
+
+    for (int searchY = minBound.y; searchY <= maxBound.y; searchY++)
     {
-        for (uint x = 0u; x <= radius * 2u; x++)
+        for (int searchX = minBound.x; searchX <= maxBound.x; searchX++)
         {
-            if (x == radius && y == radius)
+            if (searchX == (int)id.x && searchY == (int)id.y)
                 continue;
 
-            int2 offset = int2((int) x - (int) radius, (int) y - (int) radius);
-            uint2 uv = clamp((int2) id.xy + offset, 0, (int2) _ScreenParams.xy - 1);
+            uint2 uv = uint2(searchX, searchY);
 
             uint neighborDepth_uint = _DepthMap[uv];
 
             if (neighborDepth_uint < DEPTH_MAX_UINT)
             {
-                float3 neighborPos = _ViewPositionMap[uv].xyz;
                 float neighborDepth = _ViewPositionMap[uv].w;
+                float3 neighborPos = _ViewPositionMap[uv].xyz;
 
-                /*
-                if (currentDepth - neighborDepth > 0.01)
-                {
+                // if (currentDepth - neighborDepth > 0.01)
+                // {
                     float3 y_minus_x = neighborPos - currentPos;
-                    float3 minus_y = -neighborPos;
 
-                    if (length(y_minus_x) > 1e-6 && length(minus_y) > 1e-6)
+                    float sqLen1 = dot(y_minus_x, y_minus_x);
+                    float sqLen2 = dot(neighborPos, neighborPos);
+
+                    if (sqLen1 > 1e-12 && sqLen2 > 1e-12)
                     {
-                        float occlusionValue = 1.0 - dot(normalize(y_minus_x), normalize(minus_y));
+                        float d = -dot(y_minus_x, neighborPos);
+                        float occlusionValue = 1.0 - d * rsqrt(sqLen1 * sqLen2);
                         occlusionSum += occlusionValue;
                         neighborCount++;
                     }
-                }*/
-                
-                float3 y_minus_x = neighborPos - currentPos;
-                float3 minus_y = -neighborPos;
-
-                if (length(y_minus_x) > 1e-6 && length(minus_y) > 1e-6)
-                {
-                    float occlusionValue = 1.0 - dot(normalize(y_minus_x), normalize(minus_y));
-                    occlusionSum += occlusionValue;
-                    neighborCount++;
-                }
-
+                // }
             }
         }
     }

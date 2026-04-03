@@ -196,8 +196,11 @@ public class RsPointCloudRenderer : MonoBehaviour
 
     #region Unity Lifecycle
 
+    private string _cachedSourceName; // gameObject.name の毎フレーム取得によるGC防止
+
     void Start()
     {
+        _cachedSourceName = gameObject.name;
         _logger = new RsPerformanceLogger();
         _visualization = new RsPointCloudVisualization(GetComponent<MeshRenderer>());
         _initializer = new RsPointCloudInitializer(processingPipe, pointCloudFilterShader, pointCloudTransformerShader);
@@ -221,7 +224,7 @@ public class RsPointCloudRenderer : MonoBehaviour
         // 計算処理側へ現在のゲームオブジェクト名を伝える（主に出力ログ等の識別用）
         if (_initializer.FrameProcessor != null)
         {
-            _initializer.FrameProcessor.SourceName = gameObject.name;
+            _initializer.FrameProcessor.SourceName = _cachedSourceName;
         }
 
         // 計測中で有ればストップウォッチをリセット
