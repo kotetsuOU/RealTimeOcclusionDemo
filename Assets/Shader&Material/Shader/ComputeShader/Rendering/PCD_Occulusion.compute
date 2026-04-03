@@ -30,5 +30,7 @@
 #include "Assets/Shader&Material/Shader/ComputeShader/Rendering/PCD_Occlusion_Data.hlsl"
 #include "Assets/Shader&Material/Shader/ComputeShader/Rendering/PCD_Occlusion_Helpers.hlsl"
 #include "Assets/Shader&Material/Shader/ComputeShader/Rendering/PCD_Occlusion_Kernels_Preprocess.hlsl"
+#include "Assets/Shader&Material/Shader/ComputeShader/Rendering/PCD_Occlusion_Kernels_DepthPyramid.hlsl"
 #include "Assets/Shader&Material/Shader/ComputeShader/Rendering/PCD_Occlusion_Kernels_Occlusion.hlsl"
+#include "Assets/Shader&Material/Shader/ComputeShader/Rendering/PCD_Occlusion_Kernels_FillHoles.hlsl"
 #include "Assets/Shader&Material/Shader/ComputeShader/Rendering/PCD_Occlusion_Kernels_Post.hlsl"
