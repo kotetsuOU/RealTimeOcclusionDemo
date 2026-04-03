@@ -44,11 +44,17 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
 
     float3 currentPos = _ViewPositionMap[id.xy].xyz;
     float currentDepth = _ViewPositionMap[id.xy].w;
-    float currentPosSq = dot(currentPos, currentPos);
+
+    // FP16(半精度)に変換して演算スループットを2倍に（レジスタ使用量も半減）
+    // ハンドトラッキングのスケール（メートル単位なら0.1〜2.0m等）ならオーバーフローしません
+    half3 currentPos_h = (half3)currentPos;
+    half currentDepth_h = (half)currentDepth;
+    half currentPosSq_h = dot(currentPos_h, currentPos_h);
 
     int level = _FinalNeighborhoodSizeMap[id.xy];
     uint radius = max(1u << (uint)max(0, level), 1u);
 
+    // 和はfloatで保持（多数の足し合わせによる精度落ちを防ぐ）
     float occlusionSum = 0.0;
     uint neighborCount = 0u;
 
@@ -65,23 +71,24 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
 
             if (neighborDepth_uint < DEPTH_MAX_UINT)
             {
-                float neighborDepth = _ViewPositionMap[uv].w;
-                float3 neighborPos = _ViewPositionMap[uv].xyz;
+                half neighborDepth_h = (half)_ViewPositionMap[uv].w;
 
-                 if (currentDepth - neighborDepth > 0.01)
+                 // 奥行き差の判定。ここではFP16で比較
+                 if (currentDepth_h - neighborDepth_h > 0.01h)
                  {
-                    float sqLen2 = dot(neighborPos, neighborPos);
-                    float dotP = dot(currentPos, neighborPos);
+                    half3 neighborPos_h = (half3)_ViewPositionMap[uv].xyz;
+                    half sqLen2_h = dot(neighborPos_h, neighborPos_h);
+                    half dotP_h = dot(currentPos_h, neighborPos_h);
 
                     // Math展開: sqLen1 = |neighborPos - currentPos|^2
-                    float sqLen1 = sqLen2 - 2.0 * dotP + currentPosSq;
+                    half sqLen1_h = sqLen2_h - 2.0h * dotP_h + currentPosSq_h;
 
-                    if (sqLen1 > 1e-12 && sqLen2 > 1e-12)
+                    // half精度での安全な微小値判定（1e-12だとFP16では0とみなされるため 1e-4h を使用）
+                    if (sqLen1_h > 0.0001h && sqLen2_h > 0.0001h)
                     {
-                        // Math展開: d = -dot(neighborPos - currentPos, neighborPos) = dotP - sqLen2
-                        float d = dotP - sqLen2;
-                        float occlusionValue = 1.0 - d * rsqrt(sqLen1 * sqLen2);
-                        occlusionSum += occlusionValue;
+                        half d_h = dotP_h - sqLen2_h;
+                        half occlusionValue_h = 1.0h - d_h * rsqrt(sqLen1_h * sqLen2_h);
+                        occlusionSum += (float)occlusionValue_h;
                         neighborCount++;
                     }
                  }
