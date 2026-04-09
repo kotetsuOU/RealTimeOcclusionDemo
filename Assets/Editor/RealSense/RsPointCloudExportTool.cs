@@ -60,17 +60,20 @@ public static class RsPointCloudExportTool
         {
             EditorGUILayout.HelpBox("Export is available only during Play Mode.", MessageType.Info);
         }
-        else if (isReadbackPending)
-        {
-            EditorGUILayout.HelpBox("Waiting for GPU readback...", MessageType.Info);
-        }
         else if (availableVertexCount <= 0)
         {
-            EditorGUILayout.HelpBox("No filtered vertices available for export yet.", MessageType.Warning);
+            if (isReadbackPending)
+            {
+                EditorGUILayout.HelpBox("Waiting for GPU readback...", MessageType.Info);
+            }
+            else
+            {
+                EditorGUILayout.HelpBox("No filtered vertices available for export yet.", MessageType.Warning);
+            }
         }
 
         GUI.backgroundColor = Color.cyan;
-        EditorGUI.BeginDisabledGroup(!isPlaying || isReadbackPending || availableVertexCount <= 0);
+        EditorGUI.BeginDisabledGroup(!isPlaying || availableVertexCount <= 0);
         if (GUILayout.Button($"Export Current Frame Vertices ({availableVertexCount})"))
         {
             Vector3[] vertices = renderer.GetFilteredVertices();

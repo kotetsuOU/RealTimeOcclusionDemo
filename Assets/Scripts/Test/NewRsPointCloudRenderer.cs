@@ -66,7 +66,7 @@ public class NewRsPointCloudRenderer : MonoBehaviour
         int height = _dataProvider.FrameHeight;
         int rsLength = width * height;
 
-        _compute = new RsPointCloudCompute(pointCloudFilterShader, pointCloudTransformerShader, rsDeviceController.RealSenseScanRange, rsDeviceController.FrameWidth, maxPlaneDistance);
+        _compute = new RsPointCloudCompute(pointCloudFilterShader, pointCloudTransformerShader, rsDeviceController.RealSenseScanRange, rsDeviceController.FrameWidth);
 
         _compute.InitializeBuffers(rsLength, transform.localToWorldMatrix);
 
@@ -121,7 +121,7 @@ public class NewRsPointCloudRenderer : MonoBehaviour
 
             if (IsGlobalRangeFilterEnabled)
             {
-                var result = _compute.FilterAndEstimateLine(_rawVerticesBuffer, EstimatedPoint, EstimatedDir);
+                var result = _compute.FilterAndEstimateLine(_rawVerticesBuffer, EstimatedPoint, EstimatedDir, maxPlaneDistance);
                 finalVertexCount = result.finalCount;
                 EstimatedPoint = result.point;
                 EstimatedDir = result.dir;

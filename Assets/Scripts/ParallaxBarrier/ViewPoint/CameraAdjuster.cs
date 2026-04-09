@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.Rendering;
 
 /// <summary>
 /// ディスプレイ（視面）の位置とサイズを利用して、カメラの非対称な投影行列(Frustum Matrix)を計算し、
@@ -15,6 +16,34 @@ public class CameraAdjuster : MonoBehaviour
 
     [Tooltip("MoveToDefaultPosition()で移動させる際のデフォルト座標")]
     public Vector3 defaultPosition = new Vector3(0.3f, 0.85f, 0.15f);
+
+    private void OnEnable()
+    {
+        RenderPipelineManager.beginCameraRendering += OnBeginCameraRendering;
+        RenderPipelineManager.endCameraRendering += OnEndCameraRendering;
+    }
+
+    private void OnDisable()
+    {
+        RenderPipelineManager.beginCameraRendering -= OnBeginCameraRendering;
+        RenderPipelineManager.endCameraRendering -= OnEndCameraRendering;
+    }
+
+    private void OnBeginCameraRendering(ScriptableRenderContext context, Camera camera)
+    {
+        if (isHalfMirrorEnabled && camera == GetComponent<Camera>())
+        {
+            GL.invertCulling = true;
+        }
+    }
+
+    private void OnEndCameraRendering(ScriptableRenderContext context, Camera camera)
+    {
+        if (isHalfMirrorEnabled && camera == GetComponent<Camera>())
+        {
+            GL.invertCulling = false;
+        }
+    }
 
     private void LateUpdate()
     {
@@ -47,7 +76,9 @@ public class CameraAdjuster : MonoBehaviour
         tl = cameraTransform.MultiplyPoint(tl);
 
         // --- カメラのニアクリップ面(Near Plane)でのディスプレイ投影サイズを計算 ---
-        float nearPlane = 0.1f;
+        float nearPlane = cam.nearClipPlane;
+        float farPlane = cam.farClipPlane;
+
         // 相似比を利用して、ディスプレイ面のZ距離(-z)からニアクリップ面上のx,yサイズを求める
         float right = br.x * (nearPlane / -br.z);
         float left = bl.x * (nearPlane / -bl.z);
@@ -59,12 +90,12 @@ public class CameraAdjuster : MonoBehaviour
         if (isHalfMirrorEnabled)
         {
             // ハーフミラーの場合、左右の端を反転させる (right, leftの順)
-            p = Matrix4x4.Frustum(right, left, bottom, top, nearPlane, 1);
+            p = Matrix4x4.Frustum(right, left, bottom, top, nearPlane, farPlane);
         }
         else
         {
             // 通常の場合
-            p = Matrix4x4.Frustum(left, right, bottom, top, nearPlane, 1);
+            p = Matrix4x4.Frustum(left, right, bottom, top, nearPlane, farPlane);
         }
         cam.projectionMatrix = p;
     }

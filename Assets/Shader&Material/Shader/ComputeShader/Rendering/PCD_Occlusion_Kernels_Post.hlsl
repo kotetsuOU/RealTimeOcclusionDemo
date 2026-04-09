@@ -1,7 +1,7 @@
 #ifndef PCD_OCCLUSION_KERNELS_POST_INCLUDED
 #define PCD_OCCLUSION_KERNELS_POST_INCLUDED
 
-// 10. Interpolate (Simple Dilation)
+// 11. Interpolate (Simple Dilation)
 // オクルージョンパスを通過後、まだ残ってしまった微小な穴（描画されていないピクセル）に対して
 // 直近の近傍ピクセル(3x3)の色を参照して補間(Dilation)をかけ、最終的な画像を埋める。
 [numthreads(8, 8, 1)]
@@ -61,7 +61,7 @@ void Interpolate(uint3 id : SV_DispatchThreadID)
     }
 }
 
-// 11. InitFromCamera
+// 12. InitFromCamera
 // URPなどの描画パイプラインから取得したカメラの現在の深度およびカラーをベースにする。
 // 点群を描画する前にこれを初期状態としてマップに反映することで、
 // 通常の3D仮想オブジェクト（メッシュ）などが点群と相互に正しく遮蔽(オクルージョン)されるようにする。

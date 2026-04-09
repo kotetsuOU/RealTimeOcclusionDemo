@@ -28,11 +28,12 @@ public class RsPointCloudFrameProcessor
         int totalPointCount,
         Vector3 linePoint,
         Vector3 lineDir,
-        bool isGlobalRangeFilterEnabled)
+        bool isGlobalRangeFilterEnabled,
+        float maxPlaneDistance)
     {
         if (_compute == null || rawVerticesBuffer == null) return null;
 
-        return ProcessWithFilter(rawVerticesBuffer, totalPointCount, linePoint, lineDir, isGlobalRangeFilterEnabled, -1);
+        return ProcessWithFilter(rawVerticesBuffer, totalPointCount, linePoint, lineDir, isGlobalRangeFilterEnabled, -1, maxPlaneDistance);
     }
 
     // 複数カメラから統合された点群バッファを処理する
@@ -42,11 +43,12 @@ public class RsPointCloudFrameProcessor
         Vector3 linePoint,
         Vector3 lineDir,
         bool isGlobalRangeFilterEnabled,
-        int frameCounter)
+        int frameCounter,
+        float maxPlaneDistance)
     {
         if (sourceBuffer == null || pointCount == 0) return null;
 
-        return ProcessWithFilter(sourceBuffer, pointCount, linePoint, lineDir, isGlobalRangeFilterEnabled, frameCounter);
+        return ProcessWithFilter(sourceBuffer, pointCount, linePoint, lineDir, isGlobalRangeFilterEnabled, frameCounter, maxPlaneDistance);
     }
 
     // RealSenseカメラから取得した新規フレームデータを処理する
@@ -57,7 +59,8 @@ public class RsPointCloudFrameProcessor
         Vector3 linePoint,
         Vector3 lineDir,
         bool isGlobalRangeFilterEnabled,
-        int frameCounter)
+        int frameCounter,
+        float maxPlaneDistance)
     {
         if (points.VertexData == System.IntPtr.Zero) return null;
 
@@ -70,7 +73,7 @@ public class RsPointCloudFrameProcessor
             rawVerticesBuffer.SetData(rawVertices);
         }
 
-        return ProcessWithFilter(rawVerticesBuffer, rawVertices.Length, linePoint, lineDir, isGlobalRangeFilterEnabled, frameCounter);
+        return ProcessWithFilter(rawVerticesBuffer, rawVertices.Length, linePoint, lineDir, isGlobalRangeFilterEnabled, frameCounter, maxPlaneDistance);
     }
 
     // 全てのフレーム処理の共通パス：フィルタリングやPCAの実行
@@ -80,7 +83,8 @@ public class RsPointCloudFrameProcessor
         Vector3 linePoint,
         Vector3 lineDir,
         bool isGlobalRangeFilterEnabled,
-        int frameCounter)
+        int frameCounter,
+        float maxPlaneDistance)
     {
         long discardedCount = 0;
         long totalCount = pointCount;
@@ -95,14 +99,14 @@ public class RsPointCloudFrameProcessor
             // 統合PCAモードの場合は自身の個別のPCAは実行せずにフィルタだけを行なう
             if (useIntegratedPCA)
             {
-                var result = _compute.FilterOnly(SourceName, sourceBuffer, linePoint, lineDir, pointCount);
+                var result = _compute.FilterOnly(SourceName, sourceBuffer, linePoint, lineDir, pointCount, maxPlaneDistance);
                 discardedCount = result.discardedCount;
                 totalCount = result.sampledCount;
             }
             else
             {
                 // 個別のPCAモードの場合は自身の点群から基準線の推定も行う
-                var result = _compute.FilterAndEstimateLine(SourceName, sourceBuffer, linePoint, lineDir, pointCount);
+                var result = _compute.FilterAndEstimateLine(SourceName, sourceBuffer, linePoint, lineDir, pointCount, maxPlaneDistance);
                 _estimatedPoint = result.point;
                 _estimatedDir = result.dir;
                 discardedCount = result.discardedCount;
