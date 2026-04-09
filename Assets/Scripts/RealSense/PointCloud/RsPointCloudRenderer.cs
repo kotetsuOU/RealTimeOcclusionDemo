@@ -72,10 +72,30 @@ public class RsPointCloudRenderer : MonoBehaviour
     public bool IsGlobalRangeFilterEnabled { get; set; } = true;
 
     // PCA等によって推定された主要軸の基準点
-    public Vector3 EstimatedPoint => _initializer?.FrameProcessor?.EstimatedPoint ?? Vector3.zero;
+    public Vector3 EstimatedPoint
+    {
+        get
+        {
+            if (RsGlobalPointCloudManager.Instance != null && RsGlobalPointCloudManager.Instance.IsIntegratedPCAMode)
+            {
+                return RsGlobalPointCloudManager.Instance.GetLineEstimation().point;
+            }
+            return _initializer?.FrameProcessor?.EstimatedPoint ?? Vector3.zero;
+        }
+    }
 
     // PCA等によって推定された主要軸の方向ベクトル
-    public Vector3 EstimatedDir => _initializer?.FrameProcessor?.EstimatedDir ?? Vector3.forward;
+    public Vector3 EstimatedDir
+    {
+        get
+        {
+            if (RsGlobalPointCloudManager.Instance != null && RsGlobalPointCloudManager.Instance.IsIntegratedPCAMode)
+            {
+                return RsGlobalPointCloudManager.Instance.GetLineEstimation().dir;
+            }
+            return _initializer?.FrameProcessor?.EstimatedDir ?? Vector3.forward;
+        }
+    }
 
     // 現在パフォーマンスログを計測中かどうか
     public bool IsPerformanceLogging => Application.isPlaying && _logger != null && _logger.IsLogging;
@@ -166,25 +186,12 @@ public class RsPointCloudRenderer : MonoBehaviour
     /// <summary> オクルージョン処理など他のシェーダーが参照するための元バッファを取得する </summary>
     public ComputeBuffer GetPCDSourceBuffer()
     {
-        var integrated = _initializer?.IntegratedPointCloud;
-        if (integrated != null && integrated.PointCloudBuffer != null)
-        {
-            return integrated.PointCloudBuffer;
-        }
-
         return GetFilteredVerticesBuffer();
     }
 
     /// <summary> オクルージョン処理などで参照する点群の総数を取得する </summary>
     public int GetPCDSourceCount()
     {
-        var integrated = _initializer?.IntegratedPointCloud;
-        if (integrated != null)
-        {
-            int c = integrated.LastPointCount;
-            if (c > 0) return c;
-        }
-
         return GetLastFilteredCount();
     }
 
@@ -301,7 +308,7 @@ public class RsPointCloudRenderer : MonoBehaviour
             return processor.ProcessSyntheticFrame(
                 _initializer.RawVerticesBuffer,
                 _initializer.RawVertices.Length,
-                linePoint, lineDir, IsGlobalRangeFilterEnabled);
+                linePoint, lineDir, IsGlobalRangeFilterEnabled, maxPlaneDistance);
         }
 
         // ローカル点群ではなくグローバル空間で統合済みの点群を扱うモード
@@ -317,10 +324,6 @@ public class RsPointCloudRenderer : MonoBehaviour
     // PCAのライン推定結果を自身またはグローバルマネージャから取得する
     private (Vector3 point, Vector3 dir) GetLineEstimation()
     {
-        if (RsGlobalPointCloudManager.Instance != null && RsGlobalPointCloudManager.Instance.IsIntegratedPCAMode)
-        {
-            return RsGlobalPointCloudManager.Instance.GetLineEstimation();
-        }
         return (EstimatedPoint, EstimatedDir);
     }
 
@@ -335,7 +338,7 @@ public class RsPointCloudRenderer : MonoBehaviour
 
         return processor.ProcessIntegratedFrame(
             integrated.PointCloudBuffer, pointCount,
-            linePoint, lineDir, IsGlobalRangeFilterEnabled, _frameCounter);
+            linePoint, lineDir, IsGlobalRangeFilterEnabled, _frameCounter, maxPlaneDistance);
     }
 
     // 単体のRealSenseカメラからの新規フレームを取り出して実行する
@@ -350,7 +353,7 @@ public class RsPointCloudRenderer : MonoBehaviour
         {
             return processor.ProcessRealSenseFrame(
                 points, _initializer.RawVertices, _initializer.RawVerticesBuffer,
-                linePoint, lineDir, IsGlobalRangeFilterEnabled, _frameCounter);
+                linePoint, lineDir, IsGlobalRangeFilterEnabled, _frameCounter, maxPlaneDistance);
         }
     }
 

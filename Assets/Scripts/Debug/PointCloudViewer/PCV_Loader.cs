@@ -32,6 +32,12 @@ public static class PCV_Loader
             return;
         }
 
+        if (Path.GetExtension(path).Equals(".ply", StringComparison.OrdinalIgnoreCase))
+        {
+            LoadPointsAndColorsFromPly(path, defaultColor, positions, colors);
+            return;
+        }
+
         foreach (string line in File.ReadLines(path))
         {
             string[] parts = line.Split(',');
@@ -56,5 +62,116 @@ public static class PCV_Loader
                 colors.Add(pointColor);
             }
         }
+    }
+
+    private static int GetPropertySize(string type)
+    {
+        switch (type)
+        {
+            case "char": case "uchar": case "int8": case "uint8": return 1;
+            case "short": case "ushort": case "int16": case "uint16": return 2;
+            case "int": case "uint": case "int32": case "uint32": case "float": case "float32": return 4;
+            case "double": case "float64": return 8;
+            default: return 0;
+        }
+    }
+
+    private static void LoadPointsAndColorsFromPly(string path, Color defaultColor, List<Vector3> positions, List<Color> colors)
+    {
+        using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read))
+        using (var reader = new BinaryReader(fs))
+        {
+            int vertexCount = 0;
+            bool isBinary = false;
+            bool readingVertex = false;
+
+            int vertexByteSize = 0;
+            int xOffset = -1, yOffset = -1, zOffset = -1;
+            int rOffset = -1, gOffset = -1, bOffset = -1;
+
+            string line;
+            while ((line = ReadLine(fs)) != "end_header")
+            {
+                if (line.StartsWith("format binary")) isBinary = true;
+                else if (line.StartsWith("element "))
+                {
+                    var parts = line.Split(' ');
+                    if (parts.Length >= 3 && parts[1] == "vertex")
+                    {
+                        readingVertex = true;
+                        int.TryParse(parts[2], out vertexCount);
+                    }
+                    else
+                    {
+                        readingVertex = false;
+                    }
+                }
+                else if (readingVertex && line.StartsWith("property "))
+                {
+                    var parts = line.Split(' ');
+                    if (parts.Length >= 3 && parts[1] != "list")
+                    {
+                        string type = parts[1];
+                        string name = parts[2];
+                        int size = GetPropertySize(type);
+
+                        if (name == "x") xOffset = vertexByteSize;
+                        else if (name == "y") yOffset = vertexByteSize;
+                        else if (name == "z") zOffset = vertexByteSize;
+                        else if (name == "red" || name == "r") rOffset = vertexByteSize;
+                        else if (name == "green" || name == "g") gOffset = vertexByteSize;
+                        else if (name == "blue" || name == "b") bOffset = vertexByteSize;
+
+                        vertexByteSize += size;
+                    }
+                }
+            }
+
+            if (!isBinary)
+            {
+                UnityEngine.Debug.LogError($"[PCV_Loader] ASCII形式のPLYファイルには対応していません: {path}");
+                return;
+            }
+
+            if (vertexCount <= 0 || vertexByteSize <= 0 || xOffset < 0 || yOffset < 0 || zOffset < 0) return;
+
+            byte[] vData = new byte[vertexByteSize];
+            for (int i = 0; i < vertexCount; i++)
+            {
+                int bytesRead = reader.Read(vData, 0, vertexByteSize);
+                if (bytesRead < vertexByteSize) break;
+
+                float x = BitConverter.ToSingle(vData, xOffset);
+                float y = BitConverter.ToSingle(vData, yOffset);
+                float z = BitConverter.ToSingle(vData, zOffset);
+
+                byte r = rOffset >= 0 ? vData[rOffset] : (byte)(defaultColor.r * 255);
+                byte g = gOffset >= 0 ? vData[gOffset] : (byte)(defaultColor.g * 255);
+                byte b = bOffset >= 0 ? vData[bOffset] : (byte)(defaultColor.b * 255);
+
+                if (float.IsNaN(x) || float.IsInfinity(x) ||
+                    float.IsNaN(y) || float.IsInfinity(y) ||
+                    float.IsNaN(z) || float.IsInfinity(z))
+                {
+                    continue;
+                }
+
+                positions.Add(new Vector3(x, y, z));
+                colors.Add(new Color(r / 255f, g / 255f, b / 255f));
+            }
+        }
+    }
+
+    private static string ReadLine(FileStream fs)
+    {
+        var chars = new List<char>();
+        int b;
+        while ((b = fs.ReadByte()) != -1)
+        {
+            char c = (char)b;
+            if (c == '\n') break;
+            if (c != '\r') chars.Add(c);
+        }
+        return new string(chars.ToArray());
     }
 }

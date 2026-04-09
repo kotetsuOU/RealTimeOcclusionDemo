@@ -17,6 +17,9 @@ public class PCDRendererFeature : ScriptableRendererFeature
         [Range(0f, 1f)] public float occlusionFadeWidth;
         public bool enableOriginDebugMap;
         public bool recordOcclusionDebugMap;
+
+        public bool enableVirtualDepthIntegration;
+        public bool enableJointBilateralHoleFilling;
     }
 
     // 登録された静的メッシュの情報を保持するためのクラス
@@ -71,9 +74,16 @@ public class PCDRendererFeature : ScriptableRendererFeature
     [Header("Debug")]
     [Tooltip("点群(黒)と静的メッシュ(白)の由来を示すデバッグマップを有効にします")]
     public bool enableOriginDebugMap = false;
-    
+
     [Tooltip("1フレームだけOcclusionの個別の生値を記録します")]
     public bool recordOcclusionDebugMap = false;
+
+    [Header("Novel Methods Toggles")]
+    [Tooltip("仮想・現実の「相互オクルージョン」の統合を有効にするか")]
+    public bool enableVirtualDepthIntegration = true;
+
+    [Tooltip("エッジ保持型ホールフィリング（ジョイントバイラテラル）を有効にするか")]
+    public bool enableJointBilateralHoleFilling = true;
 
     private PCDRenderPass _scriptablePass;
 
@@ -99,7 +109,9 @@ public class PCDRendererFeature : ScriptableRendererFeature
             occlusionThreshold = this.occlusionThreshold,
             occlusionFadeWidth = this.occlusionFadeWidth,
             enableOriginDebugMap = this.enableOriginDebugMap,
-            recordOcclusionDebugMap = this.recordOcclusionDebugMap
+            recordOcclusionDebugMap = this.recordOcclusionDebugMap,
+            enableVirtualDepthIntegration = this.enableVirtualDepthIntegration,
+            enableJointBilateralHoleFilling = this.enableJointBilateralHoleFilling
         };
     }
 
@@ -151,7 +163,7 @@ public class PCDRendererFeature : ScriptableRendererFeature
             existing.mode = mode;
         }
 
-        ApplySettings(mesh, transform);
+        ApplySettings(mesh, transform, mode);
 
         // 実際の描画パスにもメッシュ情報を渡す
         _scriptablePass?.AddStaticMesh(mesh, transform, mode);
@@ -204,16 +216,25 @@ public class PCDRendererFeature : ScriptableRendererFeature
                 _persistentObjects.RemoveAt(i);
                 continue;
             }
-            ApplySettings(obj.mesh, obj.transform);
+            ApplySettings(obj.mesh, obj.transform, obj.mode);
         }
     }
 
     // メッシュに広大なBoundsを設定（カリング防止）し、指定されたレイヤーに変更する
-    private void ApplySettings(Mesh mesh, Transform transform)
+    private void ApplySettings(Mesh mesh, Transform transform, PCDProcessingMode mode)
     {
+        // DepthMapモード（通常のURP描画を利用するメッシュ）は、レイヤー変更やBounds拡張の対象外
+        if (mode == PCDProcessingMode.DepthMap) return;
+
         if (expandBounds && mesh != null)
         {
-            mesh.bounds = new Bounds(Vector3.zero, Vector3.one * boundsSize);
+            // Note: sharedMesh.bounds を上書きするとエディタ上で恒久的に変更される恐れがあるため注意が必要ですが、
+            // PointCloudモードの場合はカリングを防ぐために変更します。
+            // 可能であれば PlayMode のみで実行するか、Meshをインスタンス化することが望ましいです。
+            if (mesh.bounds.extents.x < boundsSize * 0.5f)
+            {
+                mesh.bounds = new Bounds(Vector3.zero, Vector3.one * boundsSize);
+            }
         }
 
         if (autoSetLayer && transform != null)

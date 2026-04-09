@@ -5,9 +5,11 @@ using UnityEngine;
 [CustomEditor(typeof(RsGlobalPointCloudManager))]
 public class RsGlobalPointCloudManagerEditor : Editor
 {
+    // 古い形式の書き出し時などに、保存が完了しているかの状態を保持するフラグ
     private bool _isVerticesSaved;
     private RsGlobalPointCloudManager _manager;
 
+    // パフォーマンスや統計など、インスペクタに表示・隠蔽するためのシリアライズプロパティ群
     private SerializedProperty _statsEnabledProp;
     private SerializedProperty _asyncLoggingEnabledProp;
     private SerializedProperty _gpuProfilerEnabledProp;
@@ -23,8 +25,10 @@ public class RsGlobalPointCloudManagerEditor : Editor
 
     public override void OnInspectorGUI()
     {
+        // 変更をシリアライズされた内部オブジェクトに同期する
         serializedObject.Update();
 
+        // 独自に描画する統計オプション等の部分を描画から除外しておく
         DrawPropertiesExcluding(
             serializedObject,
             "m_Script",
@@ -32,11 +36,14 @@ public class RsGlobalPointCloudManagerEditor : Editor
             "_asyncLoggingEnabled",
             "_gpuProfilerEnabled");
 
+        // 統計オプションの描画を実行
         DrawDebugStatisticsSection();
 
+        // 変更を反映する
         serializedObject.ApplyModifiedProperties();
         EditorGUILayout.Space();
 
+        // エディタ専用のバッチ処理やPLY書き出しを行うコントロールUIを描画
         DrawBatchControlSection();
         EditorGUILayout.Space(20);
         DrawPerformanceLoggerSection();
@@ -72,23 +79,72 @@ public class RsGlobalPointCloudManagerEditor : Editor
 
     #region Inspector Sections
 
+    /// <summary>
+    /// 各カメラの一括設定（例えばフィルタON/OFF）や、
+    /// PointCloud(PLY)を書き出すためのUIを描画・管理するメソッド。
+    /// </summary>
     private void DrawBatchControlSection()
     {
         EditorGUILayout.LabelField("Batch Control for RsPointCloudRenderer Children", EditorStyles.boldLabel);
 
-        GUI.backgroundColor = Color.cyan;
-        if (GUILayout.Button("Export All Current Vertices"))
+        // RsPointCloudCapturer がアタッチされていればPLY出力機能をサポートする
+        var capturer = _manager.GetComponent<RsPointCloudCapturer>();
+        if (capturer != null)
         {
-            ExportAllVertices();
-            _isVerticesSaved = true;
-        }
-        GUI.backgroundColor = Color.white;
+            EditorGUILayout.Space();
+            EditorGUILayout.LabelField("PointCloud Capture (PLY)", EditorStyles.boldLabel);
 
-        if (_isVerticesSaved && GUILayout.Button("Reset Save Status"))
+            // プレイ中、あるいはすでにキャプチャ中の場合は設定変更などの相互作用をロックする
+            EditorGUI.BeginDisabledGroup(capturer.IsCapturing || !Application.isPlaying);
+
+            var so = new SerializedObject(capturer);
+            so.Update();
+            EditorGUILayout.PropertyField(so.FindProperty("captureFrames"), new GUIContent("Frames to Capture"));
+            EditorGUILayout.PropertyField(so.FindProperty("outputDirectory"), new GUIContent("Output Directory"));
+            so.ApplyModifiedProperties();
+
+            if (Application.isPlaying && capturer.IsCapturing)
+            {
+                EditorGUILayout.HelpBox("Capturing PointCloud...", MessageType.Info);
+            }
+
+            // フレーム数が複数の場合はGround Truth用の長時間キャプチャとして扱う旨を明示
+            GUI.backgroundColor = Color.cyan;
+            string btnText = capturer.captureFrames > 1 ? $"Capture {capturer.captureFrames} Frames (Ground Truth)" : "Export Snapshot (1 Frame)";
+
+            if (GUILayout.Button(btnText))
+            {
+                capturer.StartCapturePLY();
+            }
+
+            GUI.backgroundColor = Color.white;
+            EditorGUI.EndDisabledGroup();
+
+            // 実行中（Playモード）でなければPLYの生成処理は実行できないためヘルプを表示
+            if (!Application.isPlaying)
+            {
+                EditorGUILayout.HelpBox("Capture is available only during Play Mode.", MessageType.Info);
+            }
+            EditorGUILayout.Space();
+        }
+        else
         {
-            _isVerticesSaved = false;
+            // 旧形式の描画サポート（Capturerがアタッチされていない場合）
+            GUI.backgroundColor = Color.cyan;
+            if (GUILayout.Button("Export All Current Vertices (Legacy txt)"))
+            {
+                ExportAllVertices();
+                _isVerticesSaved = true;
+            }
+            GUI.backgroundColor = Color.white;
+
+            if (_isVerticesSaved && GUILayout.Button("Reset Save Status"))
+            {
+                _isVerticesSaved = false;
+            }
         }
 
+        // カメラ（レンダラー）のグローバルレンジフィルタの状態を取得し表示
         bool anyFiltersEnabled = _manager.AreAnyRangeFiltersEnabled();
         bool allFiltersEnabled = _manager.AreAllRangeFiltersEnabled();
         string filterStateLabel = allFiltersEnabled ? "ON" : anyFiltersEnabled ? "MIXED" : "OFF";

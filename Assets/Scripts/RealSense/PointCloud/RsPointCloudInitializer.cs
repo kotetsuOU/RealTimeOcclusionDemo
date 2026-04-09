@@ -57,7 +57,7 @@ public class RsPointCloudInitializer
 
         // ダミーデータ用のスキャン範囲（適当なサイズ）
         Vector3 scanRange = new Vector3(10f, 10f, 10f);
-        _compute = new RsPointCloudCompute(_filterShader, _transformShader, scanRange, 640, maxPlaneDistance);
+        _compute = new RsPointCloudCompute(_filterShader, _transformShader, scanRange, 640);
         _compute.InitializeBuffers(pointCount, localToWorldMatrix);
 
         _frameProcessor = new RsPointCloudFrameProcessor(_compute, logger, stopwatch);
@@ -117,8 +117,7 @@ public class RsPointCloudInitializer
             _filterShader,
             _transformShader,
             deviceController.RealSenseScanRange,
-            deviceController.FrameWidth,
-            maxPlaneDistance);
+            deviceController.FrameWidth);
 
         // 処理に必要な構造体や各ComputeBufferを作成
         _compute.InitializeBuffers(rsLength, Matrix4x4.identity);

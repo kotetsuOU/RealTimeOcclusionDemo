@@ -14,7 +14,6 @@ public class RsFilterPassExecutor
     #region Private Fields
 
     private readonly RsFilterShaderDispatcher _dispatcher; // 実際のDispatch命令を投げ持つ
-    private readonly float _maxPlaneDistance; // カットオフ対象となる深度
     private readonly Vector3 _globalThreshold1; // 除外判定などの閾値1
     private readonly Vector3 _globalThreshold2; // 除外判定などの閾値2
     private readonly RsPointCloudAsyncReadback _asyncReadback; // GPUからの非同期読み出し管理
@@ -35,14 +34,12 @@ public class RsFilterPassExecutor
 
     public RsFilterPassExecutor(
         RsFilterShaderDispatcher dispatcher,
-        float maxPlaneDistance,
         Vector3 globalThreshold1,
         Vector3 globalThreshold2,
         RsPointCloudAsyncReadback asyncReadback,
         RsComputeStats stats)
     {
         _dispatcher = dispatcher;
-        _maxPlaneDistance = maxPlaneDistance;
         _globalThreshold1 = globalThreshold1;
         _globalThreshold2 = globalThreshold2;
         _asyncReadback = asyncReadback;
@@ -72,7 +69,8 @@ public class RsFilterPassExecutor
             Matrix4x4 localToWorld,
             Vector3 linePoint,
             Vector3 lineDir,
-            int vertexCount)
+            int vertexCount,
+            float maxPlaneDistance)
     {
         using (s_cpuMarkerExecuteFilterPass.Auto())
         {
@@ -103,7 +101,7 @@ public class RsFilterPassExecutor
             _cmd,
             rawVerticesBuffer, filteredVerticesBuffer, samplingBuffer, distanceDiscardBuffer,
             localToWorld, _globalThreshold1, _globalThreshold2,
-            vertexCount, _maxPlaneDistance, linePoint, lineDir, samplingRate, (int)_frameCounter);
+            vertexCount, maxPlaneDistance, linePoint, lineDir, samplingRate, (int)_frameCounter);
         _cmd.EndSample(sampleName);
 
         // コマンドバッファを実行

@@ -9,7 +9,6 @@ public class RsPointCloudCompute : IDisposable
     #region Private Fields
 
     private readonly RsFilterShaderDispatcher _dispatcher; // ComputeShaderのカーネルをスケジュールする役割を担う
-    private readonly float _maxPlaneDistance; // カットオフする最大深度
     private readonly Vector3 _globalThreshold1; // サンプリング用の閾値１
     private readonly Vector3 _globalThreshold2; // サンプリング用の閾値２
 
@@ -52,18 +51,15 @@ public class RsPointCloudCompute : IDisposable
         ComputeShader filterShader,
         ComputeShader transformShader,
         Vector3 rsScanRange,
-        float frameWidth,
-        float maxPlaneDistance)
+        float frameWidth)
     {
         _dispatcher = new RsFilterShaderDispatcher(filterShader, transformShader);
-        _maxPlaneDistance = maxPlaneDistance;
         _globalThreshold1 = new Vector3(frameWidth, frameWidth, frameWidth);
         _globalThreshold2 = rsScanRange - _globalThreshold1;
         _asyncReadback = new RsPointCloudAsyncReadback(_stats);
 
         _filterPassExecutor = new RsFilterPassExecutor(
             _dispatcher,
-            maxPlaneDistance,
             _globalThreshold1,
             _globalThreshold2,
             _asyncReadback,
@@ -100,7 +96,6 @@ public class RsPointCloudCompute : IDisposable
             _asyncReadback = new RsPointCloudAsyncReadback(_stats);
             _filterPassExecutor = new RsFilterPassExecutor(
                 _dispatcher,
-                _maxPlaneDistance,
                 _globalThreshold1,
                 _globalThreshold2,
                 _asyncReadback,
@@ -118,7 +113,7 @@ public class RsPointCloudCompute : IDisposable
 
     // 生の頂点を受け取り、フィルタリングを行うと共に(必要なら)独自のPCA推定処理を実行する
     public (int finalCount, Vector3 point, Vector3 dir, int discardedCount, int sampledCount, float discardPercentage)
-        FilterAndEstimateLine(string sourceName, ComputeBuffer rawVerticesBuffer, Vector3 prevPoint, Vector3 prevDir, int vertexCount)
+        FilterAndEstimateLine(string sourceName, ComputeBuffer rawVerticesBuffer, Vector3 prevPoint, Vector3 prevDir, int vertexCount, float maxPlaneDistance)
     {
         // 実際のComputeShader(ディスパッチャ)の呼び出しと各種バッファへの受け渡し
         var counts = _filterPassExecutor.ExecuteFilterPass(
@@ -131,7 +126,8 @@ public class RsPointCloudCompute : IDisposable
             _localToWorld,
             prevPoint,
             prevDir,
-            vertexCount);
+            vertexCount,
+            maxPlaneDistance);
 
         Vector3 point = prevPoint, dir = prevDir;
 
@@ -147,20 +143,20 @@ public class RsPointCloudCompute : IDisposable
     }
 
     public (int finalCount, Vector3 point, Vector3 dir, int discardedCount, int sampledCount, float discardPercentage)
-        FilterAndEstimateLine(string sourceName, ComputeBuffer rawVerticesBuffer, Vector3 prevPoint, Vector3 prevDir)
-        => FilterAndEstimateLine(sourceName, rawVerticesBuffer, prevPoint, prevDir, _rsLength);
+        FilterAndEstimateLine(string sourceName, ComputeBuffer rawVerticesBuffer, Vector3 prevPoint, Vector3 prevDir, float maxPlaneDistance)
+        => FilterAndEstimateLine(sourceName, rawVerticesBuffer, prevPoint, prevDir, _rsLength, maxPlaneDistance);
 
     public (int finalCount, Vector3 point, Vector3 dir, int discardedCount, int sampledCount, float discardPercentage)
-        FilterAndEstimateLine(ComputeBuffer rawVerticesBuffer, Vector3 prevPoint, Vector3 prevDir, int vertexCount)
-        => FilterAndEstimateLine(string.Empty, rawVerticesBuffer, prevPoint, prevDir, vertexCount);
+        FilterAndEstimateLine(ComputeBuffer rawVerticesBuffer, Vector3 prevPoint, Vector3 prevDir, int vertexCount, float maxPlaneDistance)
+        => FilterAndEstimateLine(string.Empty, rawVerticesBuffer, prevPoint, prevDir, vertexCount, maxPlaneDistance);
 
     public (int finalCount, Vector3 point, Vector3 dir, int discardedCount, int sampledCount, float discardPercentage)
-        FilterAndEstimateLine(ComputeBuffer rawVerticesBuffer, Vector3 prevPoint, Vector3 prevDir)
-        => FilterAndEstimateLine(string.Empty, rawVerticesBuffer, prevPoint, prevDir, _rsLength);
+        FilterAndEstimateLine(ComputeBuffer rawVerticesBuffer, Vector3 prevPoint, Vector3 prevDir, float maxPlaneDistance)
+        => FilterAndEstimateLine(string.Empty, rawVerticesBuffer, prevPoint, prevDir, _rsLength, maxPlaneDistance);
 
     // FilterAndEstimateLine() と類似するが、PCAによる推論計算を省略し間引くだけの処理を行う
     public (int finalCount, int discardedCount, int sampledCount, float discardPercentage)
-        FilterOnly(string sourceName, ComputeBuffer rawVerticesBuffer, Vector3 prevPoint, Vector3 prevDir, int vertexCount)
+        FilterOnly(string sourceName, ComputeBuffer rawVerticesBuffer, Vector3 prevPoint, Vector3 prevDir, int vertexCount, float maxPlaneDistance)
     {
         var counts = _filterPassExecutor.ExecuteFilterPass(
             sourceName,
@@ -172,7 +168,8 @@ public class RsPointCloudCompute : IDisposable
             _localToWorld,
             prevPoint,
             prevDir,
-            vertexCount);
+            vertexCount,
+            maxPlaneDistance);
 
         // キャッシュにデータが届いていれば保持しておく(サンプリング結果としての更新)
         if (_asyncReadback.HasCachedSamples && _asyncReadback.CachedSamplesCount > 0)
@@ -184,8 +181,8 @@ public class RsPointCloudCompute : IDisposable
     }
 
     public (int finalCount, int discardedCount, int sampledCount, float discardPercentage)
-        FilterOnly(ComputeBuffer rawVerticesBuffer, Vector3 prevPoint, Vector3 prevDir, int vertexCount)
-        => FilterOnly(string.Empty, rawVerticesBuffer, prevPoint, prevDir, vertexCount);
+        FilterOnly(ComputeBuffer rawVerticesBuffer, Vector3 prevPoint, Vector3 prevDir, int vertexCount, float maxPlaneDistance)
+        => FilterOnly(string.Empty, rawVerticesBuffer, prevPoint, prevDir, vertexCount, maxPlaneDistance);
 
     #endregion
 
