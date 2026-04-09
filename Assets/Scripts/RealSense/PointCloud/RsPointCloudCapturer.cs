@@ -242,7 +242,7 @@ public class RsPointCloudCapturer : MonoBehaviour
                 var pt = points[p];
                 if (pt.pos.sqrMagnitude > 0.0001f) 
                 {
-                    writer.Write(-pt.pos.x);
+                    writer.Write(pt.pos.x);
                     writer.Write(pt.pos.y);
                     writer.Write(pt.pos.z);
                     writer.Write((byte)Mathf.Clamp(pt.col.x * 255f, 0, 255));

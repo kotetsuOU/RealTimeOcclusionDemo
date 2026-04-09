@@ -17,14 +17,14 @@ public static class PCV_Loader
             {
                 if (setting.useFile && !string.IsNullOrEmpty(setting.filePath))
                 {
-                    LoadPointsAndColorsFromFile(setting.filePath, setting.color, allPoints, allColors);
+                    LoadPointsAndColorsFromFile(setting.filePath, setting.color, setting.useFileColor, allPoints, allColors);
                 }
             }
         }
         return new PCV_Data(allPoints, allColors);
     }
 
-    private static void LoadPointsAndColorsFromFile(string path, Color defaultColor, List<Vector3> positions, List<Color> colors)
+    private static void LoadPointsAndColorsFromFile(string path, Color defaultColor, bool useFileColor, List<Vector3> positions, List<Color> colors)
     {
         if (!File.Exists(path))
         {
@@ -34,7 +34,7 @@ public static class PCV_Loader
 
         if (Path.GetExtension(path).Equals(".ply", StringComparison.OrdinalIgnoreCase))
         {
-            LoadPointsAndColorsFromPly(path, defaultColor, positions, colors);
+            LoadPointsAndColorsFromPly(path, defaultColor, useFileColor, positions, colors);
             return;
         }
 
@@ -50,7 +50,7 @@ public static class PCV_Loader
                 float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out y) &&
                 float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out z))
             {
-                if (parts.Length >= 6 &&
+                if (useFileColor && parts.Length >= 6 &&
                     float.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out float r) &&
                     float.TryParse(parts[4], NumberStyles.Float, CultureInfo.InvariantCulture, out float g) &&
                     float.TryParse(parts[5], NumberStyles.Float, CultureInfo.InvariantCulture, out float b))
@@ -76,7 +76,7 @@ public static class PCV_Loader
         }
     }
 
-    private static void LoadPointsAndColorsFromPly(string path, Color defaultColor, List<Vector3> positions, List<Color> colors)
+    private static void LoadPointsAndColorsFromPly(string path, Color defaultColor, bool useFileColor, List<Vector3> positions, List<Color> colors)
     {
         using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read))
         using (var reader = new BinaryReader(fs))
@@ -145,9 +145,9 @@ public static class PCV_Loader
                 float y = BitConverter.ToSingle(vData, yOffset);
                 float z = BitConverter.ToSingle(vData, zOffset);
 
-                byte r = rOffset >= 0 ? vData[rOffset] : (byte)(defaultColor.r * 255);
-                byte g = gOffset >= 0 ? vData[gOffset] : (byte)(defaultColor.g * 255);
-                byte b = bOffset >= 0 ? vData[bOffset] : (byte)(defaultColor.b * 255);
+                byte r = (useFileColor && rOffset >= 0) ? vData[rOffset] : (byte)(defaultColor.r * 255);
+                byte g = (useFileColor && gOffset >= 0) ? vData[gOffset] : (byte)(defaultColor.g * 255);
+                byte b = (useFileColor && bOffset >= 0) ? vData[bOffset] : (byte)(defaultColor.b * 255);
 
                 if (float.IsNaN(x) || float.IsInfinity(x) ||
                     float.IsNaN(y) || float.IsInfinity(y) ||
