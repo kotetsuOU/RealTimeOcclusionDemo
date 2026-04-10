@@ -23,7 +23,7 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
     if (_UseVirtualDepth > 0)
     {
         float vDepthRaw = _VirtualDepthMap[id.xy];
-        float vDepth = 1.0 - vDepthRaw;
+        float vDepth = _IsReversedZ > 0 ? (1.0 - vDepthRaw) : vDepthRaw;
 
         if (vDepth < 0.9999)
         {

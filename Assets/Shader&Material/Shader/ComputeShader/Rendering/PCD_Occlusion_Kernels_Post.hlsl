@@ -71,7 +71,8 @@ void InitFromCamera(uint3 id : SV_DispatchThreadID)
     if (id.x >= (uint) _ScreenParams.x || id.y >= (uint) _ScreenParams.y)
         return;
 
-    float cameraDepth = _VirtualDepthMap[id.xy];
+    float rawDepth = _VirtualDepthMap[id.xy];
+    float cameraDepth = _IsReversedZ > 0 ? (1.0 - rawDepth) : rawDepth;
 
     if (cameraDepth >= 0.9999)
     {

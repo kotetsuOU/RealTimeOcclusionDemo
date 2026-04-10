@@ -190,7 +190,7 @@ public partial class PCDRenderPass
             data.internalCount = _bufferManager.PointCount;
             data.combinedBuffer = _bufferManager.CombinedBuffer;
             data.pointBuffer = activeBuffer;
-            data.hasVirtualDepth = depthMapOnlyMode && resourceData.cameraDepthTexture.IsValid();
+            data.hasVirtualDepth = resourceData.cameraDepthTexture.IsValid();
             data.depthMapOnlyMode = depthMapOnlyMode;
             data.inverseProjectionMatrix = camera.projectionMatrix.inverse;
 
@@ -249,13 +249,13 @@ public partial class PCDRenderPass
 
             if (data.settings.enableGradientCorrection)
             {
-                var descL1 = new TextureDesc(l1_Width, l1_Height) { enableRandomWrite = true, colorFormat = GraphicsFormatUtility.GetGraphicsFormat(RenderTextureFormat.RInt, false) };
+                var descL1 = new TextureDesc(l1_Width, l1_Height) { enableRandomWrite = true, colorFormat = UnityEngine.Experimental.Rendering.GraphicsFormat.R32_UInt };
                 data.depthPyramidL1 = renderGraph.CreateTexture(descL1);
-                var descL2 = new TextureDesc(l2_Width, l2_Height) { enableRandomWrite = true, colorFormat = GraphicsFormatUtility.GetGraphicsFormat(RenderTextureFormat.RInt, false) };
+                var descL2 = new TextureDesc(l2_Width, l2_Height) { enableRandomWrite = true, colorFormat = UnityEngine.Experimental.Rendering.GraphicsFormat.R32_UInt };
                 data.depthPyramidL2 = renderGraph.CreateTexture(descL2);
-                var descL3 = new TextureDesc(l3_Width, l3_Height) { enableRandomWrite = true, colorFormat = GraphicsFormatUtility.GetGraphicsFormat(RenderTextureFormat.RInt, false) };
+                var descL3 = new TextureDesc(l3_Width, l3_Height) { enableRandomWrite = true, colorFormat = UnityEngine.Experimental.Rendering.GraphicsFormat.R32_UInt };
                 data.depthPyramidL3 = renderGraph.CreateTexture(descL3);
-                var descL4 = new TextureDesc(l4_Width, l4_Height) { enableRandomWrite = true, colorFormat = GraphicsFormatUtility.GetGraphicsFormat(RenderTextureFormat.RInt, false) };
+                var descL4 = new TextureDesc(l4_Width, l4_Height) { enableRandomWrite = true, colorFormat = UnityEngine.Experimental.Rendering.GraphicsFormat.R32_UInt };
                 data.depthPyramidL4 = renderGraph.CreateTexture(descL4);
             }
 
@@ -327,20 +327,20 @@ public partial class PCDRenderPass
         // --- デバッグ用のオクルージョンマップを非同期出力するパス ---
         if (_settings.recordOcclusionDebugMap)
         {
-            using (var builder = renderGraph.AddRasterRenderPass<BlitPassData>("PCD Extract Occlusion Debug", out var debugData))
+            using (var builder = renderGraph.AddUnsafePass<BlitPassData>("PCD Extract Occlusion Debug", out var debugData))
             {
                 builder.UseTexture(occlusionValueMapHandle_RG, AccessFlags.Read);
                 builder.AllowPassCulling(false); // カリング無効にして確実に読取りが走るようにする
 
-                builder.SetRenderFunc((BlitPassData passData, RasterGraphContext context) =>
+                builder.SetRenderFunc((BlitPassData passData, UnsafeGraphContext context) =>
                 {
                     Debug.Log($"[PCD Extract Occlusion Debug] Passing to AsyncGPUReadback... occlusionHandle isValid: {_occlusionValueMapHandle != null && _occlusionValueMapHandle.rt != null}");
 
                     if (_occlusionValueMapHandle != null && _occlusionValueMapHandle.rt != null)
                     {
                         var rt = _occlusionValueMapHandle.rt;
-                        // GPUからCPUへ非同期でテクスチャデータを取得
-                        AsyncGPUReadback.Request(rt, 0, TextureFormat.RFloat, request =>
+                        // GPUからCPUへ非同期でテクスチャデータを取得(CommandBufferを経由することでComputeShaderの実行順序と同期させる)
+                        context.cmd.RequestAsyncReadback(rt, 0, TextureFormat.RFloat, request =>
                         {
                             if (request.hasError) 
                             {
@@ -397,3 +397,6 @@ public partial class PCDRenderPass
         }
     }
 }
+
+
+

@@ -54,6 +54,7 @@ Texture2D<float4> _CameraColorTexture;
 int _UseVirtualDepth;
 float4x4 _InverseProjectionMatrix;
 int _RecordOcclusionDebug;
+int _IsReversedZ;
 
 // Merge Buffers
 StructuredBuffer<Point> _MergeSrcBuffer;

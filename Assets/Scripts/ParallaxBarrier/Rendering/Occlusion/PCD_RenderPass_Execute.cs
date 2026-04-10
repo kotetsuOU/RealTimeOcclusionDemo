@@ -159,6 +159,9 @@ public partial class PCDRenderPass
             cmd.DispatchCompute(cs, passData.kernelApplyGradient, threadGroupsX, threadGroupsY, 1);
         }
 
+        // リバースZバッファへの対応フラグをセット（DX11等で正しいオクルージョン判定を行うため）
+        cmd.SetComputeIntParam(cs, Shader.PropertyToID("_IsReversedZ"), SystemInfo.usesReversedZBuffer ? 1 : 0);
+
         // --- ステージ10: 近傍オクルージョンテストを実行し、奥にあるポイントを破棄し、手前にあるポイントをフィルタリング ---
         cmd.SetComputeTextureParam(cs, passData.kernelComputeOcclusion, ShaderIDs.ColorMap, passData.colorMap);
         cmd.SetComputeTextureParam(cs, passData.kernelComputeOcclusion, ShaderIDs.DepthMap, passData.depthMap);
@@ -212,3 +215,4 @@ public partial class PCDRenderPass
         Blitter.BlitTexture(context.cmd, passData.sourceImage, new Vector4(1, 1, 0, 0), 0.0f, false);
     }
 }
+
