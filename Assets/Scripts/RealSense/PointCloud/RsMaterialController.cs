@@ -5,6 +5,7 @@ public enum PointCloudColorMode
 {
     Skin,
     Black,
+    Blue,
     Custom
 }
 
@@ -32,6 +33,7 @@ public class RsMaterialController : MonoBehaviour
 
     private readonly Color _skinColor = new Color(241f / 255f, 187f / 255f, 147f / 255f, 1f);
     private readonly Color _blackColor = Color.black;
+    private readonly Color _blueColor = Color.blue;
 
     void Start()
     {
@@ -144,6 +146,9 @@ public class RsMaterialController : MonoBehaviour
                     break;
                 case PointCloudColorMode.Black:
                     targetColor = _blackColor;
+                    break;
+                case PointCloudColorMode.Blue:
+                    targetColor = _blueColor;
                     break;
                 case PointCloudColorMode.Custom:
                     if (_initialColors.TryGetValue(pRenderer, out Color originalColor))

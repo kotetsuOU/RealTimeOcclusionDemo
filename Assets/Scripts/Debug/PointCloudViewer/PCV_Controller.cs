@@ -115,9 +115,6 @@ public class PCV_Controller : MonoBehaviour
         dataManager = GetComponent<PCV_DataManager>();
         operationHandler = GetComponent<PCV_OperationHandler>();
 
-        if (settings != null) settings.hideFlags = HideFlags.HideInInspector;
-        if (pointCloudRenderer != null) pointCloudRenderer.hideFlags = HideFlags.HideInInspector;
-
         if (dataManager != null && !isSubscribed)
         {
             dataManager.OnDataUpdated += OnDataUpdated;

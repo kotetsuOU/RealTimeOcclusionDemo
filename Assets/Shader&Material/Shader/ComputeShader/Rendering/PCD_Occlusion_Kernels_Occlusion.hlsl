@@ -8,11 +8,15 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
 {
     if (id.x >= (uint) _ScreenParams.x || id.y >= (uint) _ScreenParams.y)
         return;
-
+    
     uint pointDepth_uint = _DepthMap[id.xy];
 
     if (pointDepth_uint >= DEPTH_MAX_UINT)
     {
+        if (_RecordOcclusionDebug > 0)
+        {
+            _OcclusionValueMap_RW[id.xy] = -1.0; // 穴 (点群がないピクセル)
+        }
         // ここはFillHolesカーネルに任せるためスキップ
         return;
     }
@@ -23,7 +27,7 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
     if (_UseVirtualDepth > 0)
     {
         float vDepthRaw = _VirtualDepthMap[id.xy];
-        float vDepth = 1.0 - vDepthRaw;
+        float vDepth = _IsReversedZ > 0 ? (1.0 - vDepthRaw) : vDepthRaw;
 
         if (vDepth < 0.9999)
         {
@@ -36,6 +40,10 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
 
     if (hasVirtualObj && (vDepth_uint + depthBias) < pointDepth_uint)
     {
+        if (_RecordOcclusionDebug > 0)
+        {
+            _OcclusionValueMap_RW[id.xy] = 1.0; // 仮想オブジェクトによる隠蔽
+        }
         _OcclusionResultMap_RW[id.xy] = float4(0, 0, 0, 0);
         _OriginMap_RW[id.xy] = float4(1, 1, 1, 1);
         _OriginTypeMap_RW[id.xy] = 1u;
@@ -97,14 +105,11 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
     }
 
     float alpha = 1.0;
+    float occlusionAverage = 1.0;
+    
     if (neighborCount > 0)
     {
-        float occlusionAverage = occlusionSum / (float) neighborCount;
-
-        if (_RecordOcclusionDebug > 0)
-        {
-            _OcclusionValueMap_RW[id.xy] = occlusionAverage;
-        }
+        occlusionAverage = occlusionSum / (float) neighborCount;
 
         if (_OcclusionFadeWidth > 1e-4)
         {
@@ -119,6 +124,13 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
             }
         }
     }
+    
+    if (_RecordOcclusionDebug > 0)
+    {
+        // 【重要】仮想オブジェクト（狐）でもマゼンタ上書きをせず、純粋なオクルージョン値を出力する！
+        // これにより、論文のSoft IoU評価が正しく行えるようになります。
+        _OcclusionValueMap_RW[id.xy] = occlusionAverage;
+    }
 
     if (alpha <= 0.0)
     {
@@ -130,7 +142,7 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
         col.a *= alpha;
         _OcclusionResultMap_RW[id.xy] = col;
 
-        uint originType = _OriginTypeMap[id.xy];
+        uint originType = _OriginTypeMap_RW[id.xy];
         if (originType == 0u)
             _OriginMap_RW[id.xy] = float4(0, 0, 0, 1);
         else if (originType == 1u)

@@ -54,6 +54,7 @@ Texture2D<float4> _CameraColorTexture;
 int _UseVirtualDepth;
 float4x4 _InverseProjectionMatrix;
 int _RecordOcclusionDebug;
+int _IsReversedZ;
 
 // Merge Buffers
 StructuredBuffer<Point> _MergeSrcBuffer;
@@ -61,6 +62,9 @@ RWStructuredBuffer<Point> _MergeDstBuffer;
 int _MergeSrcOffset;
 int _MergeDstOffset;
 int _MergeCopyCount;
+
+// Dynamic Density Multiplier Counters
+RWStructuredBuffer<uint> _StaticMeshCounter_RW;
 
 // ==========================================
 // Uniforms (C#側のPCDRendererFeature等から設定される変数)
@@ -74,6 +78,7 @@ float _NeighborhoodParam_p_prime;   // フィルタリング(サンプリング)
 float _GradientThreshold_g_th;      // 輪郭(エッジ)判定の強さ。超える場合は近傍範囲を縮小する
 float _OcclusionThreshold;          // オクルージョン強度のカットオフ閾値
 float _OcclusionFadeWidth;          // ピクセルを滑らかにフェードアウトさせるための幅
+uint _StaticMeshDensityMultiplier;  // 仮想オブジェクト(メッシュ)の密度を点群と同スケールに合わせるための補正スカラー値(x)
 
 #define GRID_SIZE 16u
 #define DEPTH_MAX_UINT 0x7FFFFFFFu

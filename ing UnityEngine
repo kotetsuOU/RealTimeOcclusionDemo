@@ -1,0 +1,122 @@
+[1mdiff --git a/Assets/Shader&Material/Shader/ComputeShader/Rendering/PCD_Occlusion_Data.hlsl b/Assets/Shader&Material/Shader/ComputeShader/Rendering/PCD_Occlusion_Data.hlsl[m
+[1mindex d4d44cd..47c7e31 100644[m
+[1m--- a/Assets/Shader&Material/Shader/ComputeShader/Rendering/PCD_Occlusion_Data.hlsl[m
+[1m+++ b/Assets/Shader&Material/Shader/ComputeShader/Rendering/PCD_Occlusion_Data.hlsl[m
+[36m@@ -54,6 +54,7 @@[m [mTexture2D<float4> _CameraColorTexture;[m
+ int _UseVirtualDepth;[m
+ float4x4 _InverseProjectionMatrix;[m
+ int _RecordOcclusionDebug;[m
+[32m+[m[32mint _IsReversedZ;[m
+ [m
+ // Merge Buffers[m
+ StructuredBuffer<Point> _MergeSrcBuffer;[m
+[1mdiff --git a/Assets/Shader&Material/Shader/ComputeShader/Rendering/PCD_Occlusion_Kernels_FillHoles.hlsl b/Assets/Shader&Material/Shader/ComputeShader/Rendering/PCD_Occlusion_Kernels_FillHoles.hlsl[m
+[1mindex 5e2a0b6..f3b5fd8 100644[m
+[1m--- a/Assets/Shader&Material/Shader/ComputeShader/Rendering/PCD_Occlusion_Kernels_FillHoles.hlsl[m
+[1m+++ b/Assets/Shader&Material/Shader/ComputeShader/Rendering/PCD_Occlusion_Kernels_FillHoles.hlsl[m
+[36m@@ -23,7 +23,7 @@[m [mvoid FillHoles(uint3 id : SV_DispatchThreadID)[m
+     if (_UseVirtualDepth > 0)[m
+     {[m
+         float vDepthRaw = _VirtualDepthMap[id.xy];[m
+[31m-        float vDepth = 1.0 - vDepthRaw;[m
+[32m+[m[32m        float vDepth = _IsReversedZ > 0 ? (1.0 - vDepthRaw) : vDepthRaw;[m
+ [m
+         if (vDepth < 0.9999)[m
+         {[m
+[1mdiff --git a/Assets/Shader&Material/Shader/ComputeShader/Rendering/PCD_Occlusion_Kernels_Occlusion.hlsl b/Assets/Shader&Material/Shader/ComputeShader/Rendering/PCD_Occlusion_Kernels_Occlusion.hlsl[m
+[1mindex c821e03..6d252f6 100644[m
+[1m--- a/Assets/Shader&Material/Shader/ComputeShader/Rendering/PCD_Occlusion_Kernels_Occlusion.hlsl[m
+[1m+++ b/Assets/Shader&Material/Shader/ComputeShader/Rendering/PCD_Occlusion_Kernels_Occlusion.hlsl[m
+[36m@@ -13,6 +13,10 @@[m [mvoid ComputeOcclusion(uint3 id : SV_DispatchThreadID)[m
+ [m
+     if (pointDepth_uint >= DEPTH_MAX_UINT)[m
+     {[m
+[32m+[m[32m        if (_RecordOcclusionDebug > 0)[m
+[32m+[m[32m        {[m
+[32m+[m[32m            _OcclusionValueMap_RW[id.xy] = 0.1; // 穴 (点群がないピクセル)[m
+[32m+[m[32m        }[m
+         // ここはFillHolesカーネルに任せるためスキップ[m
+         return;[m
+     }[m
+[36m@@ -23,7 +27,7 @@[m [mvoid ComputeOcclusion(uint3 id : SV_DispatchThreadID)[m
+     if (_UseVirtualDepth > 0)[m
+     {[m
+         float vDepthRaw = _VirtualDepthMap[id.xy];[m
+[31m-        float vDepth = 1.0 - vDepthRaw;[m
+[32m+[m[32m        float vDepth = _IsReversedZ > 0 ? (1.0 - vDepthRaw) : vDepthRaw;[m
+ [m
+         if (vDepth < 0.9999)[m
+         {[m
+[36m@@ -36,6 +40,10 @@[m [mvoid ComputeOcclusion(uint3 id : SV_DispatchThreadID)[m
+ [m
+     if (hasVirtualObj && (vDepth_uint + depthBias) < pointDepth_uint)[m
+     {[m
+[32m+[m[32m        if (_RecordOcclusionDebug > 0)[m
+[32m+[m[32m        {[m
+[32m+[m[32m            _OcclusionValueMap_RW[id.xy] = 2.0; // 仮想オブジェクトによる隠蔽[m
+[32m+[m[32m        }[m
+         _OcclusionResultMap_RW[id.xy] = float4(0, 0, 0, 0);[m
+         _OriginMap_RW[id.xy] = float4(1, 1, 1, 1);[m
+         _OriginTypeMap_RW[id.xy] = 1u;[m
+[36m@@ -74,8 +82,8 @@[m [mvoid ComputeOcclusion(uint3 id : SV_DispatchThreadID)[m
+                 half neighborDepth_h = (half)_ViewPositionMap[uv].w;[m
+ [m
+                  // 奥行き差の判定。ここではFP16で比較[m
+[31m-                 if (currentDepth_h - neighborDepth_h > 0.01h)[m
+[31m-                 {[m
+[32m+[m[32m                if (currentDepth_h - neighborDepth_h > 0.01h)[m
+[32m+[m[32m                {[m
+                     half3 neighborPos_h = (half3)_ViewPositionMap[uv].xyz;[m
+                     half sqLen2_h = dot(neighborPos_h, neighborPos_h);[m
+                     half dotP_h = dot(currentPos_h, neighborPos_h);[m
+[36m@@ -91,20 +99,17 @@[m [mvoid ComputeOcclusion(uint3 id : SV_DispatchThreadID)[m
+                         occlusionSum += (float)occlusionValue_h;[m
+                         neighborCount++;[m
+                     }[m
+[31m-                 }[m
+[32m+[m[32m                }[m
+             }[m
+         }[m
+     }[m
+ [m
+     float alpha = 1.0;[m
+[32m+[m[32m    float occlusionAverage = 1.0;[m
+[32m+[m[41m    [m
+     if (neighborCount > 0)[m
+     {[m
+[31m-        float occlusionAverage = occlusionSum / (float) neighborCount;[m
+[31m-[m
+[31m-        if (_RecordOcclusionDebug > 0)[m
+[31m-        {[m
+[31m-            _OcclusionValueMap_RW[id.xy] = occlusionAverage;[m
+[31m-        }[m
+[32m+[m[32m        occlusionAverage = occlusionSum / (float) neighborCount;[m
+ [m
+         if (_OcclusionFadeWidth > 1e-4)[m
+         {[m
+[36m@@ -120,6 +125,11 @@[m [mvoid ComputeOcclusion(uint3 id : SV_DispatchThreadID)[m
+         }[m
+     }[m
+ [m
+[32m+[m[32m    if (_RecordOcclusionDebug > 0)[m
+[32m+[m[32m    {[m
+[32m+[m[32m        _OcclusionValueMap_RW[id.xy] = occlusionAverage;[m
+[32m+[m[32m    }[m
+[32m+[m
+     if (alpha <= 0.0)[m
+     {[m
+         _OcclusionResultMap_RW[id.xy] = float4(0, 0, 0, 0);[m
+[1mdiff --git a/Assets/Shader&Material/Shader/ComputeShader/Rendering/PCD_Occlusion_Kernels_Post.hlsl b/Assets/Shader&Material/Shader/ComputeShader/Rendering/PCD_Occlusion_Kernels_Post.hlsl[m
+[1mindex c2c14c4..73ade17 100644[m
+[1m--- a/Assets/Shader&Material/Shader/ComputeShader/Rendering/PCD_Occlusion_Kernels_Post.hlsl[m
+[1m+++ b/Assets/Shader&Material/Shader/ComputeShader/Rendering/PCD_Occlusion_Kernels_Post.hlsl[m
+[36m@@ -71,7 +71,8 @@[m [mvoid InitFromCamera(uint3 id : SV_DispatchThreadID)[m
+     if (id.x >= (uint) _ScreenParams.x || id.y >= (uint) _ScreenParams.y)[m
+         return;[m
+ [m
+[31m-    float cameraDepth = _VirtualDepthMap[id.xy];[m
+[32m+[m[32m    float rawDepth = _VirtualDepthMap[id.xy];[m
+[32m+[m[32m    float cameraDepth = _IsReversedZ > 0 ? (1.0 - rawDepth) : rawDepth;[m
+ [m
+     if (cameraDepth >= 0.9999)[m
+     {[m

@@ -20,6 +20,8 @@ public class PCDRendererFeature : ScriptableRendererFeature
 
         public bool enableVirtualDepthIntegration;
         public bool enableJointBilateralHoleFilling;
+        
+        [HideInInspector] public uint _dynamicMultiplierRuntimeValue;
     }
 
     // 登録された静的メッシュの情報を保持するためのクラス
@@ -111,9 +113,12 @@ public class PCDRendererFeature : ScriptableRendererFeature
             enableOriginDebugMap = this.enableOriginDebugMap,
             recordOcclusionDebugMap = this.recordOcclusionDebugMap,
             enableVirtualDepthIntegration = this.enableVirtualDepthIntegration,
-            enableJointBilateralHoleFilling = this.enableJointBilateralHoleFilling
+            enableJointBilateralHoleFilling = this.enableJointBilateralHoleFilling,
+            _dynamicMultiplierRuntimeValue = _internalDynamicMultiplier
         };
     }
+
+    [HideInInspector] public uint _internalDynamicMultiplier = 1;
 
     // レンダラー特徴の初期化時に呼ばれる
     public override void Create()

@@ -8,12 +8,11 @@ void FillHoles(uint3 id : SV_DispatchThreadID)
 {
     if (id.x >= (uint) _ScreenParams.x || id.y >= (uint) _ScreenParams.y)
         return;
-
-    uint pointDepth_uint = _DepthMap[id.xy];
-
-    if (pointDepth_uint < DEPTH_MAX_UINT)
+    
+    uint originType = _OriginTypeMap_RW[id.xy];
+    if (originType == 0u)
     {
-        // 既にオクルージョン計算済みのピクセルはスキップ
+        // 既に点群としてオクルージョン計算済みのピクセルはスキップ
         return;
     }
 
@@ -23,7 +22,7 @@ void FillHoles(uint3 id : SV_DispatchThreadID)
     if (_UseVirtualDepth > 0)
     {
         float vDepthRaw = _VirtualDepthMap[id.xy];
-        float vDepth = 1.0 - vDepthRaw;
+        float vDepth = _IsReversedZ > 0 ? (1.0 - vDepthRaw) : vDepthRaw;
 
         if (vDepth < 0.9999)
         {
@@ -50,7 +49,10 @@ void FillHoles(uint3 id : SV_DispatchThreadID)
         for (int searchX = minBound.x; searchX <= maxBound.x; searchX++)
         {
             uint2 uv = uint2(searchX, searchY);
-            minDepth = min(minDepth, _DepthMap[uv]);
+            if (_OriginTypeMap_RW[uv] == 0u)
+            {
+                minDepth = min(minDepth, _DepthMap[uv]);
+            }
         }
     }
 
@@ -80,7 +82,7 @@ void FillHoles(uint3 id : SV_DispatchThreadID)
                     accumulatedColor += c * weight;
                     totalWeight += weight;
 
-                    uint nType = _OriginTypeMap[uv];
+                    uint nType = _OriginTypeMap_RW[uv];
                     weightedOriginSum += (float) nType * weight;
                 }
             }
@@ -101,20 +103,6 @@ void FillHoles(uint3 id : SV_DispatchThreadID)
         {
             _OriginMap_RW[id.xy] = float4(1, 1, 1, 1);
             _OriginTypeMap_RW[id.xy] = 1u;
-        }
-    }
-    else
-    {
-        _OcclusionResultMap_RW[id.xy] = float4(0, 0, 0, 0);
-
-        if (hasVirtualObj)
-        {
-            _OriginMap_RW[id.xy] = float4(1, 1, 1, 1);
-            _OriginTypeMap_RW[id.xy] = 1u;
-        }
-        else
-        {
-            _OriginTypeMap_RW[id.xy] = 2u;
         }
     }
 }

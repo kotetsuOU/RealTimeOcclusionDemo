@@ -46,12 +46,27 @@ public static class PCDOcclusionDebugExporter
         float maxV = float.NegativeInfinity;
         int[] hist = new int[16];
         int count = width * height;
+        int virtualOcclusionCount = 0;
+        int backgroundCount = 0;
+
         for (int i = 0; i < count; i++)
         {
             float v = data[i];
             if (float.IsNaN(v) || float.IsInfinity(v))
             {
                 hist[0]++;
+                continue;
+            }
+
+            if (v >= 1.9f) // 仮想オブジェクト (2.0)
+            {
+                virtualOcclusionCount++;
+                continue;
+            }
+
+            if (v < -0.5f) // 背景・穴 (-1.0)
+            {
+                backgroundCount++;
                 continue;
             }
 
@@ -74,8 +89,8 @@ public static class PCDOcclusionDebugExporter
             hist[paletteIndex]++;
         }
 
-        Debug.Log($"[PCDOcclusionDebugExporter] occlusion value range: min={minV}, max={maxV} (count={count})");
-        Debug.Log($"[PCDOcclusionDebugExporter] hist(0..1.5 step0.1 + overflow, 16bin): [{string.Join(",", hist)}]");
+        Debug.Log($"[PCDOcclusionDebugExporter] occlusion value range: min={minV}, max={maxV} (count={count}, virtualObj={virtualOcclusionCount}, bg={backgroundCount})");
+        Debug.Log($"[PCDOcclusionDebugExporter] hist(0..1.0 step, 16bin): [{string.Join(",", hist)}]");
 
         // 画像に書き込むためのテクスチャを生成
         Texture2D tex = new Texture2D(width, height, TextureFormat.RGB24, false);
@@ -86,17 +101,29 @@ public static class PCDOcclusionDebugExporter
         {
             float occlusionValue = data[i];
 
-            int paletteIndex;
             if (float.IsNaN(occlusionValue) || float.IsInfinity(occlusionValue))
             {
-                paletteIndex = 0;
+                pixels[i] = Palette16[0];
+                continue;
+            }
+            else if (occlusionValue >= 1.9f) // 仮想オブジェクトによる隠蔽 (2.0)
+            {
+                pixels[i] = Color.magenta; // 仮想オブジェクトはマゼンタ(ピンク)で識別
+                continue;
+            }
+            else if (occlusionValue < -0.5f) // 背景・穴 (-1.0)
+            {
+                pixels[i] = Color.white; // 背景・穴は白
+                continue;
             }
             else if (occlusionValue <= 0.0001f) // Treat exactly 0 or near-0 as black (グレーで表示して区別)
             {
                 pixels[i] = Color.gray;
                 continue;
             }
-            else if (occlusionValue >= RangeMax)
+
+            int paletteIndex;
+            if (occlusionValue >= RangeMax)
             {
                 paletteIndex = 15;
             }
