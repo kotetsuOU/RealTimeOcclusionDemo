@@ -42,6 +42,8 @@ git clone [https://github.com/kotetsuOU/HandTrackingDemo.git](https://github.com
 cd HandTrackingDemo
 git lfs pull
 
+```
+
 ### 2. MediaPipe Unity Plugin の導入
 本プロジェクトは、該当のパッケージファイルを指定位置にインストールすることで、自動的に機能が組み込まれる設計となっています。
 
