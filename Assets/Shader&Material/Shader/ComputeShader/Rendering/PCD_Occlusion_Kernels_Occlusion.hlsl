@@ -8,14 +8,14 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
 {
     if (id.x >= (uint) _ScreenParams.x || id.y >= (uint) _ScreenParams.y)
         return;
-
+    
     uint pointDepth_uint = _DepthMap[id.xy];
 
     if (pointDepth_uint >= DEPTH_MAX_UINT)
     {
         if (_RecordOcclusionDebug > 0)
         {
-            _OcclusionValueMap_RW[id.xy] = 0.1; // 穴 (点群がないピクセル)
+            _OcclusionValueMap_RW[id.xy] = -1.0; // 穴 (点群がないピクセル)
         }
         // ここはFillHolesカーネルに任せるためスキップ
         return;
@@ -42,7 +42,7 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
     {
         if (_RecordOcclusionDebug > 0)
         {
-            _OcclusionValueMap_RW[id.xy] = 2.0; // 仮想オブジェクトによる隠蔽
+            _OcclusionValueMap_RW[id.xy] = 1.0; // 仮想オブジェクトによる隠蔽
         }
         _OcclusionResultMap_RW[id.xy] = float4(0, 0, 0, 0);
         _OriginMap_RW[id.xy] = float4(1, 1, 1, 1);
@@ -124,18 +124,12 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
             }
         }
     }
-
+    
     if (_RecordOcclusionDebug > 0)
     {
-        // 仮想オブジェクト(狐など)のピクセルには一律で2.0を書き込み、マゼンタで可視化する
-        if (_OriginTypeMap_RW[id.xy] == 1u)
-        {
-            _OcclusionValueMap_RW[id.xy] = 2.0;
-        }
-        else
-        {
-            _OcclusionValueMap_RW[id.xy] = occlusionAverage;
-        }
+        // 【重要】仮想オブジェクト（狐）でもマゼンタ上書きをせず、純粋なオクルージョン値を出力する！
+        // これにより、論文のSoft IoU評価が正しく行えるようになります。
+        _OcclusionValueMap_RW[id.xy] = occlusionAverage;
     }
 
     if (alpha <= 0.0)

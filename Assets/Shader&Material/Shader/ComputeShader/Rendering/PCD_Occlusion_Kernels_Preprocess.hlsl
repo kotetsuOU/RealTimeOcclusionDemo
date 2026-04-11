@@ -61,6 +61,12 @@ void ProjectPoints(uint3 id : SV_DispatchThreadID)
 
     uint2 screenUV = uint2((ndc.xy * 0.5 + 0.5) * _ScreenParams.xy);
     float depth = ndc.z;
+    
+    if (_IsReversedZ > 0)
+    {
+        depth = 1.0 - depth;
+    }
+    
     uint depth_uint = (uint) (depth * (float) DEPTH_MAX_UINT);
 
     uint oldDepth;

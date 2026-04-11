@@ -164,7 +164,7 @@ public partial class PCDRenderPass
             data.pointCount = activeCount;
             data.screenParams = new Vector4(screenWidth, screenHeight, 0, 0);
             data.viewMatrix = camera.worldToCameraMatrix;
-            data.projectionMatrix = camera.projectionMatrix;
+            data.projectionMatrix = GL.GetGPUProjectionMatrix(camera.projectionMatrix, false);
             data.settings = _settings;
             data.kernelClear = _kernelClear;
             data.kernelClearCounter = _kernelClearCounter;
