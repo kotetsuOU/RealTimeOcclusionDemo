@@ -31,7 +31,7 @@ void FillHoles(uint3 id : SV_DispatchThreadID)
         }
     }
 
-    int fillRadius = 2;
+    int fillRadius = 6;
     float totalWeight = 0.0;
     float4 accumulatedColor = float4(0, 0, 0, 0);
     float weightedOriginSum = 0.0;

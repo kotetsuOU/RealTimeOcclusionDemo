@@ -38,6 +38,7 @@ public partial class PCDRenderPass
         cmd.SetComputeFloatParam(cs, ShaderIDs.GradientThreshold_g_th, passData.settings.gradientThreshold_g_th);
         cmd.SetComputeFloatParam(cs, ShaderIDs.OcclusionThreshold, passData.settings.occlusionThreshold);
         cmd.SetComputeFloatParam(cs, ShaderIDs.OcclusionFadeWidth, passData.settings.occlusionFadeWidth);
+        cmd.SetComputeIntParam(cs, Shader.PropertyToID("_EnableJointBilateralHoleFilling"), passData.settings.enableJointBilateralHoleFilling ? 1 : 0);
 
         // 仮想物体など、スクリーン全体を埋めているメッシュにおける仮想的な密度倍率(x = 深度バッファ/実点群数などを加味)を設定
         uint densityMultiplier = System.Math.Max(1u, passData.settings._dynamicMultiplierRuntimeValue);

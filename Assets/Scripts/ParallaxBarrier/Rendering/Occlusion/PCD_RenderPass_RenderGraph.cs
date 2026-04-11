@@ -362,7 +362,7 @@ public partial class PCDRenderPass
                             rawData.CopyTo(fData);
 
                             // テクスチャデータを画像として出力する関数を呼び出し
-                            PCDOcclusionDebugExporter.ExportOcclusionMap16PaletteFromData(fData, w, h, "Assets/HandTrackingData/OcculusionMaps");
+                            PCDOcclusionDebugExporter.ExportOcclusionMap16PaletteFromData(fData, w, h, "Assets/HandTrackingData/OcclusionMaps");
 
                             if (PCDRendererFeature.Instance != null)
                             {

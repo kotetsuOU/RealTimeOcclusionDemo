@@ -27,7 +27,7 @@ public static class PCDOcclusionDebugExporter
 
 
     // CPU側に読み戻されたオクルージョン値の配列（data）を画像としてディスクに保存する
-    public static void ExportOcclusionMap16PaletteFromData(float[] data, int width, int height, string savePath = "Assets/HandTrackingData/OcculusionMaps")
+    public static void ExportOcclusionMap16PaletteFromData(float[] data, int width, int height, string savePath = "Assets/HandTrackingData/OcclusionMaps")
     {
         UnityEngine.Debug.Log($"[PCDOcclusionDebugExporter] Exporting Occlusion Map with 16-palette from data (width={width}, height={height})...");
         if (data == null || data.Length != width * height) return;
