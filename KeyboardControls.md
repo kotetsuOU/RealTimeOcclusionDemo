@@ -7,8 +7,12 @@
 |:---|:---|:---|
 | **撮影 (Screenshot)** | `Enter` / `Return` | 「オクルージョンのデバッグマップ画像（PCDOcclusionDebugExporter）」と「現在のカメラビュー（ScreenCapture）」を `Assets/HandTrackingData/OcclusionMaps` に同時保存します |
 | **アニメーション再生/停止** | `Space` | 対象のAnimatorの `speed` を 0 と 1 でトグルし、一時停止させます（被写体を止めて撮影したい時に便利です） |
-| **手法の切り替え (Method)** | `M` | `Enable Joint Bilateral Hole Filling`のON/OFFを切り替えます（提案手法/従来手法の瞬時切り替え） |
-| **滑らかさ/くっきり切り替え** | `T` | `Occlusion Fade Width` の値を `0.1` (滑らか) と `0.0` (くっきり) で切り替えます |
+| **手法の一括切り替え (Method)** | `M` | すべての提案手法（①～③）をまとめてON/OFFし、従来と提案の設定を瞬時比較します |
+| **① 密度計算の補正 (Density)** | `1` | `Enable Type Aware Density` を切り替えます (従来手法のカウント漏れ・過剰を修正) |
+| **② ソフトフェード (SoftFade)** | `2` | `Enable Soft Occlusion Fade` を切り替えます (エッジのグラデーションスムージング) |
+| **③ 穴埋め補完 (HoleFilling)** | `3` | `Enable Joint Bilateral Hole Filling` を切り替えます (透過ノイズの修復) |
+| **滑らかさ幅の強制設定** | `T` | `Occlusion Fade Width` の実数値を `0.2` (滑らか) と `0.0` (くっきり) で設定します |
+| **カラーモードの切り替え (Color)** | `C` | 点群のカラーモード (`Skin`, `Black`, `Blue`, `Custom`) を順に切り替えます (`RsMaterialController` 内の `ChangeColorMode` を使用) |
 | **ゲーム終了 (Quit)** | `Esc` | エディタ再生、またはビルド後のアプリを終了させます (`QuitGame.cs`の統合) |
 
 ### オブジェクトの移動 (Transform Movement)

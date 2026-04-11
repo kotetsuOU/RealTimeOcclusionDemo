@@ -132,15 +132,14 @@ void CalculateDensity(uint3 id : SV_DispatchThreadID, uint3 groupID : SV_GroupID
         uint threshold_uint = (uint)(_DensityThreshold_e * (float)DEPTH_MAX_UINT);
         if (diff < threshold_uint)
         {
-            if (originType == 0u)
+            // 【新規性①】従来手法(OFF)は全てカウント。提案手法(ON)は点群(0u)のみをカウント
+            if (_EnableTypeAwareDensity == 0 || originType == 0u)
             {
                 InterlockedAdd(shared_point_count, 1u);
             }
-            else if (originType == 1u)
+            else if (_EnableTypeAwareDensity == 0 && originType == 1u)
             {
-                // mesh(仮想オブジェクトなど)はピクセル単位で密集しているため、
-                // 実用上の点群密度と合わせるように係数(x)倍する
-                // オーバーフロー防止のため上限を設けて加算する
+                // 仮想オブジェクトの場合かつ従来手法(OFF)なら係数倍してカウント
                 uint safeMultiplier = min((uint)_StaticMeshDensityMultiplier, 1000u);
                 InterlockedAdd(shared_point_count, safeMultiplier);
             }

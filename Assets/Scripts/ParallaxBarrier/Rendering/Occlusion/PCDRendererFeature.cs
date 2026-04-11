@@ -19,7 +19,10 @@ public class PCDRendererFeature : ScriptableRendererFeature
         public bool recordOcclusionDebugMap;
 
         public bool enableVirtualDepthIntegration;
-        public bool enableJointBilateralHoleFilling;
+
+        public bool enableTypeAwareDensity;       // ① 仮想物体を区別した密度計算
+        public bool enableSoftOcclusionFade;      // ② ソフトオクルージョン (FadeWidth)
+        public bool enableJointBilateralHoleFilling; // ③ ジョイントバイラテラル穴埋め
         
         [HideInInspector] public uint _dynamicMultiplierRuntimeValue;
     }
@@ -80,11 +83,17 @@ public class PCDRendererFeature : ScriptableRendererFeature
     [Tooltip("1フレームだけOcclusionの個別の生値を記録します")]
     public bool recordOcclusionDebugMap = false;
 
-    [Header("Novel Methods Toggles")]
+    [Header("Novel Methods Toggles (Ablation Study)")]
     [Tooltip("仮想・現実の「相互オクルージョン」の統合を有効にするか")]
     public bool enableVirtualDepthIntegration = true;
 
-    [Tooltip("エッジ保持型ホールフィリング（ジョイントバイラテラル）を有効にするか")]
+    [Tooltip("①仮想物体を区別した密度計算 (ONで従来手法のカウント漏れや過剰を補正)")]
+    public bool enableTypeAwareDensity = true;
+
+    [Tooltip("②ソフトオクルージョン (ONでグラデーションによる境界のスムージング)")]
+    public bool enableSoftOcclusionFade = true;
+
+    [Tooltip("③エッジ保持型ホールフィリング (ONでジョイントバイラテラル穴埋め)")]
     public bool enableJointBilateralHoleFilling = true;
 
     private PCDRenderPass _scriptablePass;
@@ -113,6 +122,8 @@ public class PCDRendererFeature : ScriptableRendererFeature
             enableOriginDebugMap = this.enableOriginDebugMap,
             recordOcclusionDebugMap = this.recordOcclusionDebugMap,
             enableVirtualDepthIntegration = this.enableVirtualDepthIntegration,
+            enableTypeAwareDensity = this.enableTypeAwareDensity,
+            enableSoftOcclusionFade = this.enableSoftOcclusionFade,
             enableJointBilateralHoleFilling = this.enableJointBilateralHoleFilling,
             _dynamicMultiplierRuntimeValue = _internalDynamicMultiplier
         };

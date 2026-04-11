@@ -66,7 +66,7 @@ public class CameraCapture : MonoBehaviour
 #endif
     }
 
-    public void Capture()
+    public void Capture(string prefix = "")
     {
         string directoryPath = System.IO.Path.Combine(GetBasePath(), singleCaptureFolder);
         if (!System.IO.Directory.Exists(directoryPath))
@@ -74,7 +74,8 @@ public class CameraCapture : MonoBehaviour
             System.IO.Directory.CreateDirectory(directoryPath);
         }
 
-        string fileName = string.Format("capture_{0}.png", System.DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss"));
+        string prefixStr = string.IsNullOrEmpty(prefix) ? "" : prefix + "_";
+        string fileName = string.Format("capture_{0}{1}.png", prefixStr, System.DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss"));
         string filePath = System.IO.Path.Combine(directoryPath, fileName);
 
         SaveFrameToFile(filePath);

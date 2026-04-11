@@ -14,6 +14,9 @@ public class KeyboardController : MonoBehaviour
     [Tooltip("カメラキャプチャ用スクリプト (ViewPointのカメラ映像保存用)")]
     public CameraCapture cameraCapture;
 
+    [Tooltip("マテリアル切り替え用コントローラー")]
+    public RsMaterialController materialController;
+
     [Tooltip("移動速度")]
     public float moveSpeed = 1.0f;
 
@@ -37,17 +40,27 @@ public class KeyboardController : MonoBehaviour
         // ----------------------------------------------------
         if (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter))
         {
+            string methodPrefix = "";
+
             // ① オクルージョンマップの書き出しフラグをオン
             if (PCDRendererFeature.Instance != null)
             {
                 PCDRendererFeature.Instance.recordOcclusionDebugMap = true;
                 Debug.Log("[KeyboardController] オクルージョンマップの出力をリクエストしました");
+
+                bool isDensity = PCDRendererFeature.Instance.enableTypeAwareDensity;
+                bool isFade = PCDRendererFeature.Instance.enableSoftOcclusionFade;
+                bool isHoleFill = PCDRendererFeature.Instance.enableJointBilateralHoleFilling;
+
+                if (isDensity && isFade && isHoleFill) methodPrefix = "Proposal";
+                else if (!isDensity && !isFade && !isHoleFill) methodPrefix = "Traditional";
+                else methodPrefix = $"Ablation_D{(isDensity?"1":"0")}_F{(isFade?"1":"0")}_H{(isHoleFill?"1":"0")}";
             }
 
             // ② 同時にCameraCaptureのCapture()を実行してViewPointカメラ映像を保存
             if (cameraCapture != null)
             {
-                cameraCapture.Capture();
+                cameraCapture.Capture(methodPrefix);
             }
             else
             {
@@ -55,7 +68,7 @@ public class KeyboardController : MonoBehaviour
                 CameraCapture cc = FindFirstObjectByType<CameraCapture>();
                 if (cc != null)
                 {
-                    cc.Capture();
+                    cc.Capture(methodPrefix);
                 }
                 else
                 {
@@ -82,15 +95,47 @@ public class KeyboardController : MonoBehaviour
         }
 
         // ----------------------------------------------------
-        // 4. 手法 (提案手法 / 従来手法) の瞬時切り替え (Mキー)
+        // 4. 手法 (提案手法 / 従来手法) の瞬時切り替え (Mキー) - Ablation Study
         // ----------------------------------------------------
         if (Input.GetKeyDown(KeyCode.M))
         {
             if (PCDRendererFeature.Instance != null)
             {
-                PCDRendererFeature.Instance.enableJointBilateralHoleFilling = !PCDRendererFeature.Instance.enableJointBilateralHoleFilling;
-                string methodStr = PCDRendererFeature.Instance.enableJointBilateralHoleFilling ? "提案手法 (Proposal)" : "従来手法 (Traditional / Hole Filling OFF)";
+                // 全ての提案機能のON/OFFを一括でトグルする
+                bool isAnyOn = PCDRendererFeature.Instance.enableTypeAwareDensity || 
+                               PCDRendererFeature.Instance.enableSoftOcclusionFade || 
+                               PCDRendererFeature.Instance.enableJointBilateralHoleFilling;
+
+                bool toggleTo = !isAnyOn; // 1つでもONならすべてOFFにする
+
+                PCDRendererFeature.Instance.enableTypeAwareDensity = toggleTo;
+                PCDRendererFeature.Instance.enableSoftOcclusionFade = toggleTo;
+                PCDRendererFeature.Instance.enableJointBilateralHoleFilling = toggleTo;
+
+                string methodStr = toggleTo ? "提案手法 (全てON)" : "従来手法 (全てOFF)";
                 Debug.Log($"[KeyController] 手法切り替え: {methodStr}");
+            }
+        }
+
+        // ----------------------------------------------------
+        // 5. 各提案機能(Ablation)の個別切り替え (Alpha1, 2, 3)
+        // ----------------------------------------------------
+        if (PCDRendererFeature.Instance != null)
+        {
+            if (Input.GetKeyDown(KeyCode.Alpha1))
+            {
+                PCDRendererFeature.Instance.enableTypeAwareDensity = !PCDRendererFeature.Instance.enableTypeAwareDensity;
+                Debug.Log($"[KeyController] ① 密度計算補正: {(PCDRendererFeature.Instance.enableTypeAwareDensity ? "ON" : "OFF")}");
+            }
+            if (Input.GetKeyDown(KeyCode.Alpha2))
+            {
+                PCDRendererFeature.Instance.enableSoftOcclusionFade = !PCDRendererFeature.Instance.enableSoftOcclusionFade;
+                Debug.Log($"[KeyController] ② ソフトフェード: {(PCDRendererFeature.Instance.enableSoftOcclusionFade ? "ON" : "OFF")}");
+            }
+            if (Input.GetKeyDown(KeyCode.Alpha3))
+            {
+                PCDRendererFeature.Instance.enableJointBilateralHoleFilling = !PCDRendererFeature.Instance.enableJointBilateralHoleFilling;
+                Debug.Log($"[KeyController] ③ 穴埋め(Hole Filling): {(PCDRendererFeature.Instance.enableJointBilateralHoleFilling ? "ON" : "OFF")}");
             }
         }
 
@@ -108,14 +153,32 @@ public class KeyboardController : MonoBehaviour
                 }
                 else
                 {
-                    PCDRendererFeature.Instance.occlusionFadeWidth = 0.1f;
-                    Debug.Log("[KeyController] FadeWidth: 0.1 (滑らかマスク)");
+                    PCDRendererFeature.Instance.occlusionFadeWidth = 0.2f;
+                    Debug.Log("[KeyController] FadeWidth: 0.2 (滑らかマスク)");
                 }
             }
         }
 
         // ----------------------------------------------------
-        // 6. 対象オブジェクト(狐など)の移動 (W,A,S,D / Q,E)
+        // 6. カラーモードの切り替え (Cキー)
+        // ----------------------------------------------------
+        if (Input.GetKeyDown(KeyCode.C))
+        {
+            if (materialController != null)
+            {
+                // Enumの値をローテーションさせる
+                PointCloudColorMode nextMode = (PointCloudColorMode)(((int)materialController.colorMode + 1) % Enum.GetValues(typeof(PointCloudColorMode)).Length);
+                materialController.ChangeColorMode(nextMode);
+                Debug.Log($"[KeyController] カラーモード切り替え: {nextMode}");
+            }
+            else
+            {
+                Debug.LogWarning("[KeyController] materialControllerが設定されていません。");
+            }
+        }
+
+        // ----------------------------------------------------
+        // 7. 対象オブジェクト(狐など)の移動 (W,A,S,D / Q,E)
         // ----------------------------------------------------
         if (targetTransform != null)
         {

@@ -27,7 +27,7 @@ public static class PCDOcclusionDebugExporter
 
 
     // CPU側に読み戻されたオクルージョン値の配列（data）を画像としてディスクに保存する
-    public static void ExportOcclusionMap16PaletteFromData(float[] data, int width, int height, string savePath = "Assets/HandTrackingData/OcclusionMaps")
+    public static void ExportOcclusionMap16PaletteFromData(float[] data, int width, int height, string savePath = "Assets/HandTrackingData/OcclusionMaps", string prefix = "")
     {
         UnityEngine.Debug.Log($"[PCDOcclusionDebugExporter] Exporting Occlusion Map with 16-palette from data (width={width}, height={height})...");
         if (data == null || data.Length != width * height) return;
@@ -42,7 +42,7 @@ public static class PCDOcclusionDebugExporter
             Directory.CreateDirectory(savePath);
         }
 
-        string fileName = $"OcclusionMap_{DateTime.Now:yyyyMMdd_HHmmss}.png";
+        string fileName = $"OcclusionMap_{prefix}_{DateTime.Now:yyyyMMdd_HHmmss}.png";
         string fullPath = Path.Combine(savePath, fileName);
 
         // 基本的な統計情報（最大値、最小値、ヒストグラム）を計算

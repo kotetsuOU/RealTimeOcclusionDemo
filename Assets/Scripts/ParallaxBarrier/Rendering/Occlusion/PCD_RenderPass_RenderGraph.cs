@@ -345,8 +345,9 @@ public partial class PCDRenderPass
                     if (_occlusionValueMapHandle != null && _occlusionValueMapHandle.rt != null)
                     {
                         var rt = _occlusionValueMapHandle.rt;
-                        // GPUからCPUへ非同期でテクスチャデータを取得(CommandBufferを経由することでComputeShaderの実行順序と同期させる)
-                        context.cmd.RequestAsyncReadback(rt, 0, TextureFormat.RFloat, request =>
+                        // GPUからCPUへ非同期でテクスチャデータを取得
+                        // RTHandleは最大解像度で確保される可能性があるため、現在の画面サイズ(screenWidth, screenHeight)を明示的に指定して抽出する
+                        context.cmd.RequestAsyncReadback(rt, 0, 0, screenWidth, 0, screenHeight, 0, 1, GraphicsFormatUtility.GetGraphicsFormat(TextureFormat.RFloat, false), request =>
                         {
                             if (request.hasError) 
                             {
@@ -361,16 +362,30 @@ public partial class PCDRenderPass
                             float[] fData = new float[w * h];
                             rawData.CopyTo(fData);
 
-                            // テクスチャデータを画像として出力する関数を呼び出し
-                            PCDOcclusionDebugExporter.ExportOcclusionMap16PaletteFromData(fData, w, h, "Assets/HandTrackingData/OcclusionMaps");
-
+                            // 現在の設定からプレフィックスを生成
+                            string methodPrefix = "";
                             if (PCDRendererFeature.Instance != null)
                             {
-                                PCDRendererFeature.Instance.recordOcclusionDebugMap = false;
+                                bool isDensity = PCDRendererFeature.Instance.enableTypeAwareDensity;
+                                bool isFade = PCDRendererFeature.Instance.enableSoftOcclusionFade;
+                                bool isHoleFill = PCDRendererFeature.Instance.enableJointBilateralHoleFilling;
+
+                                if (isDensity && isFade && isHoleFill) methodPrefix = "Proposal";
+                                else if (!isDensity && !isFade && !isHoleFill) methodPrefix = "Traditional";
+                                else methodPrefix = $"Ablation_D{(isDensity?"1":"0")}_F{(isFade?"1":"0")}_H{(isHoleFill?"1":"0")}";
                             }
+
+                            // テクスチャデータを画像として出力する関数を呼び出し
+                            PCDOcclusionDebugExporter.ExportOcclusionMap16PaletteFromData(fData, w, h, "Assets/HandTrackingData/OcclusionMaps", methodPrefix);
                         });
                     }
                 });
+            }
+
+            // --- 連続出力(複数フレームの重複保存)を防ぐため、1度RenderGraphのキュー(パス)に登録したら即座にフラグを折る ---
+            if (PCDRendererFeature.Instance != null && PCDRendererFeature.Instance.recordOcclusionDebugMap)
+            {
+                PCDRendererFeature.Instance.recordOcclusionDebugMap = false;
             }
         }
 
