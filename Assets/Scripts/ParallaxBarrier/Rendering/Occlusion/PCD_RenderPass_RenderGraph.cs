@@ -39,7 +39,8 @@ public partial class PCDRenderPass
         // 外部バッファが使用され、データが存在する場合の処理
         if (_bufferManager.UseExternalBuffer && _bufferManager.ExternalPointBuffer != null)
         {
-            int extCount = _bufferManager.ExternalPointCount > 0 ? _bufferManager.ExternalPointCount : _bufferManager.ExternalPointBuffer.count;
+            // Update: If count is 0, it should be treated as 0 instead of falling back to the whole buffer size (which may still hold old cached data on the GPU).
+            int extCount = _bufferManager.ExternalPointCount >= 0 ? _bufferManager.ExternalPointCount : _bufferManager.ExternalPointBuffer.count;
 
             // 内部データも存在する場合は、両方を結合したバッファを使用する
             if (_bufferManager.PointCount > 0)

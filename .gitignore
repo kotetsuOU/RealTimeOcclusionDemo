@@ -15,3 +15,7 @@
 .vs/
 *.csproj
 *.sln
+
+# External Dependencies & Archives
+*.tgz
+*.zip
