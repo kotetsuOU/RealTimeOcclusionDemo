@@ -80,7 +80,7 @@ void FillHoles(uint3 id : SV_DispatchThreadID)
                     accumulatedColor += c * weight;
                     totalWeight += weight;
 
-                    uint nType = _OriginTypeMap[uv];
+                    uint nType = _OriginTypeMap_RW[uv];
                     weightedOriginSum += (float) nType * weight;
                 }
             }

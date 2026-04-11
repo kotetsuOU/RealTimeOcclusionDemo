@@ -30,6 +30,17 @@ void ClearMaps(uint3 id : SV_DispatchThreadID)
     _OriginTypeMap_RW[id.xy] = 2u; // 2 = Background
 }
 
+// 1.5 Clear Counter
+// オーバーフローを防ぐためやUAV制限のために別カーネルでカウンターをリセット
+[numthreads(1, 1, 1)]
+void ClearCounter(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x == 0)
+    {
+        _StaticMeshCounter_RW[0] = 0;
+    }
+}
+
 // 2. Project Points
 // 3D空間上の点群を行列変換し、スクリーン上のピクセル(2D)へ投影。
 // InterlockedMin を用いてアトミック(排他)に最もカメラに近接した点の情報(色・深度)を記録する
@@ -105,15 +116,28 @@ void CalculateDensity(uint3 id : SV_DispatchThreadID, uint3 groupID : SV_GroupID
     uint depth_uint = _DepthMap[id.xy];
 
     // OriginType fetch. 0 = PointCloud (Dynamic), 1 = StaticMesh, 2 = Background
+    // NOTE: Density is generally used before Occlusion. Reading SRV here is okay as it hasn't mapped RW yet,
+    // or if mapped, it's safer to avoid reading from the written texture if not required, but here it's read-only in this pass.
     uint originType = _OriginTypeMap[id.xy];
 
-    if (depth_uint < DEPTH_MAX_UINT && originType == 0u)
+    if (depth_uint < DEPTH_MAX_UINT)
     {
         uint diff = depth_uint - z_min_uint;
         uint threshold_uint = (uint)(_DensityThreshold_e * (float)DEPTH_MAX_UINT);
         if (diff < threshold_uint)
         {
-            InterlockedAdd(shared_point_count, 1u);
+            if (originType == 0u)
+            {
+                InterlockedAdd(shared_point_count, 1u);
+            }
+            else if (originType == 1u)
+            {
+                // mesh(仮想オブジェクトなど)はピクセル単位で密集しているため、
+                // 実用上の点群密度と合わせるように係数(x)倍する
+                // オーバーフロー防止のため上限を設けて加算する
+                uint safeMultiplier = min((uint)_StaticMeshDensityMultiplier, 1000u);
+                InterlockedAdd(shared_point_count, safeMultiplier);
+            }
         }
     }
 

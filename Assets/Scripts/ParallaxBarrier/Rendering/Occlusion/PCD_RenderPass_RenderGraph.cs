@@ -167,6 +167,7 @@ public partial class PCDRenderPass
             data.projectionMatrix = camera.projectionMatrix;
             data.settings = _settings;
             data.kernelClear = _kernelClear;
+            data.kernelClearCounter = _kernelClearCounter;
             data.kernelProject = _kernelProject;
             data.kernelCalcGridZMin = _kernelCalcGridZMin;
             data.kernelCalcDensity = _kernelCalcDensity;
@@ -190,6 +191,7 @@ public partial class PCDRenderPass
             data.internalCount = _bufferManager.PointCount;
             data.combinedBuffer = _bufferManager.CombinedBuffer;
             data.pointBuffer = activeBuffer;
+            data.staticMeshCounterBuffer = _staticMeshCounterBuffer;
             data.hasVirtualDepth = resourceData.cameraDepthTexture.IsValid();
             data.depthMapOnlyMode = depthMapOnlyMode;
             data.inverseProjectionMatrix = camera.projectionMatrix.inverse;
@@ -232,16 +234,19 @@ public partial class PCDRenderPass
             data.viewPositionMap = renderGraph.CreateTexture(desc);
 
             // 深度情報はRInt（整数型）として格納
-            desc.colorFormat = GraphicsFormatUtility.GetGraphicsFormat(RenderTextureFormat.RInt, false);
+            desc.colorFormat = UnityEngine.Experimental.Rendering.GraphicsFormat.R32_UInt;
             data.depthMap = renderGraph.CreateTexture(desc);
+            desc.colorFormat = UnityEngine.Experimental.Rendering.GraphicsFormat.R32_SInt;
             data.neighborhoodSizeMap = renderGraph.CreateTexture(desc);
             data.correctedNeighborhoodSizeMap = renderGraph.CreateTexture(desc);
+            desc.colorFormat = UnityEngine.Experimental.Rendering.GraphicsFormat.R32_UInt;
             data.originTypeMap = renderGraph.CreateTexture(desc);
 
             // 密度とグリッドレベル用の縮小バッファを生成
             var gridDesc = new TextureDesc(gridWidth, gridHeight) { enableRandomWrite = true };
-            gridDesc.colorFormat = GraphicsFormatUtility.GetGraphicsFormat(RenderTextureFormat.RInt, false);
+            gridDesc.colorFormat = UnityEngine.Experimental.Rendering.GraphicsFormat.R32_UInt;
             data.gridZMinMap = renderGraph.CreateTexture(gridDesc);
+            gridDesc.colorFormat = UnityEngine.Experimental.Rendering.GraphicsFormat.R32_SInt;
             data.gridLevelMap = renderGraph.CreateTexture(gridDesc);
             data.filteredGridLevelMap = renderGraph.CreateTexture(gridDesc);
             gridDesc.colorFormat = GraphicsFormatUtility.GetGraphicsFormat(RenderTextureFormat.RFloat, false);
@@ -397,6 +402,3 @@ public partial class PCDRenderPass
         }
     }
 }
-
-
-

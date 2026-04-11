@@ -43,9 +43,6 @@ public class SMV_Controller : MonoBehaviour
         if (settings == null) settings = GetComponent<SMV_Settings>();
         if (dataManager == null) dataManager = GetComponent<SMV_DataManager>();
         if (meshRenderer == null) meshRenderer = GetComponent<SMV_Renderer>();
-
-        settings.hideFlags = HideFlags.HideInInspector;
-        meshRenderer.hideFlags = HideFlags.HideInInspector;
     }
 
     public void RebuildMesh()

@@ -39,6 +39,10 @@ public partial class PCDRenderPass
         cmd.SetComputeFloatParam(cs, ShaderIDs.OcclusionThreshold, passData.settings.occlusionThreshold);
         cmd.SetComputeFloatParam(cs, ShaderIDs.OcclusionFadeWidth, passData.settings.occlusionFadeWidth);
 
+        // 仮想物体など、スクリーン全体を埋めているメッシュにおける仮想的な密度倍率(x = 深度バッファ/実点群数などを加味)を設定
+        uint densityMultiplier = System.Math.Max(1u, passData.settings._dynamicMultiplierRuntimeValue);
+        cmd.SetComputeIntParam(cs, Shader.PropertyToID("_StaticMeshDensityMultiplier"), (int)densityMultiplier);
+
         // --- 最適なスレッドグループ数を計算 ---
         int sw = (int)passData.screenParams.x;
         int sh = (int)passData.screenParams.y;
@@ -58,6 +62,10 @@ public partial class PCDRenderPass
         cmd.SetComputeTextureParam(cs, passData.kernelClear, ShaderIDs.OriginMap_RW, passData.originDebugMap);
         cmd.DispatchCompute(cs, passData.kernelClear, threadGroupsX, threadGroupsY, 1);
 
+        // カウンターのクリア
+        cmd.SetComputeBufferParam(cs, passData.kernelClearCounter, ShaderIDs.StaticMeshCounter_RW, passData.staticMeshCounterBuffer);
+        cmd.DispatchCompute(cs, passData.kernelClearCounter, 1, 1, 1);
+
         // --- ステージ2: 仮想深度マップからの初期化（提供されている場合） ---
         if (passData.hasVirtualDepth && passData.settings.enableVirtualDepthIntegration)
         {
@@ -73,6 +81,7 @@ public partial class PCDRenderPass
             cmd.SetComputeTextureParam(cs, passData.kernelInitFromCamera, ShaderIDs.ColorMap_RW, passData.colorMap);
             cmd.SetComputeTextureParam(cs, passData.kernelInitFromCamera, ShaderIDs.ViewPositionMap_RW, passData.viewPositionMap);
             cmd.SetComputeTextureParam(cs, passData.kernelInitFromCamera, ShaderIDs.OriginTypeMap_RW, passData.originTypeMap);
+            cmd.SetComputeBufferParam(cs, passData.kernelInitFromCamera, ShaderIDs.StaticMeshCounter_RW, passData.staticMeshCounterBuffer);
             cmd.SetComputeMatrixParam(cs, ShaderIDs.InverseProjectionMatrix, passData.inverseProjectionMatrix);
             cmd.DispatchCompute(cs, passData.kernelInitFromCamera, threadGroupsX, threadGroupsY, 1);
         }
@@ -199,6 +208,27 @@ public partial class PCDRenderPass
         cmd.SetComputeTextureParam(cs, passData.kernelInterpolate, ShaderIDs.FinalImage_RW, passData.finalImage);
         cmd.SetComputeTextureParam(cs, passData.kernelInterpolate, ShaderIDs.OriginMap_RW, passData.originDebugMap);
         cmd.DispatchCompute(cs, passData.kernelInterpolate, threadGroupsX, threadGroupsY, 1);
+
+        int totalPoints = passData.pointCount;
+        UnityEngine.Rendering.AsyncGPUReadback.Request(passData.staticMeshCounterBuffer, (request) =>
+        {
+            if (request.hasError || PCDRendererFeature.Instance == null)
+            {
+                return;
+            }
+            var data = request.GetData<uint>();
+            uint virtualMeshPixelCount = data[0];
+
+            if (totalPoints > 0)
+            {
+                uint multiplier = System.Math.Max(1u, virtualMeshPixelCount / (uint)totalPoints);
+                PCDRendererFeature.Instance._internalDynamicMultiplier = multiplier;
+            }
+            else
+            {
+                PCDRendererFeature.Instance._internalDynamicMultiplier = 1;
+            }
+        });
     }
 
     private static void ExecuteBlitPass(BlitPassData passData, RasterGraphContext context)

@@ -6,6 +6,7 @@
 
 // --- Preprocess (前処理) ---
 #pragma kernel ClearMaps                 // マップ初期化
+#pragma kernel ClearCounter              // 静的メッシュのカウンター初期化
 #pragma kernel ProjectPoints             // 点群をスクリーン空間に投影し深度バッファを構築
 #pragma kernel CalculateGridZMin         // グリッドごとの最小深度(Z-Min)を計算
 #pragma kernel CalculateDensity          // グリッド内の点群の密度を計算

@@ -13,6 +13,10 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
 
     if (pointDepth_uint >= DEPTH_MAX_UINT)
     {
+        if (_RecordOcclusionDebug > 0)
+        {
+            _OcclusionValueMap_RW[id.xy] = 0.1; // 穴 (点群がないピクセル)
+        }
         // ここはFillHolesカーネルに任せるためスキップ
         return;
     }
@@ -36,6 +40,10 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
 
     if (hasVirtualObj && (vDepth_uint + depthBias) < pointDepth_uint)
     {
+        if (_RecordOcclusionDebug > 0)
+        {
+            _OcclusionValueMap_RW[id.xy] = 2.0; // 仮想オブジェクトによる隠蔽
+        }
         _OcclusionResultMap_RW[id.xy] = float4(0, 0, 0, 0);
         _OriginMap_RW[id.xy] = float4(1, 1, 1, 1);
         _OriginTypeMap_RW[id.xy] = 1u;
@@ -97,14 +105,11 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
     }
 
     float alpha = 1.0;
+    float occlusionAverage = 1.0;
+    
     if (neighborCount > 0)
     {
-        float occlusionAverage = occlusionSum / (float) neighborCount;
-
-        if (_RecordOcclusionDebug > 0)
-        {
-            _OcclusionValueMap_RW[id.xy] = occlusionAverage;
-        }
+        occlusionAverage = occlusionSum / (float) neighborCount;
 
         if (_OcclusionFadeWidth > 1e-4)
         {
@@ -120,6 +125,19 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
         }
     }
 
+    if (_RecordOcclusionDebug > 0)
+    {
+        // 仮想オブジェクト(狐など)のピクセルには一律で2.0を書き込み、マゼンタで可視化する
+        if (_OriginTypeMap_RW[id.xy] == 1u)
+        {
+            _OcclusionValueMap_RW[id.xy] = 2.0;
+        }
+        else
+        {
+            _OcclusionValueMap_RW[id.xy] = occlusionAverage;
+        }
+    }
+
     if (alpha <= 0.0)
     {
         _OcclusionResultMap_RW[id.xy] = float4(0, 0, 0, 0);
@@ -130,7 +148,7 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
         col.a *= alpha;
         _OcclusionResultMap_RW[id.xy] = col;
 
-        uint originType = _OriginTypeMap[id.xy];
+        uint originType = _OriginTypeMap_RW[id.xy];
         if (originType == 0u)
             _OriginMap_RW[id.xy] = float4(0, 0, 0, 1);
         else if (originType == 1u)

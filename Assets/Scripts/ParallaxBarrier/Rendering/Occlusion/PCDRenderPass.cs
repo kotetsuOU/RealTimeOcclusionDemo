@@ -70,6 +70,7 @@ public partial class PCDRenderPass : ScriptableRenderPass
         public static readonly int MergeDstOffset = Shader.PropertyToID("_MergeDstOffset");
         public static readonly int MergeCopyCount = Shader.PropertyToID("_MergeCopyCount");
         public static readonly int PointBuffer = Shader.PropertyToID("_PointBuffer");
+        public static readonly int StaticMeshCounter_RW = Shader.PropertyToID("_StaticMeshCounter_RW");
 
         public static readonly int UseVirtualDepth = Shader.PropertyToID("_UseVirtualDepth");
         public static readonly int VirtualDepthMap = Shader.PropertyToID("_VirtualDepthMap");
@@ -82,7 +83,7 @@ public partial class PCDRenderPass : ScriptableRenderPass
     private PCDRendererFeature.PCDRenderSettings _settings; // 機能インスペクターの値に対応する現在の設定
 
     // 個々のコンピュートシェーダー関数に対応するカーネルID
-    private int _kernelClear, _kernelProject, _kernelCalcGridZMin, _kernelCalcDensity,
+    private int _kernelClear, _kernelClearCounter, _kernelProject, _kernelCalcGridZMin, _kernelCalcDensity,
                 _kernelCalcGridLevel, _kernelGridMedianFilter,
                 _kernelCalcNeighborhoodSize,
                 _kernelBuildDepthPyramidL1, _kernelBuildDepthPyramidL2,
@@ -100,6 +101,8 @@ public partial class PCDRenderPass : ScriptableRenderPass
     // --- バッファ マネージャー ---
     private PCDPointBufferManager _bufferManager;
 
+    private ComputeBuffer _staticMeshCounterBuffer;
+
     public PCDRenderPass(ComputeShader computeShader, PCDRendererFeature.PCDRenderSettings settings, Material blendMaterial, bool enableAlphaBlend)
     {
         this.pointCloudCompute = computeShader;
@@ -109,6 +112,9 @@ public partial class PCDRenderPass : ScriptableRenderPass
         this._enableAlphaBlend = enableAlphaBlend;
 
         _bufferManager = new PCDPointBufferManager(); // 静的メッシュや点群のためのデータマネージャーを初期化します
+
+        _staticMeshCounterBuffer = new ComputeBuffer(1, sizeof(uint), ComputeBufferType.Default);
+        _staticMeshCounterBuffer.SetData(new uint[] { 0 });
     }
 
     /// <summary> 外部（スクリプトやインスペクターの変更など）からレンダラーの設定を更新します。 </summary>
@@ -164,6 +170,7 @@ public partial class PCDRenderPass : ScriptableRenderPass
         }
 
         _kernelClear = pointCloudCompute.FindKernel("ClearMaps");
+        _kernelClearCounter = pointCloudCompute.FindKernel("ClearCounter");
         _kernelProject = pointCloudCompute.FindKernel("ProjectPoints");
         _kernelCalcGridZMin = pointCloudCompute.FindKernel("CalculateGridZMin");
         _kernelCalcDensity = pointCloudCompute.FindKernel("CalculateDensity");
@@ -199,7 +206,7 @@ public partial class PCDRenderPass : ScriptableRenderPass
         
         internal PCDRendererFeature.PCDRenderSettings settings;
 
-        internal int kernelClear, kernelProject, kernelCalcGridZMin, kernelCalcDensity,
+        internal int kernelClear, kernelClearCounter, kernelProject, kernelCalcGridZMin, kernelCalcDensity,
                      kernelCalcGridLevel, kernelGridMedianFilter,
                      kernelCalcNeighborhoodSize,
                      kernelBuildDepthPyramidL1, kernelBuildDepthPyramidL2,
@@ -216,6 +223,7 @@ public partial class PCDRenderPass : ScriptableRenderPass
         internal int internalCount;
         internal ComputeBuffer combinedBuffer; // ターゲットバッファ
         internal ComputeBuffer pointBuffer;
+        internal ComputeBuffer staticMeshCounterBuffer;
 
         internal TextureHandle colorMap;
         internal TextureHandle depthMap;
@@ -290,9 +298,12 @@ public partial class PCDRenderPass : ScriptableRenderPass
 
         _originDebugMapHandle?.Release();
         _originDebugMapHandle = null;
-        
+
         _occlusionValueMapHandle?.Release();
         _occlusionValueMapHandle = null;
+
+        _staticMeshCounterBuffer?.Release();
+        _staticMeshCounterBuffer = null;
 
         _isInitialized = false;
     }

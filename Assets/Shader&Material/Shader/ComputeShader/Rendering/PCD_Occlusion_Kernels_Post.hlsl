@@ -97,6 +97,8 @@ void InitFromCamera(uint3 id : SV_DispatchThreadID)
 
     _ViewPositionMap_RW[id.xy] = float4(viewPos.xyz, cameraDepth);
     _OriginTypeMap_RW[id.xy] = 1u;
+
+    InterlockedAdd(_StaticMeshCounter_RW[0], 1u);
 }
 
 #endif // PCD_OCCLUSION_KERNELS_POST_INCLUDED
