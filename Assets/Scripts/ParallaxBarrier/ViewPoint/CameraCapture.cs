@@ -57,9 +57,18 @@ public class CameraCapture : MonoBehaviour
         }
     }
 
+    private string GetBasePath()
+    {
+#if UNITY_EDITOR
+        return UnityEngine.Application.dataPath;
+#else
+        return UnityEngine.Application.persistentDataPath;
+#endif
+    }
+
     public void Capture()
     {
-        string directoryPath = System.IO.Path.Combine(UnityEngine.Application.dataPath, singleCaptureFolder);
+        string directoryPath = System.IO.Path.Combine(GetBasePath(), singleCaptureFolder);
         if (!System.IO.Directory.Exists(directoryPath))
         {
             System.IO.Directory.CreateDirectory(directoryPath);
@@ -90,7 +99,7 @@ public class CameraCapture : MonoBehaviour
         frameCount = 0;
 
         string timeStamp = System.DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss");
-        currentVideoFolderPath = System.IO.Path.Combine(UnityEngine.Application.dataPath, videoFramesFolder, timeStamp);
+        currentVideoFolderPath = System.IO.Path.Combine(GetBasePath(), videoFramesFolder, timeStamp);
 
         if (!System.IO.Directory.Exists(currentVideoFolderPath))
         {

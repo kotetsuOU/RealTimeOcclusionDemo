@@ -10,7 +10,10 @@ public class KeyboardController : MonoBehaviour
 
     [Tooltip("キーボード操作で移動させる対象のオブジェクト (例: キツネ等)")]
     public Transform targetTransform;
-    
+
+    [Tooltip("カメラキャプチャ用スクリプト (ViewPointのカメラ映像保存用)")]
+    public CameraCapture cameraCapture;
+
     [Tooltip("移動速度")]
     public float moveSpeed = 1.0f;
 
@@ -34,21 +37,30 @@ public class KeyboardController : MonoBehaviour
         // ----------------------------------------------------
         if (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter))
         {
+            // ① オクルージョンマップの書き出しフラグをオン
             if (PCDRendererFeature.Instance != null)
             {
-                string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-                
-                // ① オクルージョンマップの書き出しフラグをオン
                 PCDRendererFeature.Instance.recordOcclusionDebugMap = true;
-                
-                // ② 同時にカメラの通常のスクリーンショットも撮影
-                string savePath = "Assets/HandTrackingData/OcclusionMaps";
-                if (!Directory.Exists(savePath)) Directory.CreateDirectory(savePath);
+                Debug.Log("[KeyboardController] オクルージョンマップの出力をリクエストしました");
+            }
 
-                string cameraImagePath = Path.Combine(savePath, $"CameraView_{timestamp}.png");
-                ScreenCapture.CaptureScreenshot(cameraImagePath);
-
-                Debug.Log($"[KeyController] 撮影完了: {timestamp}\n(OcclusionMapとCameraViewが保存されました)");
+            // ② 同時にCameraCaptureのCapture()を実行してViewPointカメラ映像を保存
+            if (cameraCapture != null)
+            {
+                cameraCapture.Capture();
+            }
+            else
+            {
+                // アタッチし忘れていた場合のフォールバック（シーン内から検索）
+                CameraCapture cc = FindFirstObjectByType<CameraCapture>();
+                if (cc != null)
+                {
+                    cc.Capture();
+                }
+                else
+                {
+                    Debug.LogWarning("[KeyboardController] CameraCaptureが設定・発見されなかったため、カメラ映像の保存はスキップされました。");
+                }
             }
         }
 
@@ -114,7 +126,7 @@ public class KeyboardController : MonoBehaviour
             if (Input.GetKey(KeyCode.S) || Input.GetKey(KeyCode.DownArrow)) move += Vector3.back;
             if (Input.GetKey(KeyCode.A) || Input.GetKey(KeyCode.LeftArrow)) move += Vector3.left;
             if (Input.GetKey(KeyCode.D) || Input.GetKey(KeyCode.RightArrow)) move += Vector3.right;
-            
+
             // Y軸移動: E (上) / Q (下)
             if (Input.GetKey(KeyCode.E)) move += Vector3.up;
             if (Input.GetKey(KeyCode.Q)) move += Vector3.down;

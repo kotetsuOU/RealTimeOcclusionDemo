@@ -32,6 +32,10 @@ public static class PCDOcclusionDebugExporter
         UnityEngine.Debug.Log($"[PCDOcclusionDebugExporter] Exporting Occlusion Map with 16-palette from data (width={width}, height={height})...");
         if (data == null || data.Length != width * height) return;
 
+#if !UNITY_EDITOR
+        savePath = Path.Combine(Application.persistentDataPath, "OcclusionMaps");
+#endif
+
         // 保存先のディレクトリが存在しない場合は作成
         if (!Directory.Exists(savePath))
         {

@@ -15,7 +15,7 @@ public class NewRsPointCloudRenderer : MonoBehaviour
     [Header("PointCloud Settings")]
     [SerializeField] public float maxPlaneDistance = 0.1f;
     public Color pointCloudColor = new Color(241f / 255f, 187f / 255f, 147f / 255f, 1f);
-    [SerializeField, HideInInspector] private string exportFileName = "currentGlobalVertices.txt";
+    // [SerializeField, HideInInspector] private string exportFileName = "currentGlobalVertices.txt";
 
     [Header("Performance Logging Settings")]
     public string logFilePrefix = "PointCloudPerfLog";
