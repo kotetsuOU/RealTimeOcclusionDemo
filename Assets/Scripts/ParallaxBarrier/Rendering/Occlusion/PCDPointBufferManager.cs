@@ -158,7 +158,7 @@ public class PCDPointBufferManager
     // 必要に応じて、外部バッファと内部バッファを結合するためのバッファサイズを確保・再確保する
     public void EnsureCombinedBuffer(int totalCount)
     {
-        if (_combinedBuffer == null || _combinedBuffer.count < totalCount || !_combinedBuffer.IsValid())
+        if (_combinedBuffer == null || !_combinedBuffer.IsValid() || _combinedBuffer.count < totalCount)
         {
             _combinedBuffer?.Release();
             _combinedBuffer = new ComputeBuffer(totalCount, STRIDE);
@@ -286,8 +286,9 @@ public class PCDPointBufferManager
         // バッファが未割り当てか、サイズが不足している場合のみ再生成する
         if (_pointBuffer == null || !_pointBuffer.IsValid() || _pointBuffer.count < _pointCount)
         {
+            int oldSize = (_pointBuffer != null && _pointBuffer.IsValid()) ? _pointBuffer.count : 0;
             _pointBuffer?.Release();
-            int newSize = Mathf.Max(_pointCount, _pointBuffer != null ? _pointBuffer.count * 2 : 1024);
+            int newSize = Mathf.Max(_pointCount, Mathf.Max(oldSize * 2, 1024));
             _pointBuffer = new ComputeBuffer(newSize, STRIDE);
         }
 

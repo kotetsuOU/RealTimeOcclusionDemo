@@ -117,8 +117,10 @@ void ComputeOcclusion_Proposed(uint3 id)
 
         if (_OcclusionFadeWidth > 1e-4)
         {
-            float fadeEnd = _OcclusionThreshold + _OcclusionFadeWidth;
-            alpha = smoothstep(_OcclusionThreshold, fadeEnd, occlusionAverage);
+            float halfFade = _OcclusionFadeWidth * 0.5;
+            float fadeStart = max(0.0, _OcclusionThreshold - halfFade);
+            float fadeEnd = min(1.0, _OcclusionThreshold + halfFade);
+            alpha = smoothstep(fadeStart, fadeEnd, occlusionAverage);
         }
         else
         {
@@ -165,7 +167,7 @@ void ComputeOcclusion_Traditional(uint3 id)
     float3 currentPos = _ViewPositionMap[id.xy].xyz;
     float currentDepth = _ViewPositionMap[id.xy].w;
 
-    // 【修正1】背景(OriginType==2u)もスキップせず、100m奥の仮想座標を与えて計算対象にする
+    // 背景(OriginType==2u)もスキップせず、100m奥の仮想座標を与えて計算対象にする
     if (originType == 2u)
     {
         float2 uv = (float2(id.xy) + 0.5) / _ScreenParams.xy;
@@ -224,7 +226,7 @@ void ComputeOcclusion_Traditional(uint3 id)
 
             bool isValidNeighbor = (originType == 0u) ? (neighborOriginType == 0u || neighborOriginType == 1u) : (neighborOriginType == 0u);
 
-            // 【修正2】手前にある「対象オブジェクト」だけを遮蔽物として計算に使う
+            // 手前にある「対象オブジェクト」だけを遮蔽物として計算に使う
             if (neighborDepth_uint < DEPTH_MAX_UINT && isValidNeighbor)
             {
                 half neighborDepth_h = (half)_ViewPositionMap[uv].w;
@@ -252,17 +254,15 @@ void ComputeOcclusion_Traditional(uint3 id)
     if (neighborCount > 0)
     {
         occlusionAverage = occlusionSum / (float) neighborCount;
-        if (_OcclusionFadeWidth > 1e-4) {
-            float fadeEnd = _OcclusionThreshold + _OcclusionFadeWidth;
-            alpha = smoothstep(_OcclusionThreshold, fadeEnd, occlusionAverage);
-        } else {
-            if (occlusionAverage < _OcclusionThreshold) alpha = 0.0;
+        if (occlusionAverage < _OcclusionThreshold)
+        {
+            alpha = 0.0;
         }
     }
     
     if (_RecordOcclusionDebug > 0) _OcclusionValueMap_RW[id.xy] = occlusionAverage;
 
-    // 【修正3】完全に遮蔽された(alpha=0)部分は、透明にするのではなく「黒」で物理的に消去(上書き)する！
+    // 完全に遮蔽された(alpha=0)部分は、透明にするのではなく「黒」で物理的に消去(上書き)する！
     if (alpha <= 0.0)
     {
         _OcclusionResultMap_RW[id.xy] = float4(0, 0, 0, 1.0); // Alpha=1の黒でARの背景(狐)を上書きして消す

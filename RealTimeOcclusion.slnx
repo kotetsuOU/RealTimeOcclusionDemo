@@ -22,8 +22,8 @@
   <Project Path="Unity.VisualScripting.Flow.Editor.csproj" />
   <Project Path="Unity.ProBuilder.Csg.csproj" />
   <Project Path="Unity.VisualStudio.Editor.csproj" />
-  <Project Path="Assembly-CSharp.csproj" />
   <Project Path="PPv2URPConverters.csproj" />
+  <Project Path="Assembly-CSharp.csproj" />
   <Project Path="Mediapipe.Runtime.csproj" />
   <Project Path="Unity.Searcher.Editor.csproj" />
   <Project Path="Unity.ProBuilder.Editor.csproj" />
