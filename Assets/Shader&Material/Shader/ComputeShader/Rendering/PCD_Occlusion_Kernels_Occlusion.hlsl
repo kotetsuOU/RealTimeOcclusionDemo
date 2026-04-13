@@ -8,6 +8,13 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
         return;
     
     uint currentOriginType = _OriginTypeMap_RW[id.xy];
+
+    // 【新規性①】Tagに基づく冗長計算のスキップのため、機能OFFの時（従来手法）は全ピクセルを実点群(0u)とみなす
+    if (_EnableTagBasedOptimization == 0)
+    {
+        currentOriginType = 0u;
+    }
+
     uint pointDepth_uint = _DepthMap[id.xy];
     
     float3 currentPos = _ViewPositionMap[id.xy].xyz;
@@ -69,9 +76,22 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
         {
             uint2 uv = uint2(searchX, searchY);
             uint neighborDepth_uint = _DepthMap[uv];
+            uint neighborOriginType = _OriginTypeMap_RW[uv];
 
-            // 遮蔽物(Neighbor)として計算に巻き込むのは「実点群(0u)」のみ
-            if (neighborDepth_uint < DEPTH_MAX_UINT && _OriginTypeMap_RW[uv] == 0u)
+            // C#側で機能OFFの場合は、近傍ピクセルも全て実点群(0u)とみなす
+            if (_EnableTagBasedOptimization == 0)
+            {
+                neighborOriginType = 0u;
+            }
+
+            // 【新規性①】Tagに基づく冗長計算のスキップ
+            // 対象が実点群(0u)の場合: 近傍は実点群(0u)または仮想オブジェクト(1u)
+            // 対象が仮想オブジェクト等(0u以外)の場合: 近傍は実点群(0u)のみ
+            // 機能OFFの時は、上が強制的に0uに書き換わっているため、全ての組み合わせで評価が行われる（従来手法の挙動）
+            bool isValidNeighbor = (currentOriginType == 0u) ? (neighborOriginType == 0u || neighborOriginType == 1u) : (neighborOriginType == 0u);
+
+            // 遮蔽物(Neighbor)として計算に巻き込む条件を適用
+            if (neighborDepth_uint < DEPTH_MAX_UINT && isValidNeighbor)
             {
                 half neighborDepth_h = (half)_ViewPositionMap[uv].w;
                  if (currentDepth_h - neighborDepth_h > 0.01h)

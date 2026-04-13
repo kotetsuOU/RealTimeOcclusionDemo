@@ -34,6 +34,26 @@ public class RsDevice : RsFrameProvider
 
     private int frameCount = 0;
 
+    private string GetAbsolutePath(string path)
+    {
+        if (string.IsNullOrEmpty(path)) return path;
+        path = path.Replace("\\", "/");
+
+        if (!System.IO.Path.IsPathRooted(path) || path.StartsWith("Assets/"))
+        {
+            string projectRoot = System.IO.Path.GetFullPath(System.IO.Path.Combine(Application.dataPath, "..")).Replace("\\", "/");
+
+            if (path.StartsWith("Assets/"))
+            {
+                path = path.Substring(7);
+            }
+
+            return projectRoot + "/Assets/" + path;
+        }
+
+        return path;
+    }
+
     /// <summary>
     /// Notifies upon streaming start
     /// </summary>
@@ -84,14 +104,24 @@ public class RsDevice : RsFrameProvider
                     }
                 case RsConfiguration.Mode.Playback:
                     {
-                        cfg.EnableDeviceFromFile(DeviceConfiguration.PlaybackFile);
+                        var finalPlaybackPath = GetAbsolutePath(DeviceConfiguration.PlaybackFile);
+                        cfg.EnableDeviceFromFile(finalPlaybackPath);
                         break;
                     }
                 case RsConfiguration.Mode.Record:
                     {
                         if (!string.IsNullOrEmpty(DeviceConfiguration.RequestedSerialNumber))
                             cfg.EnableDevice(DeviceConfiguration.RequestedSerialNumber);
-                        cfg.EnableRecordToFile(DeviceConfiguration.RecordPath);
+
+                        var finalRecordPath = GetAbsolutePath(DeviceConfiguration.RecordPath);
+                        var recordDir = System.IO.Path.GetDirectoryName(finalRecordPath);
+                        if (!string.IsNullOrEmpty(recordDir) && !System.IO.Directory.Exists(recordDir))
+                        {
+                            System.IO.Directory.CreateDirectory(recordDir);
+                        }
+
+                        cfg.EnableRecordToFile(finalRecordPath);
+                        UnityEngine.Debug.Log($"[RsDevice] Setup Recording => \nRaw Input: {DeviceConfiguration.RecordPath}\nResolved: {finalRecordPath}");
                         foreach (var p in DeviceConfiguration.Profiles)
                             p.Apply(cfg);
                         break;
@@ -154,18 +184,50 @@ public class RsDevice : RsFrameProvider
             worker = null;
         }
 
-        if (Streaming && OnStop != null)
-            OnStop();
-
-        if (m_pipeline != null)
+        if (Streaming)
         {
-            m_pipeline.Stop();
+            if (OnStop != null)
+                OnStop();
+
+            if (m_pipeline != null && ActiveProfile != null)
+            {
+                try
+                {
+                    m_pipeline.Stop();
+                }
+                catch (Exception e)
+                {
+                    UnityEngine.Debug.LogWarning($"Pipeline stop warning: {e.Message}");
+                }
+            }
+            Streaming = false;
+
+            if (DeviceConfiguration.mode == RsConfiguration.Mode.Record)
+            {
+                var finalRecordPath = GetAbsolutePath(DeviceConfiguration.RecordPath);
+                if (System.IO.File.Exists(finalRecordPath))
+                {
+                    var fileInfo = new System.IO.FileInfo(finalRecordPath);
+                    UnityEngine.Debug.Log($"[RsDevice] Recording Stopped. File successfully found on disk: {finalRecordPath}\nFrames captured: {frameCount}, File Size: {fileInfo.Length} bytes.");
+#if UNITY_EDITOR
+                    UnityEditor.AssetDatabase.Refresh();
+#endif
+                }
+                else
+                {
+                    UnityEngine.Debug.LogError($"[RsDevice] File NOT found on disk! Path: {finalRecordPath}. Frames captured: {frameCount}. Check if RealSense devices are working properly.");
+                }
+            }
         }
-        Streaming = false;
     }
 
     private void RaiseSampleEvent(Frame frame)
     {
+        if (DeviceConfiguration.mode == RsConfiguration.Mode.Record && recordDurationInFrames > 0)
+        {
+            Interlocked.Increment(ref frameCount);
+        }
+
         var onNewSample = OnNewSample;
         if (onNewSample != null)
         {
@@ -213,6 +275,16 @@ public class RsDevice : RsFrameProvider
         if (!Streaming)
             return;
 
+        if (DeviceConfiguration.mode == RsConfiguration.Mode.Record && recordDurationInFrames > 0)
+        {
+            if (frameCount >= recordDurationInFrames)
+            {
+                UnityEngine.Debug.Log($"[RsDevice] Expected recording duration reached: {frameCount}/{recordDurationInFrames} frames.");
+                StopStreaming();
+                return;
+            }
+        }
+
         if (processMode != ProcessMode.UnityThread)
             return;
 
@@ -221,16 +293,6 @@ public class RsDevice : RsFrameProvider
         {
             using (frames)
             {
-                if (DeviceConfiguration.mode == RsConfiguration.Mode.Record && recordDurationInFrames > 0)
-                {
-                    frameCount++;
-                    if (frameCount >= recordDurationInFrames)
-                    {
-                        UnityEngine.Debug.Log($"Recording completed after {frameCount} frames.");
-                        StopStreaming();
-                        return;
-                    }
-                }
                 RaiseSampleEvent(frames);
             }
         }

@@ -20,10 +20,11 @@ public class PCDRendererFeature : ScriptableRendererFeature
 
         public bool enableVirtualDepthIntegration;
 
-        public bool enableTypeAwareDensity;       // ① 仮想物体を区別した密度計算
-        public bool enableSoftOcclusionFade;      // ② ソフトオクルージョン (FadeWidth)
-        public bool enableJointBilateralHoleFilling; // ③ ジョイントバイラテラル穴埋め
-        
+        public bool enableTagBasedOptimization;   // ① タグに基づく探索スキップ
+        public bool enableTypeAwareDensity;       // ② 仮想物体を区別した密度計算
+        public bool enableSoftOcclusionFade;      // ③ ソフトオクルージョン (FadeWidth)
+        public bool enableJointBilateralHoleFilling; // ④ ジョイントバイラテラル穴埋め
+
         [HideInInspector] public uint _dynamicMultiplierRuntimeValue;
     }
 
@@ -87,13 +88,16 @@ public class PCDRendererFeature : ScriptableRendererFeature
     [Tooltip("仮想・現実の「相互オクルージョン」の統合を有効にするか")]
     public bool enableVirtualDepthIntegration = true;
 
-    [Tooltip("①仮想物体を区別した密度計算 (ONで従来手法のカウント漏れや過剰を補正)")]
+    [Tooltip("①タグによる近傍探索の最適化 (ONで不要な自己遮蔽計算をスキップ)")]
+    public bool enableTagBasedOptimization = true;
+
+    [Tooltip("②仮想物体を区別した密度計算 (ONで従来手法のカウント漏れや過剰を補正)")]
     public bool enableTypeAwareDensity = true;
 
-    [Tooltip("②ソフトオクルージョン (ONでグラデーションによる境界のスムージング)")]
+    [Tooltip("③ソフトオクルージョン (ONでグラデーションによる境界のスムージング)")]
     public bool enableSoftOcclusionFade = true;
 
-    [Tooltip("③エッジ保持型ホールフィリング (ONでジョイントバイラテラル穴埋め)")]
+    [Tooltip("④エッジ保持型ホールフィリング (ONでジョイントバイラテラル穴埋め)")]
     public bool enableJointBilateralHoleFilling = true;
 
     private PCDRenderPass _scriptablePass;
@@ -122,6 +126,7 @@ public class PCDRendererFeature : ScriptableRendererFeature
             enableOriginDebugMap = this.enableOriginDebugMap,
             recordOcclusionDebugMap = this.recordOcclusionDebugMap,
             enableVirtualDepthIntegration = this.enableVirtualDepthIntegration,
+            enableTagBasedOptimization = this.enableTagBasedOptimization,
             enableTypeAwareDensity = this.enableTypeAwareDensity,
             enableSoftOcclusionFade = this.enableSoftOcclusionFade,
             enableJointBilateralHoleFilling = this.enableJointBilateralHoleFilling,

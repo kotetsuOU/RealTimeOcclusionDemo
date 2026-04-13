@@ -48,13 +48,14 @@ public class KeyboardController : MonoBehaviour
                 PCDRendererFeature.Instance.recordOcclusionDebugMap = true;
                 Debug.Log("[KeyboardController] オクルージョンマップの出力をリクエストしました");
 
+                bool isTag = PCDRendererFeature.Instance.enableTagBasedOptimization;
                 bool isDensity = PCDRendererFeature.Instance.enableTypeAwareDensity;
                 bool isFade = PCDRendererFeature.Instance.enableSoftOcclusionFade;
                 bool isHoleFill = PCDRendererFeature.Instance.enableJointBilateralHoleFilling;
 
-                if (isDensity && isFade && isHoleFill) methodPrefix = "Proposal";
-                else if (!isDensity && !isFade && !isHoleFill) methodPrefix = "Traditional";
-                else methodPrefix = $"Ablation_D{(isDensity?"1":"0")}_F{(isFade?"1":"0")}_H{(isHoleFill?"1":"0")}";
+                if (isTag && isDensity && isFade && isHoleFill) methodPrefix = "Proposal";
+                else if (!isTag && !isDensity && !isFade && !isHoleFill) methodPrefix = "Traditional";
+                else methodPrefix = $"Ablation_T{(isTag?"1":"0")}_D{(isDensity?"1":"0")}_F{(isFade?"1":"0")}_H{(isHoleFill?"1":"0")}";
             }
 
             // ② 同時にCameraCaptureのCapture()を実行してViewPointカメラ映像を保存
@@ -102,12 +103,14 @@ public class KeyboardController : MonoBehaviour
             if (PCDRendererFeature.Instance != null)
             {
                 // 全ての提案機能のON/OFFを一括でトグルする
-                bool isAnyOn = PCDRendererFeature.Instance.enableTypeAwareDensity || 
+                bool isAnyOn = PCDRendererFeature.Instance.enableTagBasedOptimization || 
+                               PCDRendererFeature.Instance.enableTypeAwareDensity || 
                                PCDRendererFeature.Instance.enableSoftOcclusionFade || 
                                PCDRendererFeature.Instance.enableJointBilateralHoleFilling;
 
                 bool toggleTo = !isAnyOn; // 1つでもONならすべてOFFにする
 
+                PCDRendererFeature.Instance.enableTagBasedOptimization = toggleTo;
                 PCDRendererFeature.Instance.enableTypeAwareDensity = toggleTo;
                 PCDRendererFeature.Instance.enableSoftOcclusionFade = toggleTo;
                 PCDRendererFeature.Instance.enableJointBilateralHoleFilling = toggleTo;
@@ -118,24 +121,29 @@ public class KeyboardController : MonoBehaviour
         }
 
         // ----------------------------------------------------
-        // 5. 各提案機能(Ablation)の個別切り替え (Alpha1, 2, 3)
+        // 5. 各提案機能(Ablation)の個別切り替え (Alpha1, 2, 3, 4)
         // ----------------------------------------------------
         if (PCDRendererFeature.Instance != null)
         {
             if (Input.GetKeyDown(KeyCode.Alpha1))
             {
-                PCDRendererFeature.Instance.enableTypeAwareDensity = !PCDRendererFeature.Instance.enableTypeAwareDensity;
-                Debug.Log($"[KeyController] ① 密度計算補正: {(PCDRendererFeature.Instance.enableTypeAwareDensity ? "ON" : "OFF")}");
+                PCDRendererFeature.Instance.enableTagBasedOptimization = !PCDRendererFeature.Instance.enableTagBasedOptimization;
+                Debug.Log($"[KeyController] ① タグスキップ最適化: {(PCDRendererFeature.Instance.enableTagBasedOptimization ? "ON" : "OFF")}");
             }
             if (Input.GetKeyDown(KeyCode.Alpha2))
             {
-                PCDRendererFeature.Instance.enableSoftOcclusionFade = !PCDRendererFeature.Instance.enableSoftOcclusionFade;
-                Debug.Log($"[KeyController] ② ソフトフェード: {(PCDRendererFeature.Instance.enableSoftOcclusionFade ? "ON" : "OFF")}");
+                PCDRendererFeature.Instance.enableTypeAwareDensity = !PCDRendererFeature.Instance.enableTypeAwareDensity;
+                Debug.Log($"[KeyController] ② 密度計算補正: {(PCDRendererFeature.Instance.enableTypeAwareDensity ? "ON" : "OFF")}");
             }
             if (Input.GetKeyDown(KeyCode.Alpha3))
             {
+                PCDRendererFeature.Instance.enableSoftOcclusionFade = !PCDRendererFeature.Instance.enableSoftOcclusionFade;
+                Debug.Log($"[KeyController] ③ ソフトフェード: {(PCDRendererFeature.Instance.enableSoftOcclusionFade ? "ON" : "OFF")}");
+            }
+            if (Input.GetKeyDown(KeyCode.Alpha4))
+            {
                 PCDRendererFeature.Instance.enableJointBilateralHoleFilling = !PCDRendererFeature.Instance.enableJointBilateralHoleFilling;
-                Debug.Log($"[KeyController] ③ 穴埋め(Hole Filling): {(PCDRendererFeature.Instance.enableJointBilateralHoleFilling ? "ON" : "OFF")}");
+                Debug.Log($"[KeyController] ④ 穴埋め(Hole Filling): {(PCDRendererFeature.Instance.enableJointBilateralHoleFilling ? "ON" : "OFF")}");
             }
         }
 

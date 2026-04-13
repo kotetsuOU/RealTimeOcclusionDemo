@@ -366,13 +366,14 @@ public partial class PCDRenderPass
                             string methodPrefix = "";
                             if (PCDRendererFeature.Instance != null)
                             {
+                                bool isTag = PCDRendererFeature.Instance.enableTagBasedOptimization;
                                 bool isDensity = PCDRendererFeature.Instance.enableTypeAwareDensity;
                                 bool isFade = PCDRendererFeature.Instance.enableSoftOcclusionFade;
                                 bool isHoleFill = PCDRendererFeature.Instance.enableJointBilateralHoleFilling;
 
-                                if (isDensity && isFade && isHoleFill) methodPrefix = "Proposal";
-                                else if (!isDensity && !isFade && !isHoleFill) methodPrefix = "Traditional";
-                                else methodPrefix = $"Ablation_D{(isDensity?"1":"0")}_F{(isFade?"1":"0")}_H{(isHoleFill?"1":"0")}";
+                                if (isTag && isDensity && isFade && isHoleFill) methodPrefix = "Proposal";
+                                else if (!isTag && !isDensity && !isFade && !isHoleFill) methodPrefix = "Traditional";
+                                else methodPrefix = $"Ablation_T{(isTag?"1":"0")}_D{(isDensity?"1":"0")}_F{(isFade?"1":"0")}_H{(isHoleFill?"1":"0")}";
                             }
 
                             // テクスチャデータを画像として出力する関数を呼び出し
