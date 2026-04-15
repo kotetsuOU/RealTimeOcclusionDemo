@@ -39,7 +39,7 @@ git lfs install
 git clone https://github.com/kotetsuOU/RealTimeOcclusionDemo.git
 
 # クローン後、ディレクトリに移動してLFSファイルを展開
-cd RealTimeOcclusion
+cd RealTimeOcclusionDemo
 git lfs pull
 
 ```
