@@ -6,6 +6,8 @@
 /[Bb]uilds/
 /[Ll]ogs/
 /[Uu]ser[Ss]ettings/
+/ProfileAnalyzer/
+/ProfilerCaptures/
 
 # Custom data
 /Assets/HandTrackingData/

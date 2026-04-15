@@ -52,6 +52,8 @@ public static class PCDOcclusionDebugExporter
         int count = width * height;
         int virtualOcclusionCount = 0;
         int backgroundCount = 0;
+        int realPointVisibleCount = 0;
+        int tagSkippedCount = 0;
 
         for (int i = 0; i < count; i++)
         {
@@ -65,6 +67,18 @@ public static class PCDOcclusionDebugExporter
             if (v >= 1.9f) // 仮想オブジェクト (2.0)
             {
                 virtualOcclusionCount++;
+                continue;
+            }
+
+            if (v <= -2.5f) // 実点群(可視) (-3.0)
+            {
+                realPointVisibleCount++;
+                continue;
+            }
+
+            if (v <= -1.5f) // -2.0（Tagスキップ or Tag OFF時の遮蔽された実点群）
+            {
+                tagSkippedCount++;
                 continue;
             }
 
@@ -93,7 +107,7 @@ public static class PCDOcclusionDebugExporter
             hist[paletteIndex]++;
         }
 
-        Debug.Log($"[PCDOcclusionDebugExporter] occlusion value range: min={minV}, max={maxV} (count={count}, virtualObj={virtualOcclusionCount}, bg={backgroundCount})");
+        Debug.Log($"[PCDOcclusionDebugExporter] occlusion value range: min={minV}, max={maxV} (count={count}, virtualObj={virtualOcclusionCount}, bg={backgroundCount}, realPointVisible={realPointVisibleCount}, tagSkipped={tagSkippedCount})");
         Debug.Log($"[PCDOcclusionDebugExporter] hist(0..1.0 step, 16bin): [{string.Join(",", hist)}]");
 
         // 画像に書き込むためのテクスチャを生成
@@ -113,6 +127,16 @@ public static class PCDOcclusionDebugExporter
             else if (occlusionValue >= 1.9f) // 仮想オブジェクトによる隠蔽 (2.0)
             {
                 pixels[i] = Color.magenta; // 仮想オブジェクトはマゼンタ(ピンク)で識別
+                continue;
+            }
+            else if (occlusionValue <= -2.5f) // 実点群(可視) (-3.0)
+            {
+                pixels[i] = Color.green; // 実点群(可視)は緑
+                continue;
+            }
+            else if (occlusionValue <= -1.5f) // -2.0（Tagスキップ or Tag OFF時の遮蔽された実点群）
+            {
+                pixels[i] = Color.cyan; // シアンで識別
                 continue;
             }
             else if (occlusionValue < -0.5f) // 背景・穴 (-1.0)

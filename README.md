@@ -53,6 +53,33 @@ git lfs pull
 
 ---
 
+## 使い方
+基本的な使い方は以下の通りです。
+詳細なキーボード操作については、[こちらのガイド](./KeyboardControls.md)を確認してください。
+
+### オクルージョン DebugMap の使い方
+
+`PCDRendererFeature` の `Record Occlusion Debug Map` を有効にすると、**そのフレームのみ**オクルージョンデバッグ画像を保存できます。
+
+- 保存先: `Assets/HandTrackingData/OcclusionMaps`
+- 操作: `Enter` / `Return`（`KeyboardControls.md` の撮影操作）
+
+現在の可視化ルール（`PCDOcclusionDebugExporter`）:
+
+- **白**: 背景 (`-1.0`)
+- **緑**: 実点群（Tag最適化 ON 時スキップされた実点群 / OFF 時に遮蔽されていない実点群, `-3.0`）
+- **シアン**: その他スキップ / Tag最適化 OFF 時に遮蔽されている実点群 (`-2.0`)
+- **マゼンタ**: 仮想オブジェクト (`>= 1.9`)
+- **グレー**: ほぼ `0` の値
+- それ以外の `0.0 ~ 1.0`: 16段階パレット
+
+補足:
+
+- `Record Occlusion Debug Map` は連続保存を避けるため、保存後に自動で `false` に戻ります。
+- `Enable Tag Based Optimization` が OFF のとき、実点群は「可視=緑 / 遮蔽=シアン」で確認できます。
+
+---
+
 ## 📜 ライセンス (License)
 本プロジェクト自体は [MIT License](LICENSE) の下で公開されています。
 
