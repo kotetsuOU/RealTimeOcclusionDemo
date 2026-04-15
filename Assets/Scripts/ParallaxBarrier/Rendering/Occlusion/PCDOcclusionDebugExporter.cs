@@ -53,7 +53,7 @@ public static class PCDOcclusionDebugExporter
         int virtualOcclusionCount = 0;
         int backgroundCount = 0;
         int realPointVisibleCount = 0;
-        int tagSkippedCount = 0;
+        int cyanClassCount = 0;
 
         for (int i = 0; i < count; i++)
         {
@@ -78,7 +78,7 @@ public static class PCDOcclusionDebugExporter
 
             if (v <= -1.5f) // -2.0（Tagスキップ or Tag OFF時の遮蔽された実点群）
             {
-                tagSkippedCount++;
+                cyanClassCount++;
                 continue;
             }
 
@@ -107,7 +107,7 @@ public static class PCDOcclusionDebugExporter
             hist[paletteIndex]++;
         }
 
-        Debug.Log($"[PCDOcclusionDebugExporter] occlusion value range: min={minV}, max={maxV} (count={count}, virtualObj={virtualOcclusionCount}, bg={backgroundCount}, realPointVisible={realPointVisibleCount}, tagSkipped={tagSkippedCount})");
+        Debug.Log($"[PCDOcclusionDebugExporter] occlusion value range: min={minV}, max={maxV} (count={count}, virtualObj={virtualOcclusionCount}, bg={backgroundCount}, realPointVisible={realPointVisibleCount}, cyanClassCount={cyanClassCount})");
         Debug.Log($"[PCDOcclusionDebugExporter] hist(0..1.0 step, 16bin): [{string.Join(",", hist)}]");
 
         // 画像に書き込むためのテクスチャを生成
