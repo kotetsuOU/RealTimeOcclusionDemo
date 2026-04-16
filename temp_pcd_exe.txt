@@ -64,7 +64,7 @@ public partial class PCDRenderPass
         cmd.SetComputeTextureParam(cs, passData.kernelClear, ShaderIDs.OcclusionValueMap_RW, passData.occlusionValueMap);
         cmd.SetComputeTextureParam(cs, passData.kernelClear, ShaderIDs.FinalImage_RW, passData.finalImage);
         cmd.SetComputeTextureParam(cs, passData.kernelClear, ShaderIDs.OriginTypeMap_RW, passData.originTypeMap);
-        cmd.SetComputeTextureParam(cs, passData.kernelClear, ShaderIDs.OriginMap_RW, passData.debugDisplayMap);
+        cmd.SetComputeTextureParam(cs, passData.kernelClear, ShaderIDs.OriginMap_RW, passData.originDebugMap);
         cmd.DispatchCompute(cs, passData.kernelClear, threadGroupsX, threadGroupsY, 1);
 
         // カウンターのクリア
@@ -186,11 +186,11 @@ public partial class PCDRenderPass
         cmd.SetComputeTextureParam(cs, passData.kernelComputeOcclusion, ShaderIDs.FinalNeighborhoodSizeMap, passData.settings.enableGradientCorrection ? passData.correctedNeighborhoodSizeMap : passData.neighborhoodSizeMap);
         cmd.SetComputeTextureParam(cs, passData.kernelComputeOcclusion, ShaderIDs.OcclusionResultMap_RW, passData.occlusionResultMap);
 
-        int shouldRecordDebug = (passData.settings.recordOcclusionDebugMap || passData.settings.recordPixelTagMap || passData.settings.enablePixelTagMap || passData.settings.enableOcclusionMap) ? 1 : 0;
+        int shouldRecordDebug = (passData.settings.recordOcclusionDebugMap || passData.settings.recordOcclusionResultDebugMap || passData.settings.enableOriginDebugMap) ? 1 : 0;
         cmd.SetComputeIntParam(cs, ShaderIDs.RecordOcclusionDebug, shouldRecordDebug);
         cmd.SetComputeTextureParam(cs, passData.kernelComputeOcclusion, ShaderIDs.OcclusionValueMap_RW, passData.occlusionValueMap);
 
-        cmd.SetComputeTextureParam(cs, passData.kernelComputeOcclusion, ShaderIDs.OriginMap_RW, passData.debugDisplayMap);
+        cmd.SetComputeTextureParam(cs, passData.kernelComputeOcclusion, ShaderIDs.OriginMap_RW, passData.originDebugMap);
         cmd.DispatchCompute(cs, passData.kernelComputeOcclusion, threadGroupsX, threadGroupsY, 1);
 
         // --- ステージ11: 点群が描画されなかったピクセルに対する穴埋め（バイラテラル） ---
@@ -202,7 +202,7 @@ public partial class PCDRenderPass
             cmd.SetComputeTextureParam(cs, passData.kernelFillHoles, ShaderIDs.OriginTypeMap, passData.originTypeMap);
             cmd.SetComputeTextureParam(cs, passData.kernelFillHoles, ShaderIDs.OriginTypeMap_RW, passData.originTypeMap);
             cmd.SetComputeTextureParam(cs, passData.kernelFillHoles, ShaderIDs.OcclusionResultMap_RW, passData.occlusionResultMap);
-            cmd.SetComputeTextureParam(cs, passData.kernelFillHoles, ShaderIDs.OriginMap_RW, passData.debugDisplayMap);
+            cmd.SetComputeTextureParam(cs, passData.kernelFillHoles, ShaderIDs.OriginMap_RW, passData.originDebugMap);
             cmd.DispatchCompute(cs, passData.kernelFillHoles, threadGroupsX, threadGroupsY, 1);
         }
 
@@ -212,16 +212,14 @@ public partial class PCDRenderPass
         cmd.SetComputeTextureParam(cs, passData.kernelInterpolate, ShaderIDs.CameraColorTexture, passData.cameraColorTexture);
         cmd.SetComputeTextureParam(cs, passData.kernelInterpolate, ShaderIDs.OriginTypeMap, passData.originTypeMap);
         cmd.SetComputeTextureParam(cs, passData.kernelInterpolate, ShaderIDs.FinalImage_RW, passData.finalImage);
-        cmd.SetComputeTextureParam(cs, passData.kernelInterpolate, ShaderIDs.OriginMap_RW, passData.debugDisplayMap);
+        cmd.SetComputeTextureParam(cs, passData.kernelInterpolate, ShaderIDs.OriginMap_RW, passData.originDebugMap);
         cmd.DispatchCompute(cs, passData.kernelInterpolate, threadGroupsX, threadGroupsY, 1);
 
-        // --- ステージ13: PixelTag または OcclusionMap を表示時は、OcclusionValueMapを常時カラー(またはグレースケール)可視化して上書き ---
-        if (passData.settings.enablePixelTagMap || passData.settings.enableOcclusionMap)
+        // --- ステージ13: OriginDebugMap表示時は、OcclusionValueMapを常時カラー可視化して上書き ---
+        if (passData.settings.enableOriginDebugMap)
         {
-            int displayMode = passData.settings.enablePixelTagMap ? 1 : 2;
-            cmd.SetComputeIntParam(cs, ShaderIDs.DebugDisplayMode, displayMode);
             cmd.SetComputeTextureParam(cs, passData.kernelVisualizeOcclusionDebug, ShaderIDs.OcclusionValueMap_RW, passData.occlusionValueMap);
-            cmd.SetComputeTextureParam(cs, passData.kernelVisualizeOcclusionDebug, ShaderIDs.OriginMap_RW, passData.debugDisplayMap);
+            cmd.SetComputeTextureParam(cs, passData.kernelVisualizeOcclusionDebug, ShaderIDs.OriginMap_RW, passData.originDebugMap);
             cmd.DispatchCompute(cs, passData.kernelVisualizeOcclusionDebug, threadGroupsX, threadGroupsY, 1);
         }
 
@@ -251,7 +249,7 @@ public partial class PCDRenderPass
     {
         // アルファブレンドや特定のレンダーキューに対応するため、
         // カスタムマテリアルを用いて生成された画像をメインのフレームバッファに合成します
-        if (passData.blendMaterial != null && !passData.enablePixelTagMap && !passData.enableOcclusionMap)
+        if (passData.blendMaterial != null && !passData.enableOriginDebugMap)
         {
             Blitter.BlitTexture(context.cmd, passData.sourceImage, new Vector4(1, 1, 0, 0), passData.blendMaterial, 0);
             return;

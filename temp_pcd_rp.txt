@@ -61,8 +61,6 @@ public partial class PCDRenderPass : ScriptableRenderPass
         public static readonly int OriginTypeMap_RW = Shader.PropertyToID("_OriginTypeMap_RW");
         public static readonly int OriginMap_RW = Shader.PropertyToID("_OriginMap_RW");
 
-        public static readonly int DebugDisplayMode = Shader.PropertyToID("_DebugDisplayMode");
-
         public static readonly int OcclusionValueMap_RW = Shader.PropertyToID("_OcclusionValueMap_RW");
         public static readonly int RecordOcclusionDebug = Shader.PropertyToID("_RecordOcclusionDebug");
 
@@ -95,7 +93,7 @@ public partial class PCDRenderPass : ScriptableRenderPass
                 _kernelMerge, _kernelInitFromCamera, _kernelVisualizeOcclusionDebug;
 
     // 出力およびデバッグマップ
-    private RTHandle _debugDisplayMapHandle;
+    private RTHandle _originDebugMapHandle;
     private RTHandle _occlusionValueMapHandle;
     private RTHandle _integratedDepthMapHandle;
     private bool _isInitialized = false;
@@ -126,11 +124,10 @@ public partial class PCDRenderPass : ScriptableRenderPass
         this._settings = settings;
     }
 
-    /// <summary> オリジンデバッグマップなどのレンダリングを切り替えます。 </summary>
-    public void SetDebugFlags(bool enablePixelTagMap, bool enableOcclusionMap)
+    /// <summary> オリジンデバッグマップのレンダリングを切り替えます。 </summary>
+    public void SetDebugFlag(bool enableDebugMap)
     {
-        this._settings.enablePixelTagMap = enablePixelTagMap;
-        this._settings.enableOcclusionMap = enableOcclusionMap;
+        this._settings.enableOriginDebugMap = enableDebugMap;
     }
 
     /// <summary> 外部のコンピュートバッファを直接注入できるようにします。 </summary>
@@ -252,7 +249,7 @@ public partial class PCDRenderPass : ScriptableRenderPass
         internal TextureHandle occlusionValueMap;
         internal TextureHandle finalImage;
         internal TextureHandle originTypeMap;
-        internal TextureHandle debugDisplayMap;
+        internal TextureHandle originDebugMap;
     }
 
     private class BlitPassData
@@ -261,16 +258,15 @@ public partial class PCDRenderPass : ScriptableRenderPass
         internal TextureHandle sourceImage;
         internal TextureHandle cameraTarget;
         internal bool enableAlphaBlend;
-        internal bool enablePixelTagMap;
-        internal bool enableOcclusionMap;
+        internal bool enableOriginDebugMap;
     }
 
-    /// <summary> デバッグマップが生成されている場合はそれを返し、そうでない場合はnullを返します。 </summary>
-    public Texture GetDebugDisplayMap()
+    /// <summary> オリジンデバッグマップが生成されている場合はそれを返し、そうでない場合はnullを返します。 </summary>
+    public Texture GetOriginDebugMap()
     {
-        if ((_settings.enablePixelTagMap || _settings.enableOcclusionMap) && _debugDisplayMapHandle != null)
+        if (_settings.enableOriginDebugMap && _originDebugMapHandle != null)
         {
-            return _debugDisplayMapHandle;
+            return _originDebugMapHandle;
         }
         return null;
     }
@@ -282,38 +278,3 @@ public partial class PCDRenderPass : ScriptableRenderPass
         bool hasExternalData = _bufferManager.UseExternalBuffer && _bufferManager.ExternalPointBuffer != null && _bufferManager.ExternalPointBuffer.IsValid() && _bufferManager.ExternalPointCount > 0;
 
         // 内部バッファの確認
-        bool hasInternalData = _bufferManager.PointBuffer != null && _bufferManager.PointBuffer.IsValid() && _bufferManager.PointCount > 0;
-
-        // DepthMapモードのメッシュがあるか確認
-        bool hasDepthMapMeshes = _bufferManager.HasDepthMapMeshes();
-
-        // PointCloudモードのメッシュがあるか確認
-        bool hasPointCloudMeshes = _bufferManager.HasPointCloudMeshes();
-
-        // 点群データがなく、注入するメッシュもない場合（または背景の深度のみを生成する場合）、レンダリングをスキップします。
-        bool noPointCloudData = !hasExternalData && !hasInternalData && !hasPointCloudMeshes;
-        bool depthMapOnlyMode = hasDepthMapMeshes && noPointCloudData;
-
-        return depthMapOnlyMode;
-    }
-
-    /// <summary> メモリリークを防ぐために、リソースと参照を適切に解放します。 </summary>
-    public void Cleanup()
-    {
-        _bufferManager.Cleanup();
-
-        _debugDisplayMapHandle?.Release();
-        _debugDisplayMapHandle = null;
-
-        _occlusionValueMapHandle?.Release();
-        _occlusionValueMapHandle = null;
-
-        _integratedDepthMapHandle?.Release();
-        _integratedDepthMapHandle = null;
-
-        _staticMeshCounterBuffer?.Release();
-        _staticMeshCounterBuffer = null;
-
-        _isInitialized = false;
-    }
-}

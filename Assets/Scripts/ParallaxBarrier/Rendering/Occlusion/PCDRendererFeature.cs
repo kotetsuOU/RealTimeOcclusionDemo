@@ -15,8 +15,10 @@ public class PCDRendererFeature : ScriptableRendererFeature
         public float gradientThreshold_g_th;
         [Range(0f, 1f)] public float occlusionThreshold;
         [Range(0f, 1f)] public float occlusionFadeWidth;
-        public bool enableOriginDebugMap;
+        public bool enablePixelTagMap;
+        public bool enableOcclusionMap;
         public bool recordOcclusionDebugMap;
+        public bool recordPixelTagMap;
         public bool recordIntegratedDepthMap;
 
         public bool enableVirtualDepthIntegration;
@@ -79,11 +81,17 @@ public class PCDRendererFeature : ScriptableRendererFeature
     public float boundsSize = 10000f;
 
     [Header("Debug")]
-    [Tooltip("点群(黒)と静的メッシュ(白)の由来を示すデバッグマップを有効にします")]
-    public bool enableOriginDebugMap = false;
+    [Tooltip("点群(黒)と静的メッシュ(白)の由来を示すデバッグマップ(PixelTagMap)を有効にします")]
+    public bool enablePixelTagMap = false;
 
-    [Tooltip("1フレームだけOcclusionの個別の生値を記録します")]
+    [Tooltip("内積計算で得た occlusionAverage(0~1) を、Record Occlusion Debug Map と同じ配色ルールで画面上に常時表示します")]
+    public bool enableOcclusionMap = false;
+
+    [Tooltip("1フレームだけOcclusionMapを保存します（occlusionAverageをPNG/CSVへ出力）")]
     public bool recordOcclusionDebugMap = false;
+
+    [Tooltip("1フレームだけPixelTagMap(由来情報の生値)を記録します")]
+    public bool recordPixelTagMap = false;
 
     [Tooltip("1フレームだけ統合DepthMapを記録します")]
     public bool recordIntegratedDepthMap = false;
@@ -127,8 +135,10 @@ public class PCDRendererFeature : ScriptableRendererFeature
             gradientThreshold_g_th = this.gradientThreshold_g_th,
             occlusionThreshold = this.occlusionThreshold,
             occlusionFadeWidth = this.occlusionFadeWidth,
-            enableOriginDebugMap = this.enableOriginDebugMap,
+            enablePixelTagMap = this.enablePixelTagMap,
+            enableOcclusionMap = this.enableOcclusionMap,
             recordOcclusionDebugMap = this.recordOcclusionDebugMap,
+            recordPixelTagMap = this.recordPixelTagMap,
             recordIntegratedDepthMap = this.recordIntegratedDepthMap,
             enableVirtualDepthIntegration = this.enableVirtualDepthIntegration,
             enableTagBasedOptimization = this.enableTagBasedOptimization,
@@ -216,7 +226,7 @@ public class PCDRendererFeature : ScriptableRendererFeature
         // 毎フレーム、メッシュのカリング設定やレイヤーを強制適用する
         EnforceSettingsEveryFrame();
 
-        if (pointCloudCompute == null || (enableAlphaBlend && !enableOriginDebugMap && blendMaterial == null))
+        if (pointCloudCompute == null || (enableAlphaBlend && !enablePixelTagMap && !enableOcclusionMap && blendMaterial == null))
         {
             return;
         }
@@ -225,7 +235,7 @@ public class PCDRendererFeature : ScriptableRendererFeature
         {
             // Inspectorでの変更をパスに反映
             _scriptablePass.UpdateSettings(GetSettings());
-            _scriptablePass.SetDebugFlag(enableOriginDebugMap);
+            _scriptablePass.SetDebugFlags(enablePixelTagMap, enableOcclusionMap);
         }
 
         // 常時パスをエンキューし、描画をスキップするかどうかはRecordRenderGraph内や内部ロジックに委ねる
@@ -305,7 +315,7 @@ public class PCDRendererFeature : ScriptableRendererFeature
         }
     }
 
-    public Texture GetOriginDebugMap() => _scriptablePass?.GetOriginDebugMap();
+    public Texture GetDebugDisplayMap() => _scriptablePass?.GetDebugDisplayMap();
 
     // ==========================================
     // インスペクターの値が変更された時に自動で呼ばれる検証関数

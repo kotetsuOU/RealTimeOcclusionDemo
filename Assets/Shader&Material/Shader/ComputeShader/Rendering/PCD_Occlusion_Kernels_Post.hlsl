@@ -101,6 +101,8 @@ void InitFromCamera(uint3 id : SV_DispatchThreadID)
     InterlockedAdd(_StaticMeshCounter_RW[0], 1u);
 }
 
+int _DebugDisplayMode;
+
 // 13. Visualize Occlusion Debug
 // OcclusionValueMapの値をREADME/Exporterと同じルールでカラー変換し、
 // 画面表示用のOriginMapへ出力する。
@@ -110,7 +112,68 @@ void VisualizeOcclusionDebug(uint3 id : SV_DispatchThreadID)
     if (id.x >= (uint)_ScreenParams.x || id.y >= (uint)_ScreenParams.y)
         return;
 
-    float v = _OcclusionValueMap_RW[id.xy];
+    // mode 1: PixelTagMap(判定後), mode 2: OcclusionMap(生値)
+    if (_DebugDisplayMode == 2)
+    {
+        float vOcclusion = _OcclusionValueMap_RW[id.xy].y;
+        if (isnan(vOcclusion) || isinf(vOcclusion))
+        {
+            _OriginMap_RW[id.xy] = float4(0, 0, 0, 1);
+            return;
+        }
+
+        float v = saturate(vOcclusion);
+        if (v <= 0.0001)
+        {
+            _OriginMap_RW[id.xy] = float4(0.5, 0.5, 0.5, 1); // gray
+            return;
+        }
+
+        const float rangeMin = 0.0;
+        const float rangeMax = 1.0;
+        const float steps = 15.0;
+        const float stepSize = (rangeMax - rangeMin) / steps;
+
+        int paletteIndex;
+        if (v >= rangeMax)
+        {
+            paletteIndex = 15;
+        }
+        else if (v <= rangeMin)
+        {
+            paletteIndex = 1;
+        }
+        else
+        {
+            paletteIndex = 1 + clamp((int)((v - rangeMin) / stepSize), 0, 14);
+        }
+
+        float3 c;
+        switch (paletteIndex)
+        {
+            case 1: c = float3(0.00, 0.00, 0.50); break;
+            case 2: c = float3(0.00, 0.00, 0.75); break;
+            case 3: c = float3(0.00, 0.00, 1.00); break;
+            case 4: c = float3(0.00, 0.25, 1.00); break;
+            case 5: c = float3(0.00, 0.50, 1.00); break;
+            case 6: c = float3(0.00, 0.75, 1.00); break;
+            case 7: c = float3(0.00, 1.00, 1.00); break;
+            case 8: c = float3(0.25, 1.00, 0.75); break;
+            case 9: c = float3(0.50, 1.00, 0.50); break;
+            case 10: c = float3(0.75, 1.00, 0.25); break;
+            case 11: c = float3(1.00, 1.00, 0.00); break;
+            case 12: c = float3(1.00, 0.75, 0.00); break;
+            case 13: c = float3(1.00, 0.50, 0.00); break;
+            case 14: c = float3(1.00, 0.25, 0.00); break;
+            default: c = float3(1.00, 0.00, 0.00); break;
+        }
+
+        _OriginMap_RW[id.xy] = float4(c, 1);
+        return;
+    }
+
+    float labelValue = _OcclusionValueMap_RW[id.xy].x;
+    float v = labelValue;
 
     if (isnan(v) || isinf(v))
     {
@@ -118,25 +181,26 @@ void VisualizeOcclusionDebug(uint3 id : SV_DispatchThreadID)
         return;
     }
 
-    if (v >= 1.9)
+    // 特殊ラベルの色分けは常に x(label) を使う
+    if (labelValue >= 1.9)
     {
         _OriginMap_RW[id.xy] = float4(1, 0, 1, 1); // magenta
         return;
     }
 
-    if (v <= -2.5)
+    if (labelValue <= -2.5)
     {
         _OriginMap_RW[id.xy] = float4(0, 1, 0, 1); // green
         return;
     }
 
-    if (v <= -1.5)
+    if (labelValue <= -1.5)
     {
         _OriginMap_RW[id.xy] = float4(0, 1, 1, 1); // cyan
         return;
     }
 
-    if (v < -0.5)
+    if (labelValue < -0.5)
     {
         _OriginMap_RW[id.xy] = float4(1, 1, 1, 1); // white
         return;

@@ -23,7 +23,7 @@ void ClearMaps(uint3 id : SV_DispatchThreadID)
     _DepthMap_RW[id.xy] = DEPTH_MAX_UINT;
     _ViewPositionMap_RW[id.xy] = float4(0, 0, 0, 1e9);
     _OcclusionResultMap_RW[id.xy] = float4(0, 0, 0, 0);
-    _OcclusionValueMap_RW[id.xy] = 0.0;
+    _OcclusionValueMap_RW[id.xy] = float2(0.0, 0.0);
     _FinalImage_RW[id.xy] = float4(0, 0, 0, 0);
 
     _OriginMap_RW[id.xy] = float4(0, 0, 0, 1);

@@ -1,0 +1,60 @@
+
+        // --- デバッグ用のオクルージョンマップを非同期出力するパス ---
+        if (_settings.recordOcclusionDebugMap)
+        {
+            using (var builder = renderGraph.AddUnsafePass<BlitPassData>("PCD Extract Occlusion Debug", out var debugData))
+            {
+                builder.UseTexture(occlusionValueMapHandle_RG, AccessFlags.Read);
+                builder.AllowPassCulling(false);
+
+                builder.SetRenderFunc((BlitPassData passData, UnsafeGraphContext context) =>
+                {
+                    if (_occlusionValueMapHandle == null || _occlusionValueMapHandle.rt == null)
+                    {
+                        return;
+                    }
+
+                    var rt = _occlusionValueMapHandle.rt;
+                    context.cmd.RequestAsyncReadback(rt, 0, 0, screenWidth, 0, screenHeight, 0, 1, GraphicsFormatUtility.GetGraphicsFormat(TextureFormat.RGFloat, false), request =>
+                    {
+                        if (request.hasError)
+                        {
+                            Debug.LogError("[PCD Export] AsyncGPUReadback error.");
+                            return;
+                        }
+
+                        int w = request.width;
+                        int h = request.height;
+                        var rawData = request.GetData<float>();
+                        float[] fData = new float[w * h];
+                        float[] rawValues = new float[w * h];
+                        for(int i = 0; i < w * h; i++)
+                        {
+                            fData[i] = rawData[i * 2];
+                            rawValues[i] = rawData[i * 2 + 1];
+                        }
+
+                        string methodPrefix = "";
+                        if (PCDRendererFeature.Instance != null)
+                        {
+                            bool isTag = PCDRendererFeature.Instance.enableTagBasedOptimization;
+                            bool isDensity = PCDRendererFeature.Instance.enableTypeAwareDensity;
+                            bool isFade = PCDRendererFeature.Instance.enableSoftOcclusionFade;
+                            bool isHoleFill = PCDRendererFeature.Instance.enableJointBilateralHoleFilling;
+
+                            if (isTag && isDensity && isFade && isHoleFill) methodPrefix = "Proposal";
+                            else if (!isTag && !isDensity && !isFade && !isHoleFill) methodPrefix = "Traditional";
+                            else methodPrefix = $"Ablation_T{(isTag?"1":"0")}_D{(isDensity?"1":"0")}_F{(isFade?"1":"0")}_H{(isHoleFill?"1":"0")}";
+                        }
+
+                        PCDOcclusionDebugExporter.ExportOcclusionMap16PaletteFromData(fData, rawValues, w, h, "Assets/HandTrackingData/OcclusionMaps", methodPrefix);
+                    });
+                });
+            }
+
+            if (PCDRendererFeature.Instance != null && PCDRendererFeature.Instance.recordOcclusionDebugMap)
+            {
+                PCDRendererFeature.Instance.recordOcclusionDebugMap = false;
+            }
+        }
+

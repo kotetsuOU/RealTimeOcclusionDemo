@@ -27,7 +27,7 @@ public static class PCDOcclusionDebugExporter
 
 
     // CPU側に読み戻されたオクルージョン値の配列（data）を画像としてディスクに保存する
-    public static void ExportOcclusionMap16PaletteFromData(float[] data, int width, int height, string savePath = "Assets/HandTrackingData/OcclusionMaps", string prefix = "")
+    public static void ExportOcclusionMap16PaletteFromData(float[] data, float[] rawData, int width, int height, string savePath = "Assets/HandTrackingData/OcclusionMaps", string prefix = "", bool preferRawValuesInCsv = false)
     {
         UnityEngine.Debug.Log($"[PCDOcclusionDebugExporter] Exporting Occlusion Map with 16-palette from data (width={width}, height={height})...");
         if (data == null || data.Length != width * height) return;
@@ -42,8 +42,11 @@ public static class PCDOcclusionDebugExporter
             Directory.CreateDirectory(savePath);
         }
 
-        string fileName = $"OcclusionMap_{prefix}_{DateTime.Now:yyyyMMdd_HHmmss}.png";
+        string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+        string fileName = $"OcclusionMap_{prefix}_{timestamp}.png";
+        string csvFileName = $"OcclusionData_{prefix}_{timestamp}.csv";
         string fullPath = Path.Combine(savePath, fileName);
+        string csvFullPath = Path.Combine(savePath, csvFileName);
 
         // 基本的な統計情報（最大値、最小値、ヒストグラム）を計算
         float minV = float.PositiveInfinity;
@@ -58,6 +61,8 @@ public static class PCDOcclusionDebugExporter
         for (int i = 0; i < count; i++)
         {
             float v = data[i];
+            float rawV = (rawData != null && rawData.Length == count) ? rawData[i] : v;
+
             if (float.IsNaN(v) || float.IsInfinity(v))
             {
                 hist[0]++;
@@ -88,21 +93,21 @@ public static class PCDOcclusionDebugExporter
                 continue;
             }
 
-            if (v < minV) minV = v;
-            if (v > maxV) maxV = v;
+            if (rawV < minV) minV = rawV;
+            if (rawV > maxV) maxV = rawV;
 
             int paletteIndex;
-            if (v >= RangeMax)
+            if (rawV >= RangeMax)
             {
                 paletteIndex = 15;
             }
-            else if (v <= RangeMin)
+            else if (rawV <= RangeMin)
             {
                 paletteIndex = 1;
             }
             else
             {
-                paletteIndex = 1 + Mathf.Clamp((int)((v - RangeMin) / StepSize), 0, Steps - 1);
+                paletteIndex = 1 + Mathf.Clamp((int)((rawV - RangeMin) / StepSize), 0, Steps - 1);
             }
             hist[paletteIndex]++;
         }
@@ -118,6 +123,7 @@ public static class PCDOcclusionDebugExporter
         for (int i = 0; i < width * height; i++)
         {
             float occlusionValue = data[i];
+            float rawV = (rawData != null && rawData.Length == count) ? rawData[i] : occlusionValue;
 
             if (float.IsNaN(occlusionValue) || float.IsInfinity(occlusionValue))
             {
@@ -144,24 +150,24 @@ public static class PCDOcclusionDebugExporter
                 pixels[i] = Color.white; // 背景・穴は白
                 continue;
             }
-            else if (occlusionValue <= 0.0001f) // Treat exactly 0 or near-0 as black (グレーで表示して区別)
+            else if (rawV <= 0.0001f) // Treat exactly 0 or near-0 as black (グレーで表示して区別)
             {
                 pixels[i] = Color.gray;
                 continue;
             }
 
             int paletteIndex;
-            if (occlusionValue >= RangeMax)
+            if (rawV >= RangeMax)
             {
                 paletteIndex = 15;
             }
-            else if (occlusionValue <= RangeMin)
+            else if (rawV <= RangeMin)
             {
                 paletteIndex = 1;
             }
             else
             {
-                paletteIndex = 1 + Mathf.Clamp((int)((occlusionValue - RangeMin) / StepSize), 0, Steps - 1);
+                paletteIndex = 1 + Mathf.Clamp((int)((rawV - RangeMin) / StepSize), 0, Steps - 1);
             }
             pixels[i] = Palette16[paletteIndex];
         }
@@ -173,8 +179,50 @@ public static class PCDOcclusionDebugExporter
         byte[] pngBytes = tex.EncodeToPNG();
         File.WriteAllBytes(fullPath, pngBytes);
 
+        // 実際のオクルージョン値をCSVとして保存（Excel等で確認可能）
+        try
+        {
+            using (StreamWriter writer = new StreamWriter(csvFullPath))
+            {
+                for (int y = 0; y < height; y++)
+                {
+                    for (int x = 0; x < width; x++)
+                    {
+                        float val;
+                        float labelVal = data[y * width + x];
+                        float rawVal = (rawData != null && rawData.Length == width * height) ? rawData[y * width + x] : labelVal;
+
+                        if (preferRawValuesInCsv)
+                        {
+                            val = rawVal;
+                        }
+                        else if (labelVal < -0.5f || labelVal >= 1.9f)
+                        {
+                            // PixelTag系CSVでは識別ラベル値を優先
+                            val = labelVal;
+                        }
+                        else
+                        {
+                            val = rawVal;
+                        }
+                        writer.Write(val.ToString("F3"));
+                        if (x < width - 1)
+                        {
+                            writer.Write(",");
+                        }
+                    }
+                    writer.WriteLine();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"[PCDOcclusionDebugExporter] Failed to save CSV: {ex.Message}");
+        }
+
         // テクスチャを破棄してメモリリークを防ぐ
         UnityEngine.Object.Destroy(tex);
         Debug.Log($"[PCDOcclusionDebugExporter] Saved Occlusion Map with 16-palette to: {fullPath}");
+        Debug.Log($"[PCDOcclusionDebugExporter] Saved Occlusion Data (CSV) to: {csvFullPath}");
     }
 }

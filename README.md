@@ -60,12 +60,17 @@ git lfs pull
 ※ Unityで実行する際は、`Project` ウィンドウから `Scenes` フォルダ内の `RealTimeOcclusion` シーンを開いてください。
   そのシーンをアクティブにしてから再生（Play）ボタンで動作確認を行ってください。
 
-### オクルージョン DebugMap の使い方
+### オクルージョン DebugMap / PixelTagMap の使い方
 
-`PCDRendererFeature` の `Record Occlusion Debug Map` を有効にすると、**そのフレームのみ**オクルージョンデバッグ画像を保存できます。
+`PCDRendererFeature` の `Record Occlusion Debug Map` を有効にすると、**そのフレームのみ**内積計算から得られる `occlusionAverage`（0.0～1.0）を保存できます。
 - 保存先: `Assets/HandTrackingData/OcclusionMaps`
-- 操作: `Enter` / `Return`（`KeyboardControls.md` の撮影操作。Enterで統合DepthMapも同時撮影）
-- 
+- CSV: `occlusionAverage`（0.0～1.0）を保存
+- 操作: `Enter` / `Return`（`KeyboardControls.md` の撮影操作。Enterで統合DepthMapなども同時撮影）
+
+`PCDRendererFeature` の `Record Pixel Tag Map` を有効にすると、**そのフレームのみ**最終判定後の「アルファ値（遮蔽判定された0か1か）」と「クラス分類値」を保存できます。
+- 保存先: `Assets/HandTrackingData/PixelTagMaps`
+- 操作: 同上
+
 `PCDRendererFeature` の `Record Integrated Depth Map` を有効にすると、**そのフレームのみ**統合DepthMapを保存できます。
 
 - 保存先: `Assets/HandTrackingData/DepthMaps/Integrated`
@@ -82,8 +87,9 @@ git lfs pull
 
 補足:
 
-- `Enable Origin Debug Map` を ON にすると、DebugMap と同じ配色ルールの可視化を画面上で常時確認できます。
-- `Record Occlusion Debug Map` は連続保存を避けるため、保存後に自動で `false` に戻ります。
+- `Enable PixelTagMap` を ON にすると、DebugMap と同じ配色ルールの可視化(最終判定後のアルファ値)を画面上で常時確認できます。
+- `Enable Occlusion Map` を ON にすると、`Record Occlusion Debug Map` と同じく `occlusionAverage`（0.0～1.0）を同じ配色ルールで画面上に常時表示します。
+- `Record Occlusion Debug Map` や `Record Pixel Tag Map` は連続保存を避けるため、保存後に自動で `false` に戻ります。
 - `Record Integrated Depth Map` も保存後に自動で `false` に戻ります。
 - `Enable Tag Based Optimization` が OFF のとき、実点群は「可視=緑 / 遮蔽=シアン」で確認できます。
 

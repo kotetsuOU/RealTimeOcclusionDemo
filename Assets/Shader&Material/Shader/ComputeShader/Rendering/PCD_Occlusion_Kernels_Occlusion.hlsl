@@ -20,9 +20,9 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
         {
             // デバッグ専用: Tag最適化でスキップされた種類を識別
             // -1.0 = 背景, -3.0 = 実点群(スキップ), -2.0 = その他スキップ
-            if (currentOriginType == 2u) _OcclusionValueMap_RW[id.xy] = -1.0;
-            else if (currentOriginType == 0u) _OcclusionValueMap_RW[id.xy] = -3.0;
-            else _OcclusionValueMap_RW[id.xy] = -2.0;
+            if (currentOriginType == 2u) _OcclusionValueMap_RW[id.xy] = float2(-1.0, 0.0);
+            else if (currentOriginType == 0u) _OcclusionValueMap_RW[id.xy] = float2(-3.0, 0.0);
+            else _OcclusionValueMap_RW[id.xy] = float2(-2.0, 0.0);
         }
 
         _OcclusionResultMap_RW[id.xy] = _ColorMap[id.xy];
@@ -69,8 +69,8 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
         if (_RecordOcclusionDebug > 0)
         {
             // Tag最適化OFFのデバッグ時は、実点群が手前の点群に遮蔽されたケースをシアン(-2.0)で可視化
-            if (!useTagOptimization && originalCurrentOriginType == 0u) _OcclusionValueMap_RW[id.xy] = -2.0;
-            else _OcclusionValueMap_RW[id.xy] = 1.0; // 透過なし(1.0)として出力
+            if (!useTagOptimization && originalCurrentOriginType == 0u) _OcclusionValueMap_RW[id.xy] = float2(-2.0, 0.0);
+            else _OcclusionValueMap_RW[id.xy] = float2(1.0, 0.0); // 透過なし(1.0)として出力
         }
         _OcclusionResultMap_RW[id.xy] = _ColorMap[id.xy]; 
         _OriginMap_RW[id.xy] = float4(1, 1, 1, 1);
@@ -169,17 +169,17 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
     {
         if (originalCurrentOriginType == 2u)
         {
-            _OcclusionValueMap_RW[id.xy] = -1.0; // 背景(-1.0)は白(Color.white)として出力させる
+            _OcclusionValueMap_RW[id.xy] = float2(-1.0, occlusionAverage); // 背景(-1.0)は白(Color.white)として出力させる
         }
         else if (!useTagOptimization && originalCurrentOriginType == 0u)
         {
             // Tag最適化OFF時: 実点群の可視状態を明示的に色分け
             // 可視(遮蔽されていない) = -3.0(緑), 遮蔽あり = -2.0(シアン)
-            _OcclusionValueMap_RW[id.xy] = (alpha > 0.0) ? -3.0 : -2.0;
+            _OcclusionValueMap_RW[id.xy] = float2((alpha > 0.0) ? -3.0 : -2.0, occlusionAverage);
         }
         else
         {
-            _OcclusionValueMap_RW[id.xy] = alpha;
+            _OcclusionValueMap_RW[id.xy] = float2(alpha, occlusionAverage);
         }
     }
 

@@ -46,6 +46,7 @@ public class KeyboardController : MonoBehaviour
             if (PCDRendererFeature.Instance != null)
             {
                 PCDRendererFeature.Instance.recordOcclusionDebugMap = true;
+                PCDRendererFeature.Instance.recordPixelTagMap = true;
                 PCDRendererFeature.Instance.recordIntegratedDepthMap = true;
                 Debug.Log("[KeyboardController] オクルージョンDebugMap / 統合DepthMap の出力をリクエストしました");
 
@@ -211,18 +212,34 @@ public class KeyboardController : MonoBehaviour
         }
 
         // ----------------------------------------------------
-        // 8. Origin Debug Map の切り替え (Oキー)
+        // 8. PixelTag Map の切り替え (Pキー)
+        // ----------------------------------------------------
+        if (Input.GetKeyDown(KeyCode.P))
+        {
+            if (PCDRendererFeature.Instance != null)
+            {
+                PCDRendererFeature.Instance.enablePixelTagMap = !PCDRendererFeature.Instance.enablePixelTagMap;
+                Debug.Log($"[KeyController] PixelTag Map: {(PCDRendererFeature.Instance.enablePixelTagMap ? "ON" : "OFF")}");
+            }
+            else
+            {
+                Debug.LogWarning("[KeyController] PCDRendererFeature.Instance is null; cannot toggle PixelTag Map.");
+            }
+        }
+
+        // ----------------------------------------------------
+        // 9. Occlusion Map の切り替え (Oキー)
         // ----------------------------------------------------
         if (Input.GetKeyDown(KeyCode.O))
         {
             if (PCDRendererFeature.Instance != null)
             {
-                PCDRendererFeature.Instance.enableOriginDebugMap = !PCDRendererFeature.Instance.enableOriginDebugMap;
-                Debug.Log($"[KeyController] Origin Debug Map: {(PCDRendererFeature.Instance.enableOriginDebugMap ? "ON" : "OFF")}");
+                PCDRendererFeature.Instance.enableOcclusionMap = !PCDRendererFeature.Instance.enableOcclusionMap;
+                Debug.Log($"[KeyController] Occlusion Map: {(PCDRendererFeature.Instance.enableOcclusionMap ? "ON" : "OFF")}");
             }
             else
             {
-                Debug.LogWarning("[KeyController] PCDRendererFeature.Instance is null; cannot toggle Origin Debug Map.");
+                Debug.LogWarning("[KeyController] PCDRendererFeature.Instance is null; cannot toggle Occlusion Map.");
             }
         }
     }
