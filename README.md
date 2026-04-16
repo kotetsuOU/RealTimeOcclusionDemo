@@ -60,9 +60,13 @@ git lfs pull
 ### オクルージョン DebugMap の使い方
 
 `PCDRendererFeature` の `Record Occlusion Debug Map` を有効にすると、**そのフレームのみ**オクルージョンデバッグ画像を保存できます。
-
 - 保存先: `Assets/HandTrackingData/OcclusionMaps`
-- 操作: `Enter` / `Return`（`KeyboardControls.md` の撮影操作）
+- 操作: `Enter` / `Return`（`KeyboardControls.md` の撮影操作。Enterで統合DepthMapも同時撮影）
+- 
+`PCDRendererFeature` の `Record Integrated Depth Map` を有効にすると、**そのフレームのみ**統合DepthMapを保存できます。
+
+- 保存先: `Assets/HandTrackingData/DepthMaps/Integrated`
+- 操作: `Enter` / `Return`（`KeyboardControls.md` の撮影操作。EnterでOcclusion DebugMapも同時撮影）
 
 現在の可視化ルール（`PCDOcclusionDebugExporter`）:
 
@@ -75,8 +79,16 @@ git lfs pull
 
 補足:
 
+- `Enable Origin Debug Map` を ON にすると、DebugMap と同じ配色ルールの可視化を画面上で常時確認できます。
 - `Record Occlusion Debug Map` は連続保存を避けるため、保存後に自動で `false` に戻ります。
+- `Record Integrated Depth Map` も保存後に自動で `false` に戻ります。
 - `Enable Tag Based Optimization` が OFF のとき、実点群は「可視=緑 / 遮蔽=シアン」で確認できます。
+
+### 統合DepthMap出力形式
+
+- `IntegratedDepth_*.png`: 解読しやすいグラデーション可視化画像
+- `IntegratedDepth_*.raw32`: 可逆な生データ（`R32_UInt`、little-endian）
+- `IntegratedDepth_*.txt`: `width/height/min/max` などのメタ情報
 
 ---
 

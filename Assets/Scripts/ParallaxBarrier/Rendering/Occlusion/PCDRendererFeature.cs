@@ -17,6 +17,7 @@ public class PCDRendererFeature : ScriptableRendererFeature
         [Range(0f, 1f)] public float occlusionFadeWidth;
         public bool enableOriginDebugMap;
         public bool recordOcclusionDebugMap;
+        public bool recordIntegratedDepthMap;
 
         public bool enableVirtualDepthIntegration;
 
@@ -84,6 +85,9 @@ public class PCDRendererFeature : ScriptableRendererFeature
     [Tooltip("1フレームだけOcclusionの個別の生値を記録します")]
     public bool recordOcclusionDebugMap = false;
 
+    [Tooltip("1フレームだけ統合DepthMapを記録します")]
+    public bool recordIntegratedDepthMap = false;
+
     [Header("Novel Methods Toggles (Ablation Study)")]
     [Tooltip("仮想・現実の「相互オクルージョン」の統合を有効にするか")]
     public bool enableVirtualDepthIntegration = true;
@@ -125,6 +129,7 @@ public class PCDRendererFeature : ScriptableRendererFeature
             occlusionFadeWidth = this.occlusionFadeWidth,
             enableOriginDebugMap = this.enableOriginDebugMap,
             recordOcclusionDebugMap = this.recordOcclusionDebugMap,
+            recordIntegratedDepthMap = this.recordIntegratedDepthMap,
             enableVirtualDepthIntegration = this.enableVirtualDepthIntegration,
             enableTagBasedOptimization = this.enableTagBasedOptimization,
             enableTypeAwareDensity = this.enableTypeAwareDensity,

@@ -186,7 +186,8 @@ public partial class PCDRenderPass
         cmd.SetComputeTextureParam(cs, passData.kernelComputeOcclusion, ShaderIDs.FinalNeighborhoodSizeMap, passData.settings.enableGradientCorrection ? passData.correctedNeighborhoodSizeMap : passData.neighborhoodSizeMap);
         cmd.SetComputeTextureParam(cs, passData.kernelComputeOcclusion, ShaderIDs.OcclusionResultMap_RW, passData.occlusionResultMap);
 
-        cmd.SetComputeIntParam(cs, ShaderIDs.RecordOcclusionDebug, passData.settings.recordOcclusionDebugMap ? 1 : 0);
+        int shouldRecordDebug = (passData.settings.recordOcclusionDebugMap || passData.settings.enableOriginDebugMap) ? 1 : 0;
+        cmd.SetComputeIntParam(cs, ShaderIDs.RecordOcclusionDebug, shouldRecordDebug);
         cmd.SetComputeTextureParam(cs, passData.kernelComputeOcclusion, ShaderIDs.OcclusionValueMap_RW, passData.occlusionValueMap);
 
         cmd.SetComputeTextureParam(cs, passData.kernelComputeOcclusion, ShaderIDs.OriginMap_RW, passData.originDebugMap);
@@ -213,6 +214,14 @@ public partial class PCDRenderPass
         cmd.SetComputeTextureParam(cs, passData.kernelInterpolate, ShaderIDs.FinalImage_RW, passData.finalImage);
         cmd.SetComputeTextureParam(cs, passData.kernelInterpolate, ShaderIDs.OriginMap_RW, passData.originDebugMap);
         cmd.DispatchCompute(cs, passData.kernelInterpolate, threadGroupsX, threadGroupsY, 1);
+
+        // --- ステージ13: OriginDebugMap表示時は、OcclusionValueMapを常時カラー可視化して上書き ---
+        if (passData.settings.enableOriginDebugMap)
+        {
+            cmd.SetComputeTextureParam(cs, passData.kernelVisualizeOcclusionDebug, ShaderIDs.OcclusionValueMap_RW, passData.occlusionValueMap);
+            cmd.SetComputeTextureParam(cs, passData.kernelVisualizeOcclusionDebug, ShaderIDs.OriginMap_RW, passData.originDebugMap);
+            cmd.DispatchCompute(cs, passData.kernelVisualizeOcclusionDebug, threadGroupsX, threadGroupsY, 1);
+        }
 
         int totalPoints = passData.pointCount;
         UnityEngine.Rendering.AsyncGPUReadback.Request(passData.staticMeshCounterBuffer, (request) =>

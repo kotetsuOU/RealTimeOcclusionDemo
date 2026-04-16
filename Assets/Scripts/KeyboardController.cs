@@ -46,7 +46,8 @@ public class KeyboardController : MonoBehaviour
             if (PCDRendererFeature.Instance != null)
             {
                 PCDRendererFeature.Instance.recordOcclusionDebugMap = true;
-                Debug.Log("[KeyboardController] オクルージョンマップの出力をリクエストしました");
+                PCDRendererFeature.Instance.recordIntegratedDepthMap = true;
+                Debug.Log("[KeyboardController] オクルージョンDebugMap / 統合DepthMap の出力をリクエストしました");
 
                 bool isTag = PCDRendererFeature.Instance.enableTagBasedOptimization;
                 bool isDensity = PCDRendererFeature.Instance.enableTypeAwareDensity;
@@ -206,6 +207,22 @@ public class KeyboardController : MonoBehaviour
             {
                 // カメラの向き等に関係なく、ワールド空間に対して自由に移動させる
                 targetTransform.Translate(move.normalized * (moveSpeed * Time.deltaTime), Space.World);
+            }
+        }
+
+        // ----------------------------------------------------
+        // 8. Origin Debug Map の切り替え (Oキー)
+        // ----------------------------------------------------
+        if (Input.GetKeyDown(KeyCode.O))
+        {
+            if (PCDRendererFeature.Instance != null)
+            {
+                PCDRendererFeature.Instance.enableOriginDebugMap = !PCDRendererFeature.Instance.enableOriginDebugMap;
+                Debug.Log($"[KeyController] Origin Debug Map: {(PCDRendererFeature.Instance.enableOriginDebugMap ? "ON" : "OFF")}");
+            }
+            else
+            {
+                Debug.LogWarning("[KeyController] PCDRendererFeature.Instance is null; cannot toggle Origin Debug Map.");
             }
         }
     }

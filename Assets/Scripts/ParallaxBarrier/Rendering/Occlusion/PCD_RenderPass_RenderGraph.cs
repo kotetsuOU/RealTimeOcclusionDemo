@@ -69,10 +69,10 @@ public partial class PCDRenderPass
         bool hasPointCloudMeshes = _bufferManager.HasPointCloudMeshes();
         bool pointCloudHasData = activeBuffer != null && activeCount > 0 && activeBuffer.IsValid();
 
-        // デバッグマップ記録時のログ出力
-        if (_settings.recordOcclusionDebugMap)
+        // デバッグ記録時のログ出力
+        if (_settings.recordOcclusionDebugMap || _settings.recordIntegratedDepthMap)
         {
-            UnityEngine.Debug.Log($"[PCDRenderPass] Record Debug. DepthMap={hasDepthMapMeshes} PCMeshes={hasPointCloudMeshes} PointCloudData={pointCloudHasData} (Buffer={activeBuffer!=null}, Count={activeCount})");
+            UnityEngine.Debug.Log($"[PCDRenderPass] Record Debug. Occlusion={_settings.recordOcclusionDebugMap} IntegratedDepth={_settings.recordIntegratedDepthMap} DepthMap={hasDepthMapMeshes} PCMeshes={hasPointCloudMeshes} PointCloudData={pointCloudHasData} (Buffer={activeBuffer!=null}, Count={activeCount})");
         }
 
         // 点群データもメッシュも無い、背景深度の取得のみのモード
@@ -81,10 +81,14 @@ public partial class PCDRenderPass
         if (depthMapOnlyMode)
         {
             // DepthMap取得のみであればフルレンダリングはスキップ
-            if (_settings.recordOcclusionDebugMap) 
+            if (_settings.recordOcclusionDebugMap || _settings.recordIntegratedDepthMap)
             {
                 UnityEngine.Debug.LogWarning("[PCDRenderPass] Skipped rendering because depthMapOnlyMode is true.");
-                PCDRendererFeature.Instance.recordOcclusionDebugMap = false;
+                if (PCDRendererFeature.Instance != null)
+                {
+                    PCDRendererFeature.Instance.recordOcclusionDebugMap = false;
+                    PCDRendererFeature.Instance.recordIntegratedDepthMap = false;
+                }
             }
             return;
         }
@@ -92,12 +96,13 @@ public partial class PCDRenderPass
         // 描画すべきデータが全く無ければスキップ
         if (!pointCloudHasData && !hasDepthMapMeshes)
         {
-            if (_settings.recordOcclusionDebugMap) 
+            if (_settings.recordOcclusionDebugMap || _settings.recordIntegratedDepthMap)
             {
                 UnityEngine.Debug.LogWarning("[PCDRenderPass] Check box pressed but ignored. No point cloud and no depth map data.");
                 if (PCDRendererFeature.Instance != null)
                 {
                     PCDRendererFeature.Instance.recordOcclusionDebugMap = false;
+                    PCDRendererFeature.Instance.recordIntegratedDepthMap = false;
                 }
             }
             return;
@@ -153,9 +158,22 @@ public partial class PCDRenderPass
             }
         }
 
+        // 統合DepthMap記録用のテクスチャハンドル生成
+        if (_settings.recordIntegratedDepthMap)
+        {
+            if (_integratedDepthMapHandle == null || _integratedDepthMapHandle.rt == null || _integratedDepthMapHandle.rt.width != screenWidth || _integratedDepthMapHandle.rt.height != screenHeight)
+            {
+                _integratedDepthMapHandle?.Release();
+                var desc = new RenderTextureDescriptor(screenWidth, screenHeight, GraphicsFormat.R32_UInt, 0);
+                desc.enableRandomWrite = true;
+                _integratedDepthMapHandle = RTHandles.Alloc(desc, name: "_IntegratedDepthMap");
+            }
+        }
+
         TextureHandle finalImageHandle;
         TextureHandle originDebugMapHandle_RG = default;
         TextureHandle occlusionValueMapHandle_RG = default;
+        TextureHandle integratedDepthMapHandle_RG = default;
 
         // コンピュートシェーダーを実行するパスをRenderGraphに追加
         using (var builder = renderGraph.AddComputePass<ComputePassData>(PROFILER_TAG, out var data))
@@ -185,6 +203,7 @@ public partial class PCDRenderPass
             data.kernelInterpolate = _kernelInterpolate;
             data.kernelMerge = _kernelMerge;
             data.kernelInitFromCamera = _kernelInitFromCamera;
+            data.kernelVisualizeOcclusionDebug = _kernelVisualizeOcclusionDebug;
             data.useExternal = _bufferManager.UseExternalBuffer;
             data.externalBuffer = _bufferManager.ExternalPointBuffer;
             data.internalBuffer = _bufferManager.PointBuffer;
@@ -236,7 +255,15 @@ public partial class PCDRenderPass
 
             // 深度情報はRInt（整数型）として格納
             desc.colorFormat = UnityEngine.Experimental.Rendering.GraphicsFormat.R32_UInt;
-            data.depthMap = renderGraph.CreateTexture(desc);
+            if (data.settings.recordIntegratedDepthMap)
+            {
+                integratedDepthMapHandle_RG = renderGraph.ImportTexture(_integratedDepthMapHandle);
+                data.depthMap = integratedDepthMapHandle_RG;
+            }
+            else
+            {
+                data.depthMap = renderGraph.CreateTexture(desc);
+            }
             desc.colorFormat = UnityEngine.Experimental.Rendering.GraphicsFormat.R32_SInt;
             data.neighborhoodSizeMap = renderGraph.CreateTexture(desc);
             data.correctedNeighborhoodSizeMap = renderGraph.CreateTexture(desc);
@@ -324,7 +351,7 @@ public partial class PCDRenderPass
             });
 
             // デバッグデータを非同期読込する場合はカリングを無効化
-            if (data.settings.recordOcclusionDebugMap)
+            if (data.settings.recordOcclusionDebugMap || data.settings.recordIntegratedDepthMap)
             {
                 builder.AllowPassCulling(false);
             }
@@ -336,57 +363,106 @@ public partial class PCDRenderPass
             using (var builder = renderGraph.AddUnsafePass<BlitPassData>("PCD Extract Occlusion Debug", out var debugData))
             {
                 builder.UseTexture(occlusionValueMapHandle_RG, AccessFlags.Read);
-                builder.AllowPassCulling(false); // カリング無効にして確実に読取りが走るようにする
+                builder.AllowPassCulling(false);
 
                 builder.SetRenderFunc((BlitPassData passData, UnsafeGraphContext context) =>
                 {
-                    Debug.Log($"[PCD Extract Occlusion Debug] Passing to AsyncGPUReadback... occlusionHandle isValid: {_occlusionValueMapHandle != null && _occlusionValueMapHandle.rt != null}");
-
-                    if (_occlusionValueMapHandle != null && _occlusionValueMapHandle.rt != null)
+                    if (_occlusionValueMapHandle == null || _occlusionValueMapHandle.rt == null)
                     {
-                        var rt = _occlusionValueMapHandle.rt;
-                        // GPUからCPUへ非同期でテクスチャデータを取得
-                        // RTHandleは最大解像度で確保される可能性があるため、現在の画面サイズ(screenWidth, screenHeight)を明示的に指定して抽出する
-                        context.cmd.RequestAsyncReadback(rt, 0, 0, screenWidth, 0, screenHeight, 0, 1, GraphicsFormatUtility.GetGraphicsFormat(TextureFormat.RFloat, false), request =>
-                        {
-                            if (request.hasError) 
-                            {
-                                Debug.LogError("[PCD Export] AsyncGPUReadback error.");
-                                return;
-                            }
-
-                            int w = request.width;
-                            int h = request.height;
-                            Debug.Log($"[PCD Export] AsyncGPUReadback success! w: {w}, h: {h}");
-                            var rawData = request.GetData<float>();
-                            float[] fData = new float[w * h];
-                            rawData.CopyTo(fData);
-
-                            // 現在の設定からプレフィックスを生成
-                            string methodPrefix = "";
-                            if (PCDRendererFeature.Instance != null)
-                            {
-                                bool isTag = PCDRendererFeature.Instance.enableTagBasedOptimization;
-                                bool isDensity = PCDRendererFeature.Instance.enableTypeAwareDensity;
-                                bool isFade = PCDRendererFeature.Instance.enableSoftOcclusionFade;
-                                bool isHoleFill = PCDRendererFeature.Instance.enableJointBilateralHoleFilling;
-
-                                if (isTag && isDensity && isFade && isHoleFill) methodPrefix = "Proposal";
-                                else if (!isTag && !isDensity && !isFade && !isHoleFill) methodPrefix = "Traditional";
-                                else methodPrefix = $"Ablation_T{(isTag?"1":"0")}_D{(isDensity?"1":"0")}_F{(isFade?"1":"0")}_H{(isHoleFill?"1":"0")}";
-                            }
-
-                            // テクスチャデータを画像として出力する関数を呼び出し
-                            PCDOcclusionDebugExporter.ExportOcclusionMap16PaletteFromData(fData, w, h, "Assets/HandTrackingData/OcclusionMaps", methodPrefix);
-                        });
+                        return;
                     }
+
+                    var rt = _occlusionValueMapHandle.rt;
+                    context.cmd.RequestAsyncReadback(rt, 0, 0, screenWidth, 0, screenHeight, 0, 1, GraphicsFormatUtility.GetGraphicsFormat(TextureFormat.RFloat, false), request =>
+                    {
+                        if (request.hasError)
+                        {
+                            Debug.LogError("[PCD Export] AsyncGPUReadback error.");
+                            return;
+                        }
+
+                        int w = request.width;
+                        int h = request.height;
+                        var rawData = request.GetData<float>();
+                        float[] fData = new float[w * h];
+                        rawData.CopyTo(fData);
+
+                        string methodPrefix = "";
+                        if (PCDRendererFeature.Instance != null)
+                        {
+                            bool isTag = PCDRendererFeature.Instance.enableTagBasedOptimization;
+                            bool isDensity = PCDRendererFeature.Instance.enableTypeAwareDensity;
+                            bool isFade = PCDRendererFeature.Instance.enableSoftOcclusionFade;
+                            bool isHoleFill = PCDRendererFeature.Instance.enableJointBilateralHoleFilling;
+
+                            if (isTag && isDensity && isFade && isHoleFill) methodPrefix = "Proposal";
+                            else if (!isTag && !isDensity && !isFade && !isHoleFill) methodPrefix = "Traditional";
+                            else methodPrefix = $"Ablation_T{(isTag?"1":"0")}_D{(isDensity?"1":"0")}_F{(isFade?"1":"0")}_H{(isHoleFill?"1":"0")}";
+                        }
+
+                        PCDOcclusionDebugExporter.ExportOcclusionMap16PaletteFromData(fData, w, h, "Assets/HandTrackingData/OcclusionMaps", methodPrefix);
+                    });
                 });
             }
 
-            // --- 連続出力(複数フレームの重複保存)を防ぐため、1度RenderGraphのキュー(パス)に登録したら即座にフラグを折る ---
             if (PCDRendererFeature.Instance != null && PCDRendererFeature.Instance.recordOcclusionDebugMap)
             {
                 PCDRendererFeature.Instance.recordOcclusionDebugMap = false;
+            }
+        }
+
+        // --- デバッグ用の統合DepthMapを非同期出力するパス ---
+        if (_settings.recordIntegratedDepthMap)
+        {
+            using (var builder = renderGraph.AddUnsafePass<BlitPassData>("PCD Extract Integrated Depth", out var debugDepthData))
+            {
+                builder.UseTexture(integratedDepthMapHandle_RG, AccessFlags.Read);
+                builder.AllowPassCulling(false);
+
+                builder.SetRenderFunc((BlitPassData passData, UnsafeGraphContext context) =>
+                {
+                    if (_integratedDepthMapHandle == null || _integratedDepthMapHandle.rt == null)
+                    {
+                        return;
+                    }
+
+                    var rt = _integratedDepthMapHandle.rt;
+                    context.cmd.RequestAsyncReadback(rt, 0, 0, screenWidth, 0, screenHeight, 0, 1, GraphicsFormat.R32_UInt, request =>
+                    {
+                        if (request.hasError)
+                        {
+                            Debug.LogError("[PCD IntegratedDepth Export] AsyncGPUReadback error.");
+                            return;
+                        }
+
+                        int w = request.width;
+                        int h = request.height;
+                        var rawData = request.GetData<uint>();
+                        uint[] depthData = new uint[w * h];
+                        rawData.CopyTo(depthData);
+
+                        string methodPrefix = "";
+                        if (PCDRendererFeature.Instance != null)
+                        {
+                            bool isTag = PCDRendererFeature.Instance.enableTagBasedOptimization;
+                            bool isDensity = PCDRendererFeature.Instance.enableTypeAwareDensity;
+                            bool isFade = PCDRendererFeature.Instance.enableSoftOcclusionFade;
+                            bool isHoleFill = PCDRendererFeature.Instance.enableJointBilateralHoleFilling;
+
+                            if (isTag && isDensity && isFade && isHoleFill) methodPrefix = "Proposal";
+                            else if (!isTag && !isDensity && !isFade && !isHoleFill) methodPrefix = "Traditional";
+                            else methodPrefix = $"Ablation_T{(isTag?"1":"0")}_D{(isDensity?"1":"0")}_F{(isFade?"1":"0")}_H{(isHoleFill?"1":"0")}";
+                        }
+
+                        Debug.Log($"[PCD IntegratedDepth Export] AsyncGPUReadback success! w:{w}, h:{h}");
+                        PCDIntegratedDepthMapExporter.ExportIntegratedDepthMapFromData(depthData, w, h, "Assets/HandTrackingData/DepthMaps/Integrated", methodPrefix);
+                    });
+                });
+            }
+
+            if (PCDRendererFeature.Instance != null && PCDRendererFeature.Instance.recordIntegratedDepthMap)
+            {
+                PCDRendererFeature.Instance.recordIntegratedDepthMap = false;
             }
         }
 

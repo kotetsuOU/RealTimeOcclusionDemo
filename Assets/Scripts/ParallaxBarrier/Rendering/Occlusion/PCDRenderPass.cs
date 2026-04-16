@@ -90,11 +90,12 @@ public partial class PCDRenderPass : ScriptableRenderPass
                 _kernelBuildDepthPyramidL3, _kernelBuildDepthPyramidL4,
                 _kernelApplyGradient,
                 _kernelComputeOcclusion, _kernelFillHoles, _kernelInterpolate,
-                _kernelMerge, _kernelInitFromCamera;
+                _kernelMerge, _kernelInitFromCamera, _kernelVisualizeOcclusionDebug;
 
     // 出力およびデバッグマップ
     private RTHandle _originDebugMapHandle;
     private RTHandle _occlusionValueMapHandle;
+    private RTHandle _integratedDepthMapHandle;
     private bool _isInitialized = false;
     private const int STRIDE = 28; // 1つのポイントデータのサイズを表す: sizeof(float)*3 + sizeof(float)*3 + sizeof(uint)
 
@@ -192,6 +193,7 @@ public partial class PCDRenderPass : ScriptableRenderPass
         _kernelInterpolate = pointCloudCompute.FindKernel("Interpolate");
         _kernelMerge = pointCloudCompute.FindKernel("MergeBuffer");
         _kernelInitFromCamera = pointCloudCompute.FindKernel("InitFromCamera");
+        _kernelVisualizeOcclusionDebug = pointCloudCompute.FindKernel("VisualizeOcclusionDebug");
 
         _isInitialized = true;
     }
@@ -213,7 +215,7 @@ public partial class PCDRenderPass : ScriptableRenderPass
                      kernelBuildDepthPyramidL3, kernelBuildDepthPyramidL4,
                      kernelApplyGradient,
                      kernelComputeOcclusion, kernelFillHoles, kernelInterpolate,
-                     kernelMerge, kernelInitFromCamera;
+                     kernelMerge, kernelInitFromCamera, kernelVisualizeOcclusionDebug;
 
         // コピー用バッファ
         internal bool useExternal;
@@ -301,6 +303,9 @@ public partial class PCDRenderPass : ScriptableRenderPass
 
         _occlusionValueMapHandle?.Release();
         _occlusionValueMapHandle = null;
+
+        _integratedDepthMapHandle?.Release();
+        _integratedDepthMapHandle = null;
 
         _staticMeshCounterBuffer?.Release();
         _staticMeshCounterBuffer = null;

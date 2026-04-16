@@ -27,6 +27,7 @@
 #pragma kernel Interpolate               // 隙間(穴)を埋めるための1ピクセル補間(Dilation)
 #pragma kernel MergeBuffer               // 複数の点群バッファを1つのバッファに結合するユーティリティ
 #pragma kernel InitFromCamera            // URPカメラのカラー・深度情報をベースマップとして初期化(仮想オブジェクト合成用)
+#pragma kernel VisualizeOcclusionDebug   // OcclusionValueを16色ルールで可視化してOriginDebugMapへ出力
 
 #include "Assets/Shader&Material/Shader/ComputeShader/Rendering/PCD_Occlusion_Data.hlsl"
 #include "Assets/Shader&Material/Shader/ComputeShader/Rendering/PCD_Occlusion_Helpers.hlsl"
