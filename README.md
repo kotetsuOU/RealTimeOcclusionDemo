@@ -57,6 +57,9 @@ git lfs pull
 基本的な使い方は以下の通りです。
 詳細なキーボード操作については、[こちらのガイド](./KeyboardControls.md)を確認してください。
 
+※ Unityで実行する際は、`Project` ウィンドウから `Scenes` フォルダ内の `RealTimeOcclusion` シーンを開いてください。
+  そのシーンをアクティブにしてから再生（Play）ボタンで動作確認を行ってください。
+
 ### オクルージョン DebugMap の使い方
 
 `PCDRendererFeature` の `Record Occlusion Debug Map` を有効にすると、**そのフレームのみ**オクルージョンデバッグ画像を保存できます。

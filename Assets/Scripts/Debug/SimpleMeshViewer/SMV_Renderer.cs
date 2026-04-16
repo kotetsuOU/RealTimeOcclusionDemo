@@ -14,6 +14,8 @@ public class SMV_Renderer : MonoBehaviour
         if (mesh == null)
         {
             mesh = new Mesh();
+            mesh.name = "SMV_PreviewMesh";
+            mesh.hideFlags = HideFlags.DontSave; // ★シーンファイルへの保存を禁止する
             mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32; // Allow large meshes
             meshFilter.sharedMesh = mesh;
         }
@@ -51,6 +53,16 @@ public class SMV_Renderer : MonoBehaviour
         if (meshFilter != null)
         {
             meshFilter.sharedMesh = null;
+        }
+    }
+
+    private void OnDestroy()
+    {
+        if (mesh != null)
+        {
+            // 動的メッシュのメモリリークを防ぐため、オブジェクト破棄時に明示的にDestroy
+            if (Application.isPlaying) Destroy(mesh);
+            else DestroyImmediate(mesh);
         }
     }
 }
