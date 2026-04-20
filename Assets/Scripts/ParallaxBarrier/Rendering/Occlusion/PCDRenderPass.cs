@@ -98,6 +98,7 @@ public partial class PCDRenderPass : ScriptableRenderPass
     private RTHandle _debugDisplayMapHandle;
     private RTHandle _occlusionValueMapHandle;
     private RTHandle _integratedDepthMapHandle;
+    private RTHandle _neighborhoodMapHandle;
     private bool _isInitialized = false;
     private const int STRIDE = 28; // 1つのポイントデータのサイズを表す: sizeof(float)*3 + sizeof(float)*3 + sizeof(uint)
 
@@ -310,6 +311,9 @@ public partial class PCDRenderPass : ScriptableRenderPass
 
         _integratedDepthMapHandle?.Release();
         _integratedDepthMapHandle = null;
+
+        _neighborhoodMapHandle?.Release();
+        _neighborhoodMapHandle = null;
 
         _staticMeshCounterBuffer?.Release();
         _staticMeshCounterBuffer = null;

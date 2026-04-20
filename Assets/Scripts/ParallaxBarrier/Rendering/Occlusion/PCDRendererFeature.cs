@@ -20,6 +20,7 @@ public class PCDRendererFeature : ScriptableRendererFeature
         public bool recordOcclusionDebugMap;
         public bool recordPixelTagMap;
         public bool recordIntegratedDepthMap;
+        public bool recordNeighborhoodMap;
 
         public bool enableVirtualDepthIntegration;
 
@@ -96,6 +97,9 @@ public class PCDRendererFeature : ScriptableRendererFeature
     [Tooltip("1フレームだけ統合DepthMapを記録します")]
     public bool recordIntegratedDepthMap = false;
 
+    [Tooltip("1フレームだけNeighborhoodMapを記録します")]
+    public bool recordNeighborhoodMap = false;
+
     [Header("Novel Methods Toggles (Ablation Study)")]
     [Tooltip("仮想・現実の「相互オクルージョン」の統合を有効にするか")]
     public bool enableVirtualDepthIntegration = true;
@@ -140,6 +144,7 @@ public class PCDRendererFeature : ScriptableRendererFeature
             recordOcclusionDebugMap = this.recordOcclusionDebugMap,
             recordPixelTagMap = this.recordPixelTagMap,
             recordIntegratedDepthMap = this.recordIntegratedDepthMap,
+            recordNeighborhoodMap = this.recordNeighborhoodMap,
             enableVirtualDepthIntegration = this.enableVirtualDepthIntegration,
             enableTagBasedOptimization = this.enableTagBasedOptimization,
             enableTypeAwareDensity = this.enableTypeAwareDensity,

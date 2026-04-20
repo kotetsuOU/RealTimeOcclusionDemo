@@ -6,6 +6,84 @@ using System;
 // オクルージョン値（浮動小数点数）のマップを、可視化しやすい16色のパレット形式でPNG画像として書き出すためのユーティリティ
 public static class PCDOcclusionDebugExporter
 {
+    public static void ExportNeighborhoodMapFromData(int[] data, int width, int height, string savePath = "Assets/HandTrackingData/NeighborhoodMaps", string prefix = "")
+    {
+        UnityEngine.Debug.Log($"[PCDOcclusionDebugExporter] Exporting Neighborhood Map from data (width={width}, height={height})...");
+        if (data == null || data.Length != width * height) return;
+
+#if !UNITY_EDITOR
+        savePath = Path.Combine(Application.persistentDataPath, "NeighborhoodMaps");
+#endif
+
+        if (!Directory.Exists(savePath))
+        {
+            Directory.CreateDirectory(savePath);
+        }
+
+        string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+        string fileName = $"NeighborhoodMap_{prefix}_{timestamp}.png";
+        string csvFileName = $"NeighborhoodData_{prefix}_{timestamp}.csv";
+        string fullPath = Path.Combine(savePath, fileName);
+        string csvFullPath = Path.Combine(savePath, csvFileName);
+
+        Texture2D tex = new Texture2D(width, height, TextureFormat.RGB24, false);
+        Color[] pixels = new Color[width * height];
+
+        int count = width * height;
+        int maxL = 0;
+        int minL = int.MaxValue;
+        for (int i = 0; i < count; i++)
+        {
+            if (data[i] > maxL) maxL = data[i];
+            if (data[i] < minL && data[i] >= 0) minL = data[i];
+        }
+
+        for (int i = 0; i < count; i++)
+        {
+            int level = data[i];
+            if (level < 0) pixels[i] = Color.black;
+            else if (level == 0) pixels[i] = Color.blue;
+            else if (level == 1) pixels[i] = Color.cyan;
+            else if (level == 2) pixels[i] = Color.green;
+            else if (level == 3) pixels[i] = Color.yellow;
+            else if (level == 4) pixels[i] = new Color(1.0f, 0.5f, 0.0f); // orange
+            else pixels[i] = Color.red; // 5以上
+        }
+
+        tex.SetPixels(pixels);
+        tex.Apply();
+
+        byte[] pngBytes = tex.EncodeToPNG();
+        File.WriteAllBytes(fullPath, pngBytes);
+
+        try
+        {
+            using (StreamWriter writer = new StreamWriter(csvFullPath))
+            {
+                for (int y = 0; y < height; y++)
+                {
+                    for (int x = 0; x < width; x++)
+                    {
+                        writer.Write(data[y * width + x].ToString());
+                        if (x < width - 1)
+                        {
+                            writer.Write(",");
+                        }
+                    }
+                    writer.WriteLine();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"[PCDOcclusionDebugExporter] Failed to save CSV: {ex.Message}");
+        }
+
+        UnityEngine.Object.Destroy(tex);
+        Debug.Log($"[PCDOcclusionDebugExporter] Saved Neighborhood Map to: {fullPath}");
+        Debug.Log($"[PCDOcclusionDebugExporter] Saved Neighborhood Data (CSV) to: {csvFullPath}");
+    }
+
     private const float RangeMin = 0.0f;
     private const float RangeMax = 1.0f;
     private const int Steps = 15;
@@ -196,14 +274,9 @@ public static class PCDOcclusionDebugExporter
                         {
                             val = rawVal;
                         }
-                        else if (labelVal < -0.5f || labelVal >= 1.9f)
-                        {
-                            // PixelTag系CSVでは識別ラベル値を優先
-                            val = labelVal;
-                        }
                         else
                         {
-                            val = rawVal;
+                            val = labelVal;
                         }
                         writer.Write(val.ToString("F3"));
                         if (x < width - 1)

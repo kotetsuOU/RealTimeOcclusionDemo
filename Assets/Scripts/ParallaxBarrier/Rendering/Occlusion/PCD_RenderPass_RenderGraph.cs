@@ -114,8 +114,8 @@ public partial class PCDRenderPass
         var cameraData = frameData.Get<UniversalCameraData>();
         var resourceData = frameData.Get<UniversalResourceData>();
         Camera camera = cameraData.camera;
-        int screenWidth = camera.pixelWidth;
-        int screenHeight = camera.pixelHeight;
+        int screenWidth = cameraData.cameraTargetDescriptor.width;
+        int screenHeight = cameraData.cameraTargetDescriptor.height;
 
         // 16x16で分割されたグリッドマップの解像度を計算
         int gridWidth = Mathf.CeilToInt(screenWidth / 16.0f);
@@ -172,10 +172,23 @@ public partial class PCDRenderPass
             }
         }
 
+        // NeighborhoodMap記録用のテクスチャハンドル生成
+        if (_settings.recordNeighborhoodMap)
+        {
+            if (_neighborhoodMapHandle == null || _neighborhoodMapHandle.rt == null || _neighborhoodMapHandle.rt.width != screenWidth || _neighborhoodMapHandle.rt.height != screenHeight)
+            {
+                _neighborhoodMapHandle?.Release();
+                var desc = new RenderTextureDescriptor(screenWidth, screenHeight, GraphicsFormat.R32_SInt, 0);
+                desc.enableRandomWrite = true;
+                _neighborhoodMapHandle = RTHandles.Alloc(desc, name: "_NeighborhoodMapDebug");
+            }
+        }
+
         TextureHandle finalImageHandle;
         TextureHandle debugDisplayMapHandle_RG = default;
         TextureHandle occlusionValueMapHandle_RG = default;
         TextureHandle integratedDepthMapHandle_RG = default;
+        TextureHandle neighborhoodMapHandle_RG = default;
 
         // コンピュートシェーダーを実行するパスをRenderGraphに追加
         using (var builder = renderGraph.AddComputePass<ComputePassData>(PROFILER_TAG, out var data))
@@ -267,8 +280,26 @@ public partial class PCDRenderPass
                 data.depthMap = renderGraph.CreateTexture(desc);
             }
             desc.colorFormat = UnityEngine.Experimental.Rendering.GraphicsFormat.R32_SInt;
-            data.neighborhoodSizeMap = renderGraph.CreateTexture(desc);
-            data.correctedNeighborhoodSizeMap = renderGraph.CreateTexture(desc);
+            if (data.settings.recordNeighborhoodMap)
+            {
+                neighborhoodMapHandle_RG = renderGraph.ImportTexture(_neighborhoodMapHandle);
+                if (data.settings.enableGradientCorrection)
+                {
+                    data.correctedNeighborhoodSizeMap = neighborhoodMapHandle_RG;
+                    data.neighborhoodSizeMap = renderGraph.CreateTexture(desc);
+                }
+                else
+                {
+                    data.neighborhoodSizeMap = neighborhoodMapHandle_RG;
+                    data.correctedNeighborhoodSizeMap = renderGraph.CreateTexture(desc);
+                }
+            }
+            else
+            {
+                data.neighborhoodSizeMap = renderGraph.CreateTexture(desc);
+                data.correctedNeighborhoodSizeMap = renderGraph.CreateTexture(desc);
+            }
+
             desc.colorFormat = UnityEngine.Experimental.Rendering.GraphicsFormat.R32_UInt;
             data.originTypeMap = renderGraph.CreateTexture(desc);
 
@@ -353,7 +384,7 @@ public partial class PCDRenderPass
             });
 
             // デバッグデータを非同期読込する場合はカリングを無効化
-            if (data.settings.recordOcclusionDebugMap || data.settings.recordPixelTagMap || data.settings.recordIntegratedDepthMap)
+            if (data.settings.recordOcclusionDebugMap || data.settings.recordPixelTagMap || data.settings.recordIntegratedDepthMap || data.settings.recordNeighborhoodMap)
             {
                 builder.AllowPassCulling(false);
             }
@@ -484,6 +515,61 @@ public partial class PCDRenderPass
             if (PCDRendererFeature.Instance != null && PCDRendererFeature.Instance.recordIntegratedDepthMap)
             {
                 PCDRendererFeature.Instance.recordIntegratedDepthMap = false;
+            }
+        }
+
+        // --- デバッグ用のNeighborhoodMapを非同期出力するパス ---
+        if (_settings.recordNeighborhoodMap)
+        {
+            using (var builder = renderGraph.AddUnsafePass<BlitPassData>("PCD Extract Neighborhood Map", out var debugData))
+            {
+                builder.UseTexture(neighborhoodMapHandle_RG, AccessFlags.Read);
+                builder.AllowPassCulling(false);
+
+                builder.SetRenderFunc((BlitPassData passData, UnsafeGraphContext context) =>
+                {
+                    if (_neighborhoodMapHandle == null || _neighborhoodMapHandle.rt == null)
+                    {
+                        return;
+                    }
+
+                    var rt = _neighborhoodMapHandle.rt;
+                    context.cmd.RequestAsyncReadback(rt, 0, 0, screenWidth, 0, screenHeight, 0, 1, GraphicsFormat.R32_SInt, request =>
+                    {
+                        if (request.hasError)
+                        {
+                            Debug.LogError("[PCD Neighborhood Map Export] AsyncGPUReadback error.");
+                            return;
+                        }
+
+                        int w = request.width;
+                        int h = request.height;
+                        var rawData = request.GetData<int>();
+                        int[] sizeData = new int[w * h];
+                        rawData.CopyTo(sizeData);
+
+                        string methodPrefix = "";
+                        if (PCDRendererFeature.Instance != null)
+                        {
+                            bool isTag = PCDRendererFeature.Instance.enableTagBasedOptimization;
+                            bool isDensity = PCDRendererFeature.Instance.enableTypeAwareDensity;
+                            bool isFade = PCDRendererFeature.Instance.enableSoftOcclusionFade;
+                            bool isHoleFill = PCDRendererFeature.Instance.enableJointBilateralHoleFilling;
+
+                            if (isTag && isDensity && isFade && isHoleFill) methodPrefix = "Proposal";
+                            else if (!isTag && !isDensity && !isFade && !isHoleFill) methodPrefix = "Traditional";
+                            else methodPrefix = $"Ablation_T{(isTag?"1":"0")}_D{(isDensity?"1":"0")}_F{(isFade?"1":"0")}_H{(isHoleFill?"1":"0")}";
+                        }
+
+                        Debug.Log($"[PCD Neighborhood Map Export] AsyncGPUReadback success! w:{w}, h:{h}");
+                        PCDOcclusionDebugExporter.ExportNeighborhoodMapFromData(sizeData, w, h, "Assets/HandTrackingData/NeighborhoodMaps", methodPrefix);
+                    });
+                });
+            }
+
+            if (PCDRendererFeature.Instance != null && PCDRendererFeature.Instance.recordNeighborhoodMap)
+            {
+                PCDRendererFeature.Instance.recordNeighborhoodMap = false;
             }
         }
 
