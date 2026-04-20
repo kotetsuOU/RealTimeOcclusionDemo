@@ -60,6 +60,7 @@ public partial class PCDRenderPass : ScriptableRenderPass
         public static readonly int OriginTypeMap = Shader.PropertyToID("_OriginTypeMap");
         public static readonly int OriginTypeMap_RW = Shader.PropertyToID("_OriginTypeMap_RW");
         public static readonly int OriginMap_RW = Shader.PropertyToID("_OriginMap_RW");
+        public static readonly int NeighborCountMap_RW = Shader.PropertyToID("_NeighborCountMap_RW");
 
         public static readonly int DebugDisplayMode = Shader.PropertyToID("_DebugDisplayMode");
 
@@ -99,6 +100,7 @@ public partial class PCDRenderPass : ScriptableRenderPass
     private RTHandle _occlusionValueMapHandle;
     private RTHandle _integratedDepthMapHandle;
     private RTHandle _neighborhoodMapHandle;
+    private RTHandle _neighborCountMapHandle;
     private bool _isInitialized = false;
     private const int STRIDE = 28; // 1つのポイントデータのサイズを表す: sizeof(float)*3 + sizeof(float)*3 + sizeof(uint)
 
@@ -254,6 +256,7 @@ public partial class PCDRenderPass : ScriptableRenderPass
         internal TextureHandle finalImage;
         internal TextureHandle originTypeMap;
         internal TextureHandle debugDisplayMap;
+        internal TextureHandle neighborCountMap;
     }
 
     private class BlitPassData
@@ -314,6 +317,9 @@ public partial class PCDRenderPass : ScriptableRenderPass
 
         _neighborhoodMapHandle?.Release();
         _neighborhoodMapHandle = null;
+
+        _neighborCountMapHandle?.Release();
+        _neighborCountMapHandle = null;
 
         _staticMeshCounterBuffer?.Release();
         _staticMeshCounterBuffer = null;

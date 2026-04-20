@@ -186,8 +186,13 @@ public partial class PCDRenderPass
         cmd.SetComputeTextureParam(cs, passData.kernelComputeOcclusion, ShaderIDs.FinalNeighborhoodSizeMap, passData.settings.enableGradientCorrection ? passData.correctedNeighborhoodSizeMap : passData.neighborhoodSizeMap);
         cmd.SetComputeTextureParam(cs, passData.kernelComputeOcclusion, ShaderIDs.OcclusionResultMap_RW, passData.occlusionResultMap);
 
-        int shouldRecordDebug = (passData.settings.recordOcclusionDebugMap || passData.settings.recordPixelTagMap || passData.settings.enablePixelTagMap || passData.settings.enableOcclusionMap) ? 1 : 0;
+        int shouldRecordDebug = (passData.settings.recordOcclusionDebugMap || passData.settings.recordPixelTagMap || passData.settings.enablePixelTagMap || passData.settings.enableOcclusionMap || passData.settings.recordNeighborCountMap) ? 1 : 0;
         cmd.SetComputeIntParam(cs, ShaderIDs.RecordOcclusionDebug, shouldRecordDebug);
+
+        // ※UnityのComputeShaderは、対象カーネル内にRWTextureへの書き込みコードが存在する場合、
+        // 実際に実行されない(if等で保護されている)場合であってもPropertyとしてバインドしておく必要があります。
+        cmd.SetComputeTextureParam(cs, passData.kernelComputeOcclusion, ShaderIDs.NeighborCountMap_RW, passData.neighborCountMap);
+
         cmd.SetComputeTextureParam(cs, passData.kernelComputeOcclusion, ShaderIDs.OcclusionValueMap_RW, passData.occlusionValueMap);
 
         cmd.SetComputeTextureParam(cs, passData.kernelComputeOcclusion, ShaderIDs.OriginMap_RW, passData.debugDisplayMap);

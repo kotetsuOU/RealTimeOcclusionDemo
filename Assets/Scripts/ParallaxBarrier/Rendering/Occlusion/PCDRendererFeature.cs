@@ -21,6 +21,7 @@ public class PCDRendererFeature : ScriptableRendererFeature
         public bool recordPixelTagMap;
         public bool recordIntegratedDepthMap;
         public bool recordNeighborhoodMap;
+        public bool recordNeighborCountMap;
 
         public bool enableVirtualDepthIntegration;
 
@@ -81,13 +82,14 @@ public class PCDRendererFeature : ScriptableRendererFeature
     [Tooltip("拡張するBoundsのサイズ")]
     public float boundsSize = 10000f;
 
-    [Header("Debug")]
+    [Header("Display Debug")]
     [Tooltip("点群(黒)と静的メッシュ(白)の由来を示すデバッグマップ(PixelTagMap)を有効にします")]
     public bool enablePixelTagMap = false;
 
     [Tooltip("内積計算で得た occlusionAverage(0~1) を、Record Occlusion Debug Map と同じ配色ルールで画面上に常時表示します")]
     public bool enableOcclusionMap = false;
 
+    [Header("Record Debug")]
     [Tooltip("1フレームだけOcclusionMapを保存します（occlusionAverageをPNG/CSVへ出力）")]
     public bool recordOcclusionDebugMap = false;
 
@@ -99,6 +101,9 @@ public class PCDRendererFeature : ScriptableRendererFeature
 
     [Tooltip("1フレームだけNeighborhoodMapを記録します")]
     public bool recordNeighborhoodMap = false;
+
+    [Tooltip("1フレームだけNeighborCountMapを記録します")]
+    public bool recordNeighborCountMap = false;
 
     [Header("Novel Methods Toggles (Ablation Study)")]
     [Tooltip("仮想・現実の「相互オクルージョン」の統合を有効にするか")]
@@ -145,6 +150,7 @@ public class PCDRendererFeature : ScriptableRendererFeature
             recordPixelTagMap = this.recordPixelTagMap,
             recordIntegratedDepthMap = this.recordIntegratedDepthMap,
             recordNeighborhoodMap = this.recordNeighborhoodMap,
+            recordNeighborCountMap = this.recordNeighborCountMap,
             enableVirtualDepthIntegration = this.enableVirtualDepthIntegration,
             enableTagBasedOptimization = this.enableTagBasedOptimization,
             enableTypeAwareDensity = this.enableTypeAwareDensity,

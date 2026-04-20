@@ -184,11 +184,21 @@ public partial class PCDRenderPass
             }
         }
 
+        // NeighborCountMap記録用（シェーダー側でバインディングに必須なため常にアロケートしておく）
+        if (_neighborCountMapHandle == null || _neighborCountMapHandle.rt == null || _neighborCountMapHandle.rt.width != screenWidth || _neighborCountMapHandle.rt.height != screenHeight)
+        {
+            _neighborCountMapHandle?.Release();
+            var desc = new RenderTextureDescriptor(screenWidth, screenHeight, GraphicsFormat.R32_UInt, 0);
+            desc.enableRandomWrite = true;
+            _neighborCountMapHandle = RTHandles.Alloc(desc, name: "_NeighborCountMapDebug");
+        }
+
         TextureHandle finalImageHandle;
         TextureHandle debugDisplayMapHandle_RG = default;
         TextureHandle occlusionValueMapHandle_RG = default;
         TextureHandle integratedDepthMapHandle_RG = default;
         TextureHandle neighborhoodMapHandle_RG = default;
+        TextureHandle neighborCountMapHandle_RG = default;
 
         // コンピュートシェーダーを実行するパスをRenderGraphに追加
         using (var builder = renderGraph.AddComputePass<ComputePassData>(PROFILER_TAG, out var data))
@@ -303,6 +313,10 @@ public partial class PCDRenderPass
             desc.colorFormat = UnityEngine.Experimental.Rendering.GraphicsFormat.R32_UInt;
             data.originTypeMap = renderGraph.CreateTexture(desc);
 
+            // 常にImportしてバインドさせる
+            neighborCountMapHandle_RG = renderGraph.ImportTexture(_neighborCountMapHandle);
+            data.neighborCountMap = neighborCountMapHandle_RG;
+
             // 密度とグリッドレベル用の縮小バッファを生成
             var gridDesc = new TextureDesc(gridWidth, gridHeight) { enableRandomWrite = true };
             gridDesc.colorFormat = UnityEngine.Experimental.Rendering.GraphicsFormat.R32_UInt;
@@ -374,6 +388,7 @@ public partial class PCDRenderPass
             builder.UseTexture(data.finalImage, AccessFlags.ReadWrite);
             builder.UseTexture(data.originTypeMap, AccessFlags.ReadWrite);
             builder.UseTexture(data.debugDisplayMap, AccessFlags.ReadWrite);
+            builder.UseTexture(data.neighborCountMap, AccessFlags.ReadWrite);
 
             finalImageHandle = data.finalImage;
 
@@ -384,7 +399,7 @@ public partial class PCDRenderPass
             });
 
             // デバッグデータを非同期読込する場合はカリングを無効化
-            if (data.settings.recordOcclusionDebugMap || data.settings.recordPixelTagMap || data.settings.recordIntegratedDepthMap || data.settings.recordNeighborhoodMap)
+            if (data.settings.recordOcclusionDebugMap || data.settings.recordPixelTagMap || data.settings.recordIntegratedDepthMap || data.settings.recordNeighborhoodMap || data.settings.recordNeighborCountMap)
             {
                 builder.AllowPassCulling(false);
             }
@@ -570,6 +585,61 @@ public partial class PCDRenderPass
             if (PCDRendererFeature.Instance != null && PCDRendererFeature.Instance.recordNeighborhoodMap)
             {
                 PCDRendererFeature.Instance.recordNeighborhoodMap = false;
+            }
+        }
+
+        // --- デバッグ用のNeighborCountMapを非同期出力するパス ---
+        if (_settings.recordNeighborCountMap)
+        {
+            using (var builder = renderGraph.AddUnsafePass<BlitPassData>("PCD Extract NeighborCount Map", out var debugData))
+            {
+                builder.UseTexture(neighborCountMapHandle_RG, AccessFlags.Read);
+                builder.AllowPassCulling(false);
+
+                builder.SetRenderFunc((BlitPassData passData, UnsafeGraphContext context) =>
+                {
+                    if (_neighborCountMapHandle == null || _neighborCountMapHandle.rt == null)
+                    {
+                        return;
+                    }
+
+                    var rt = _neighborCountMapHandle.rt;
+                    context.cmd.RequestAsyncReadback(rt, 0, 0, screenWidth, 0, screenHeight, 0, 1, GraphicsFormat.R32_UInt, request =>
+                    {
+                        if (request.hasError)
+                        {
+                            Debug.LogError("[PCD NeighborCount Map Export] AsyncGPUReadback error.");
+                            return;
+                        }
+
+                        int w = request.width;
+                        int h = request.height;
+                        var rawData = request.GetData<uint>();
+                        int[] countData = new int[w * h];
+                        for(int i=0; i<w*h; i++) countData[i] = (int)rawData[i];
+
+                        string methodPrefix = "";
+                        if (PCDRendererFeature.Instance != null)
+                        {
+                            bool isTag = PCDRendererFeature.Instance.enableTagBasedOptimization;
+                            bool isDensity = PCDRendererFeature.Instance.enableTypeAwareDensity;
+                            bool isFade = PCDRendererFeature.Instance.enableSoftOcclusionFade;
+                            bool isHoleFill = PCDRendererFeature.Instance.enableJointBilateralHoleFilling;
+
+                            if (isTag && isDensity && isFade && isHoleFill) methodPrefix = "Proposal";
+                            else if (!isTag && !isDensity && !isFade && !isHoleFill) methodPrefix = "Traditional";
+                            else methodPrefix = $"Ablation_T{(isTag?"1":"0")}_D{(isDensity?"1":"0")}_F{(isFade?"1":"0")}_H{(isHoleFill?"1":"0")}";
+                        }
+
+                        Debug.Log($"[PCD NeighborCount Map Export] AsyncGPUReadback success! w:{w}, h:{h}");
+                        PCDOcclusionDebugExporter.ExportNeighborhoodMapFromData(countData, w, h, "Assets/HandTrackingData/NeighborCountMaps", "Count_" + methodPrefix);
+                    });
+                });
+            }
+
+            if (PCDRendererFeature.Instance != null && PCDRendererFeature.Instance.recordNeighborCountMap)
+            {
+                PCDRendererFeature.Instance.recordNeighborCountMap = false;
             }
         }
 

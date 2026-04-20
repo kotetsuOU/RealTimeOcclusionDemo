@@ -31,6 +31,7 @@ RWTexture2D<float4> _OcclusionResultMap_RW;
 RWTexture2D<float2> _OcclusionValueMap_RW;
 RWTexture2D<float4> _FinalImage_RW;
 RWTexture2D<float4> _OriginMap_RW;
+RWTexture2D<uint> _NeighborCountMap_RW; // neighborCountを記録するテクスチャ
 
 Texture2D<float4> _ColorMap;
 Texture2D<uint> _DepthMap;

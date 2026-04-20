@@ -167,6 +167,8 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
     // ★【重要】Soft IoU評価用：狐の色や黒塗りに関係なく、純粋な「マスク値(alpha)」をエクスポートする
     if (_RecordOcclusionDebug > 0) 
     {
+        _NeighborCountMap_RW[id.xy] = neighborCount;
+
         if (originalCurrentOriginType == 2u)
         {
             _OcclusionValueMap_RW[id.xy] = float2(-1.0, occlusionAverage); // 背景(-1.0)は白(Color.white)として出力させる
