@@ -6,7 +6,7 @@ using System;
 // オクルージョン値（浮動小数点数）のマップを、可視化しやすい16色のパレット形式でPNG画像として書き出すためのユーティリティ
 public static class PCDOcclusionDebugExporter
 {
-    public static void ExportNeighborhoodMapFromData(int[] data, int width, int height, string savePath = "Assets/HandTrackingData/NeighborhoodMaps", string prefix = "")
+    public static void ExportNeighborhoodMapFromData(int[] data, int width, int height, string savePath = "Assets/HandTrackingData/NeighborhoodMaps", string prefix = "", bool isNeighborCount = false)
     {
         UnityEngine.Debug.Log($"[PCDOcclusionDebugExporter] Exporting Neighborhood Map from data (width={width}, height={height})...");
         if (data == null || data.Length != width * height) return;
@@ -40,14 +40,39 @@ public static class PCDOcclusionDebugExporter
 
         for (int i = 0; i < count; i++)
         {
-            int level = data[i];
-            if (level < 0) pixels[i] = Color.black;
-            else if (level == 0) pixels[i] = Color.blue;
-            else if (level == 1) pixels[i] = Color.cyan;
-            else if (level == 2) pixels[i] = Color.green;
-            else if (level == 3) pixels[i] = Color.yellow;
-            else if (level == 4) pixels[i] = new Color(1.0f, 0.5f, 0.0f); // orange
-            else pixels[i] = Color.red; // 5以上
+            int val = data[i];
+            if (val < 0)
+            {
+                pixels[i] = Color.black; // 背景等でスキップされた値
+            }
+            else
+            {
+                if (isNeighborCount)
+                {
+                    // log10(val + 1) を用いる
+                    float logV = Mathf.Log10(val + 1);
+                    float maxLog = Mathf.Log10(Mathf.Max(maxL, 50) + 1); // 分母の最大値（最低50を想定）
+                    float t = Mathf.Clamp01(logV / maxLog);
+
+                    // 青(0) -> シアン -> 緑 -> 黄 -> 赤(大)
+                    if (val == 0) pixels[i] = Color.blue;
+                    else if (t < 0.25f) pixels[i] = Color.Lerp(Color.blue, Color.cyan, t / 0.25f);
+                    else if (t < 0.5f) pixels[i] = Color.Lerp(Color.cyan, Color.green, (t - 0.25f) / 0.25f);
+                    else if (t < 0.75f) pixels[i] = Color.Lerp(Color.green, Color.yellow, (t - 0.5f) / 0.25f);
+                    else pixels[i] = Color.Lerp(Color.yellow, Color.red, (t - 0.75f) / 0.25f);
+                }
+                else
+                {
+                    // NeighborhoodSize (level) の場合は 0～5 程度なので離散的な色分け
+                    int level = val;
+                    if (level == 0) pixels[i] = Color.blue;
+                    else if (level == 1) pixels[i] = Color.cyan;
+                    else if (level == 2) pixels[i] = Color.green;
+                    else if (level == 3) pixels[i] = Color.yellow;
+                    else if (level == 4) pixels[i] = new Color(1.0f, 0.5f, 0.0f); // orange
+                    else pixels[i] = Color.red; // 5以上
+                }
+            }
         }
 
         tex.SetPixels(pixels);

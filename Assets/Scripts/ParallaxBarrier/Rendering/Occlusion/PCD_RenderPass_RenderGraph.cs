@@ -632,7 +632,7 @@ public partial class PCDRenderPass
                         }
 
                         Debug.Log($"[PCD NeighborCount Map Export] AsyncGPUReadback success! w:{w}, h:{h}");
-                        PCDOcclusionDebugExporter.ExportNeighborhoodMapFromData(countData, w, h, "Assets/HandTrackingData/NeighborCountMaps", "Count_" + methodPrefix);
+                        PCDOcclusionDebugExporter.ExportNeighborhoodMapFromData(countData, w, h, "Assets/HandTrackingData/NeighborCountMaps", "Count_" + methodPrefix, isNeighborCount: true);
                     });
                 });
             }
