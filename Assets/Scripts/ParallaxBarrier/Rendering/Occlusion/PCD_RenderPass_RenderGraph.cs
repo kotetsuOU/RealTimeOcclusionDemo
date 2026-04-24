@@ -335,8 +335,6 @@ public partial class PCDRenderPass
             // --- 生成された点群（またはデバッグマップ）を最終画面に描画する(Blit)パス ---
             using (var builder = renderGraph.AddRasterRenderPass<BlitPassData>("PCD Blit Pass", out var data))
             {
-            data.blendMaterial = m_BlendMaterial;
-            data.enableAlphaBlend = _enableAlphaBlend;
             data.cameraTarget = resourceData.activeColorTexture; // 出力先は現在のカラーテクスチャ
             data.enablePixelTagMap = _settings.enablePixelTagMap;
             data.enableOcclusionMap = _settings.enableOcclusionMap;

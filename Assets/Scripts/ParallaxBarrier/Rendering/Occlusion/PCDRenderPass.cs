@@ -83,8 +83,6 @@ public partial class PCDRenderPass : ScriptableRenderPass
     }
 
     private ComputeShader pointCloudCompute; // オクルージョンパイプラインを定義するコアコンピュートシェーダー
-    private Material m_BlendMaterial;        // 結果として得られた画像を画面上でブレンドするために使用されるマテリアル
-    private bool _enableAlphaBlend;          // 最終的な点群の結果をアルファブレンドするかどうか
     private PCDRendererFeature.PCDRenderSettings _settings; // 機能インスペクターの値に対応する現在の設定
 
     // 個々のコンピュートシェーダー関数に対応するカーネルID
@@ -111,13 +109,10 @@ public partial class PCDRenderPass : ScriptableRenderPass
 
     private ComputeBuffer _staticMeshCounterBuffer;
 
-    public PCDRenderPass(ComputeShader computeShader, PCDRendererFeature.PCDRenderSettings settings, Material blendMaterial, bool enableAlphaBlend)
+    public PCDRenderPass(ComputeShader computeShader, PCDRendererFeature.PCDRenderSettings settings)
     {
         this.pointCloudCompute = computeShader;
         this._settings = settings;
-
-        this.m_BlendMaterial = blendMaterial;
-        this._enableAlphaBlend = enableAlphaBlend;
 
         _bufferManager = new PCDPointBufferManager(); // 静的メッシュや点群のためのデータマネージャーを初期化します
 
@@ -263,10 +258,8 @@ public partial class PCDRenderPass : ScriptableRenderPass
 
     private class BlitPassData
     {
-        internal Material blendMaterial;
         internal TextureHandle sourceImage;
         internal TextureHandle cameraTarget;
-        internal bool enableAlphaBlend;
         internal bool enablePixelTagMap;
         internal bool enableOcclusionMap;
     }

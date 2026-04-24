@@ -256,16 +256,7 @@ public partial class PCDRenderPass
 
     private static void ExecuteBlitPass(BlitPassData passData, RasterGraphContext context)
     {
-        // アルファブレンドや特定のレンダーキューに対応するため、
-        // カスタムマテリアルを用いて生成された画像をメインのフレームバッファに合成します
-        if (passData.blendMaterial != null && !passData.enablePixelTagMap && !passData.enableOcclusionMap)
-        {
-            Blitter.BlitTexture(context.cmd, passData.sourceImage, new Vector4(1, 1, 0, 0), passData.blendMaterial, 0);
-            return;
-        }
-
         // デバッグ出力または通常の出力用の標準的なBlitのフォールバック
-        Blitter.BlitTexture(context.cmd, passData.sourceImage, new Vector4(1, 1, 0, 0), 0.0f, false);
+        Blitter.BlitTexture(context.cmd, passData.sourceImage, new Vector2(1, 1), 0.0f, false);
     }
 }
-

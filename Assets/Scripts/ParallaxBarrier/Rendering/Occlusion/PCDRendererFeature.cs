@@ -82,11 +82,6 @@ public class PCDRendererFeature : ScriptableRendererFeature
     [Range(0f, 1f)]
     public float occlusionFadeWidth = 0.1f;
 
-    [Header("Blending Assets")]
-    [Tooltip("最終結果のアルファブレンドを有効にするか")]
-    public bool enableAlphaBlend = true;
-    public Material blendMaterial;
-
     [Header("Layer & Bounds Optimization")]
     [Tooltip("PCDを描画するための専用レイヤー")]
     public LayerMask pcdLayer;
@@ -188,7 +183,7 @@ public class PCDRendererFeature : ScriptableRendererFeature
         _scriptablePass?.Cleanup();
 
         // レンダリングパスのインスタンスを生成し、実行タイミングを設定
-        _scriptablePass = new PCDRenderPass(this.pointCloudCompute, GetSettings(), blendMaterial, enableAlphaBlend);
+        _scriptablePass = new PCDRenderPass(this.pointCloudCompute, GetSettings());
         _scriptablePass.renderPassEvent = RenderPassEvent.BeforeRenderingPostProcessing;
 
         // パス再生成時にも既存の登録済みメッシュ情報を引き継ぐ
@@ -255,7 +250,7 @@ public class PCDRendererFeature : ScriptableRendererFeature
         // 毎フレーム、メッシュのカリング設定やレイヤーを強制適用する
         EnforceSettingsEveryFrame();
 
-        if (pointCloudCompute == null || (enableAlphaBlend && !enablePixelTagMap && !enableOcclusionMap && blendMaterial == null))
+        if (pointCloudCompute == null)
         {
             return;
         }
