@@ -244,5 +244,22 @@ public class KeyboardController : MonoBehaviour
                 Debug.LogWarning("[KeyController] PCDRendererFeature.Instance is null; cannot toggle Occlusion Map.");
             }
         }
+
+        // ----------------------------------------------------
+        // 10. Occlusion Mode の切り替え (Lキー)
+        // ----------------------------------------------------
+        if (Input.GetKeyDown(KeyCode.L))
+        {
+            if (PCDRendererFeature.Instance != null)
+            {
+                PCDRendererFeature.PCDOcclusionMode nextMode = (PCDRendererFeature.PCDOcclusionMode)(((int)PCDRendererFeature.Instance.occlusionMode + 1) % Enum.GetValues(typeof(PCDRendererFeature.PCDOcclusionMode)).Length);
+                PCDRendererFeature.Instance.occlusionMode = nextMode;
+                Debug.Log($"[KeyController] Occlusion Mode: {nextMode}");
+            }
+            else
+            {
+                Debug.LogWarning("[KeyController] PCDRendererFeature.Instance is null; cannot toggle Occlusion Mode.");
+            }
+        }
     }
 }

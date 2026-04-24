@@ -9,7 +9,8 @@ public class PCDRendererFeature : ScriptableRendererFeature
     public enum PCDOcclusionMode
     {
         Bouchiba = 0,
-        Exponential3D = 1
+        Exponential3D = 1,
+        Linear = 2
     }
 
     [System.Serializable]

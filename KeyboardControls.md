@@ -12,9 +12,10 @@
 | **② 密度計算の補正 (Density)** | `2` | `Enable Type Aware Density` を切り替えます (従来手法のカウント漏れ・過剰を修正) |
 | **③ ソフトフェード (SoftFade)** | `3` | `Enable Soft Occlusion Fade` を切り替えます (エッジのグラデーションスムージング) |
 | **④ 穴埋め補完 (HoleFilling)** | `4` | `Enable Joint Bilateral Hole Filling` を切り替えます (透過ノイズの修復) |
-| **PixelTag Map (旧Origin Debug)** | `P` | `Enable Pixel Tag Map` を切り替えます。ON のときデバッグ配色ルールで画面上に常時可視化します |
+| **PixelTag Map (Material ID Debug)** | `P` | `Enable Pixel Tag Map` を切り替えます。ON のときデバッグ配色ルールで画面上に常時可視化します |
 | **Occlusion Map** | `O` | `Enable Occlusion Map` を切り替えます。内積計算で得た `occlusionAverage(0~1)` を `Record Occlusion Debug Map` と同じ配色ルールで常時可視化します |
 | **滑らかさ幅の強制設定** | `T` | `Occlusion Fade Width` の実数値を `0.2` (滑らか) と `0.0` (くっきり) で設定します |
+| **オクルージョン演算モードの切り替え** | `L` | オクルージョンの演算モード (`内積`, `exp`, `二次関数`) を順に切り替えます |
 | **カラーモードの切り替え (Color)** | `C` | 点群のカラーモード (`Skin`, `Black`, `Blue`, `Custom`) を順に切り替えます (`RsMaterialController` 内の `ChangeColorMode` を使用) |
 | **ゲーム終了 (Quit)** | `Esc` | エディタ再生、またはビルド後のアプリを終了させます (`QuitGame.cs`の統合) |
 

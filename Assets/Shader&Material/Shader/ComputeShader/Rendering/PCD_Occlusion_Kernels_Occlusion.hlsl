@@ -135,12 +135,28 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
                         half distSq_h = dot(diff_h, diff_h);
 
                         // exp命令(SFU)を1回実行
-                        half occlusionValue_h = exp(- (half)_Alpha * distSq_h);
+                        half occlusionValue_h = 1 - exp(- (half)_Alpha * distSq_h);
 
                         occlusionSum += (float)occlusionValue_h;
                         neighborCount++;
                     }
-                    else
+                    else if (_OcclusionMode == 2)
+                    {
+                        // 【新規】3D距離の2乗に基づく 2次関数型カーネル
+                        // ベクトル減算と内積(ノルムの2乗)のみで構成され、平方根・除算は一切不要
+                        half3 diff_h = currentPos_h - neighborPos_h;
+                        half distSq_h = dot(diff_h, diff_h);
+
+                        half occlusionValue_h = 1 - ((half) _Alpha * distSq_h);
+                        if (occlusionValue_h < 0)
+                        {
+                            occlusionValue_h = 0;
+                        }
+
+                        occlusionSum += (float) occlusionValue_h;
+                        neighborCount++;
+                    }
+                    else if(_OcclusionMode == 0)
                     {
                         // 【既存】Bouchibaの内積型カーネル
                         half sqLen2_h = dot(neighborPos_h, neighborPos_h);
