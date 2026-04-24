@@ -86,6 +86,9 @@ int _EnableTypeAwareDensity;
 int _EnableSoftOcclusionFade;
 int _EnableJointBilateralHoleFilling;
 
+int _OcclusionMode;
+float _Alpha;
+
 #define GRID_SIZE 16u
 #define DEPTH_MAX_UINT 0x7FFFFFFFu
 

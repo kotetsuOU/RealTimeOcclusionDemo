@@ -6,9 +6,17 @@ public class PCDRendererFeature : ScriptableRendererFeature
 {
     public static PCDRendererFeature Instance { get; private set; }
 
+    public enum PCDOcclusionMode
+    {
+        Bouchiba = 0,
+        Exponential3D = 1
+    }
+
     [System.Serializable]
     public struct PCDRenderSettings
     {
+        public PCDOcclusionMode occlusionMode;
+        public float exponentAlpha;
         public float densityThreshold_e;
         public float neighborhoodParam_p_prime;
         public bool enableGradientCorrection;
@@ -45,6 +53,12 @@ public class PCDRendererFeature : ScriptableRendererFeature
     public ComputeShader pointCloudCompute;
 
     [Header("Algorithm Parameters")]
+    [Tooltip("オクルージョン演算のモード切り替え")]
+    public PCDOcclusionMode occlusionMode;
+
+    [Tooltip("指数関数の減衰係数 (Expモード専用)")]
+    public float exponentAlpha;
+
     [Tooltip("密度計算に用いる深度のしきい値 e")]
     public float densityThreshold_e = 0.04f;
 
@@ -105,13 +119,14 @@ public class PCDRendererFeature : ScriptableRendererFeature
     [Tooltip("1フレームだけNeighborCountMapを記録します")]
     public bool recordNeighborCountMap = false;
 
-    [Header("Novel Methods Toggles (Ablation Study)")]
+    [Header("SICE FES 2026 Novel Methods Toggles (Ablation Study)")]
     [Tooltip("仮想・現実の「相互オクルージョン」の統合を有効にするか")]
     public bool enableVirtualDepthIntegration = true;
 
     [Tooltip("①タグによる近傍探索の最適化 (ONで不要な自己遮蔽計算をスキップ)")]
     public bool enableTagBasedOptimization = true;
 
+    [Header("Novel Methods Toggles (Ablation Study)")]
     [Tooltip("②仮想物体を区別した密度計算 (ONで従来手法のカウント漏れや過剰を補正)")]
     public bool enableTypeAwareDensity = true;
 
@@ -138,6 +153,8 @@ public class PCDRendererFeature : ScriptableRendererFeature
     {
         return new PCDRenderSettings
         {
+            occlusionMode = this.occlusionMode,
+            exponentAlpha = this.exponentAlpha,
             densityThreshold_e = this.densityThreshold_e,
             neighborhoodParam_p_prime = this.neighborhoodParam_p_prime,
             enableGradientCorrection = this.enableGradientCorrection,

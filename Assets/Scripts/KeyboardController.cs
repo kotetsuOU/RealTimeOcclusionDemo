@@ -48,7 +48,9 @@ public class KeyboardController : MonoBehaviour
                 PCDRendererFeature.Instance.recordOcclusionDebugMap = true;
                 PCDRendererFeature.Instance.recordPixelTagMap = true;
                 PCDRendererFeature.Instance.recordIntegratedDepthMap = true;
-                Debug.Log("[KeyboardController] オクルージョンDebugMap / 統合DepthMap の出力をリクエストしました");
+                PCDRendererFeature.Instance.recordNeighborhoodMap = true;
+                PCDRendererFeature.Instance.recordNeighborCountMap = true;
+                Debug.Log("[KeyboardController] オクルージョン関連DebugMapの出力をリクエストしました");
 
                 bool isTag = PCDRendererFeature.Instance.enableTagBasedOptimization;
                 bool isDensity = PCDRendererFeature.Instance.enableTypeAwareDensity;

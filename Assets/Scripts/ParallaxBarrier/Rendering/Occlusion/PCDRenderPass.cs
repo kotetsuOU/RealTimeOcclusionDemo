@@ -22,6 +22,8 @@ public partial class PCDRenderPass : ScriptableRenderPass
         public static readonly int DensityThreshold_e = Shader.PropertyToID("_DensityThreshold_e");
         public static readonly int NeighborhoodParam_p_prime = Shader.PropertyToID("_NeighborhoodParam_p_prime");
         public static readonly int GradientThreshold_g_th = Shader.PropertyToID("_GradientThreshold_g_th");
+        public static readonly int OcclusionMode = Shader.PropertyToID("_OcclusionMode");
+        public static readonly int Alpha = Shader.PropertyToID("_Alpha");
         public static readonly int OcclusionThreshold = Shader.PropertyToID("_OcclusionThreshold");
         public static readonly int OcclusionFadeWidth = Shader.PropertyToID("_OcclusionFadeWidth");
 
