@@ -6,6 +6,7 @@
 | アクション | キー (Key) | 詳細 |
 |:---|:---|:---|
 | **撮影 (Screenshot)** | `Enter` / `Return` | 「オクルージョンDebugMap」「ピクセルTagマップ」「統合DepthMap」「近傍探索範囲マップ」「近傍点カウント数」「現在のカメラビュー」を同時保存します（保存先: `Assets/HandTrackingData/OcclusionMaps` / `Assets/HandTrackingData/PixelTagMaps` / `Assets/HandTrackingData/DepthMaps/Integrated`） |
+| **表示オブジェクトの順番切り替え** | `Tab` | `toggleObjects` の配列に設定されたオブジェクトを順番に一つずつアクティブにして切り替えます |
 | **アニメーション再生/停止** | `Space` | 対象のAnimatorの `speed` を 0 と 1 でトグルし、一時停止させます（被写体を止めて撮影したい時に便利です） |
 | **手法の一括切り替え (Method)** | `M` | すべての提案手法（①～④）をまとめてON/OFFし、従来と提案の設定を瞬時比較します |
 | **① タグによるスキップ (Tag)** | `1` | `Enable Tag Based Optimization` を切り替えます (冗長な自己遮蔽計算をスキップし効率化)/SICE FES 2026発表内容 |

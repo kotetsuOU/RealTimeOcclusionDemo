@@ -8,6 +8,11 @@ public class KeyboardController : MonoBehaviour
     [Tooltip("アニメーションの再生/一時停止を切り替えるAnimator (例: キツネ等)")]
     public Animator targetAnimator;
 
+    [Tooltip("Tabキーで順番に表示を切り替える関連オブジェクトの配列")]
+    public GameObject[] toggleObjects;
+
+    private int currentActiveIndex = 0;
+
     [Tooltip("キーボード操作で移動させる対象のオブジェクト (例: キツネ等)")]
     public Transform targetTransform;
 
@@ -83,7 +88,37 @@ public class KeyboardController : MonoBehaviour
         }
 
         // ----------------------------------------------------
-        // 3. アニメーションの一時停止 / 再開 (Spaceキー)
+        // 3. オブジェクトのActive順番切り替え (Tabキー)
+        // ----------------------------------------------------
+        if (Input.GetKeyDown(KeyCode.Tab))
+        {
+            if (toggleObjects != null && toggleObjects.Length > 0)
+            {
+                // 現在のものをオフ
+                if (toggleObjects[currentActiveIndex] != null)
+                {
+                    toggleObjects[currentActiveIndex].SetActive(false);
+                }
+
+                // インデックスを進める
+                currentActiveIndex = (currentActiveIndex + 1) % toggleObjects.Length;
+
+                // 次のものをオン
+                if (toggleObjects[currentActiveIndex] != null)
+                {
+                    toggleObjects[currentActiveIndex].SetActive(true);
+                }
+
+                Debug.Log($"[KeyController] オブジェクトのActiveを {toggleObjects[currentActiveIndex]?.name} ({currentActiveIndex}番目) に切り替えました。");
+            }
+            else
+            {
+                Debug.LogWarning("[KeyController] Inspectorで toggleObjects が設定されていません。");
+            }
+        }
+
+        // ----------------------------------------------------
+        // 4. アニメーションの一時停止 / 再開 (Spaceキー)
         // ----------------------------------------------------
         if (Input.GetKeyDown(KeyCode.Space))
         {
@@ -100,7 +135,7 @@ public class KeyboardController : MonoBehaviour
         }
 
         // ----------------------------------------------------
-        // 4. 手法 (提案手法 / 従来手法) の瞬時切り替え (Mキー) - Ablation Study
+        // 5. 手法 (提案手法 / 従来手法) の瞬時切り替え (Mキー) - Ablation Study
         // ----------------------------------------------------
         if (Input.GetKeyDown(KeyCode.M))
         {
@@ -125,7 +160,7 @@ public class KeyboardController : MonoBehaviour
         }
 
         // ----------------------------------------------------
-        // 5. 各提案機能(Ablation)の個別切り替え (Alpha1, 2, 3, 4)
+        // 6. 各提案機能(Ablation)の個別切り替え (Alpha1, 2, 3, 4)
         // ----------------------------------------------------
         if (PCDRendererFeature.Instance != null)
         {
@@ -152,7 +187,7 @@ public class KeyboardController : MonoBehaviour
         }
 
         // ----------------------------------------------------
-        // 5. Fade Width設定切り替え (Tキー)
+        // 7. Fade Width設定切り替え (Tキー)
         // ----------------------------------------------------
         if (Input.GetKeyDown(KeyCode.T))
         {
@@ -172,7 +207,7 @@ public class KeyboardController : MonoBehaviour
         }
 
         // ----------------------------------------------------
-        // 6. カラーモードの切り替え (Cキー)
+        // 8. カラーモードの切り替え (Cキー)
         // ----------------------------------------------------
         if (Input.GetKeyDown(KeyCode.C))
         {
@@ -214,7 +249,7 @@ public class KeyboardController : MonoBehaviour
         }
 
         // ----------------------------------------------------
-        // 8. PixelTag Map の切り替え (Pキー)
+        // 9. PixelTag Map の切り替え (Pキー)
         // ----------------------------------------------------
         if (Input.GetKeyDown(KeyCode.P))
         {
@@ -230,7 +265,7 @@ public class KeyboardController : MonoBehaviour
         }
 
         // ----------------------------------------------------
-        // 9. Occlusion Map の切り替え (Oキー)
+        // 10. Occlusion Map の切り替え (Oキー)
         // ----------------------------------------------------
         if (Input.GetKeyDown(KeyCode.O))
         {
@@ -246,7 +281,7 @@ public class KeyboardController : MonoBehaviour
         }
 
         // ----------------------------------------------------
-        // 10. Occlusion Mode の切り替え (Lキー)
+        // 11. Occlusion Mode の切り替え (Lキー)
         // ----------------------------------------------------
         if (Input.GetKeyDown(KeyCode.L))
         {

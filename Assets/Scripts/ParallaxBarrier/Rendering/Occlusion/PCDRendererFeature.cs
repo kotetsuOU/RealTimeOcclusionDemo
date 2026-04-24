@@ -82,16 +82,6 @@ public class PCDRendererFeature : ScriptableRendererFeature
     [Range(0f, 1f)]
     public float occlusionFadeWidth = 0.1f;
 
-    [Header("Layer & Bounds Optimization")]
-    [Tooltip("PCDを描画するための専用レイヤー")]
-    public LayerMask pcdLayer;
-    [Tooltip("登録時に自動的にレイヤーを変更するか")]
-    public bool autoSetLayer = true;
-    [Tooltip("カリング防止のためにBoundsを拡張するか")]
-    public bool expandBounds = true;
-    [Tooltip("拡張するBoundsのサイズ")]
-    public float boundsSize = 10000f;
-
     [Header("Display Debug")]
     [Tooltip("点群(黒)と静的メッシュ(白)の由来を示すデバッグマップ(PixelTagMap)を有効にします")]
     public bool enablePixelTagMap = false;
@@ -225,8 +215,6 @@ public class PCDRendererFeature : ScriptableRendererFeature
             existing.mode = mode;
         }
 
-        ApplySettings(mesh, transform, mode);
-
         // 実際の描画パスにもメッシュ情報を渡す
         _scriptablePass?.AddStaticMesh(mesh, transform, mode);
     }
@@ -277,37 +265,6 @@ public class PCDRendererFeature : ScriptableRendererFeature
             {
                 _persistentObjects.RemoveAt(i);
                 continue;
-            }
-            ApplySettings(obj.mesh, obj.transform, obj.mode);
-        }
-    }
-
-    // メッシュに広大なBoundsを設定（カリング防止）し、指定されたレイヤーに変更する
-    private void ApplySettings(Mesh mesh, Transform transform, PCDProcessingMode mode)
-    {
-        // DepthMapモード（通常のURP描画を利用するメッシュ）は、レイヤー変更やBounds拡張の対象外
-        if (mode == PCDProcessingMode.DepthMap) return;
-
-        if (expandBounds && mesh != null)
-        {
-            // Note: sharedMesh.bounds を上書きするとエディタ上で恒久的に変更される恐れがあるため注意が必要ですが、
-            // PointCloudモードの場合はカリングを防ぐために変更します。
-            // 可能であれば PlayMode のみで実行するか、Meshをインスタンス化することが望ましいです。
-            if (mesh.bounds.extents.x < boundsSize * 0.5f)
-            {
-                mesh.bounds = new Bounds(Vector3.zero, Vector3.one * boundsSize);
-            }
-        }
-
-        if (autoSetLayer && transform != null)
-        {
-            int layerIndex = 0;
-            int mask = pcdLayer.value;
-            while (mask > 1) { mask >>= 1; layerIndex++; }
-
-            if (layerIndex >= 0 && layerIndex < 32 && transform.gameObject.layer != layerIndex)
-            {
-                transform.gameObject.layer = layerIndex;
             }
         }
     }
