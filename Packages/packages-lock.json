@@ -14,6 +14,13 @@
       "dependencies": {},
       "hash": "aaa920db1bc94ee646ffe394e232630dcb412a54"
     },
+    "com.ultraleap.tracking": {
+      "version": "7.3.0",
+      "depth": 0,
+      "source": "registry",
+      "dependencies": {},
+      "url": "https://package.openupm.com"
+    },
     "com.unity.burst": {
       "version": "1.8.28",
       "depth": 2,
