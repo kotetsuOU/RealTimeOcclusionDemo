@@ -15,20 +15,7 @@ public class RsMaterialControllerEditor : Editor
         {
             Undo.RecordObject(controller, "Change Material Settings");
             controller.ApplyMaterial();
-            EditorUtility.SetDirty(controller);
-        }
-
-        EditorGUILayout.Space();
-        EditorGUILayout.LabelField("Color Selection", EditorStyles.boldLabel);
-
-        EditorGUI.BeginChangeCheck();
-        PointCloudColorMode selectedMode =
-            (PointCloudColorMode)EditorGUILayout.EnumPopup("Color Mode", controller.colorMode);
-
-        if (EditorGUI.EndChangeCheck())
-        {
-            Undo.RecordObject(controller, "Change PointCloud Color");
-            controller.ChangeColorMode(selectedMode);
+            controller.ApplyColorMode();
             EditorUtility.SetDirty(controller);
         }
     }

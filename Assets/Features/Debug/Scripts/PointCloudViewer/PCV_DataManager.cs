@@ -23,7 +23,7 @@ public class PCV_DataManager : MonoBehaviour
         }
         else
         {
-            AppLogger.LogWarning(this, PCV_LogTriggers.TagDataManager, "読み込む点群データが存在しません。");
+            AppLogger.Log(this, PCV_LogTriggers.TagDataManager, "読み込む点群データが存在しません。");
         }
     }
 
