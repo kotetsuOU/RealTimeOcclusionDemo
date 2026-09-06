@@ -169,9 +169,7 @@ namespace RealSense.DummyPointCloud
             // 2. 静止時は一切 SetData も計算も行わず、既存の GPU バッファで 0ms 高速描画のみ実行
             if (_verticesBuffer != null && _cachedValidPointCount > 0 && _visualization != null)
             {
-                Color drawColor = (dummyProvider != null && dummyProvider.colorMode == PointColorMode.SolidColor)
-                    ? dummyProvider.solidColor
-                    : pointCloudColor;
+                Color drawColor = pointCloudColor;
 
                 if (_cachedValidPointCount != _lastLoggedPointCount)
                 {
@@ -189,7 +187,7 @@ namespace RealSense.DummyPointCloud
 
             if (dummyProvider != null && dummyProvider.LastSampledData.Positions != null && dummyProvider.LastSampledData.PointCount > 0)
             {
-                Gizmos.color = dummyProvider.colorMode == PointColorMode.SolidColor ? dummyProvider.solidColor : pointCloudColor;
+                Gizmos.color = pointCloudColor;
                 var positions = dummyProvider.LastSampledData.Positions;
                 int count = dummyProvider.LastSampledData.PointCount;
                 int step = Mathf.Max(1, count / 1000);

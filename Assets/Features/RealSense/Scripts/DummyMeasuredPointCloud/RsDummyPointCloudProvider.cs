@@ -149,19 +149,6 @@ namespace RealSense.DummyPointCloud
                     }
                 }
             }
-
-#if UNITY_2023_1_OR_NEWER
-            var pcdRenderers = FindObjectsByType<RsPointCloudRenderer>(FindObjectsSortMode.None);
-#else
-            var pcdRenderers = FindObjectsOfType<RsPointCloudRenderer>();
-#endif
-            foreach (var pcdRenderer in pcdRenderers)
-            {
-                if (pcdRenderer != null && pcdRenderer.processingPipe != null)
-                {
-                    pcdRenderer.pointCloudColor = solidColor;
-                }
-            }
         }
 
         public void StartStreaming()
