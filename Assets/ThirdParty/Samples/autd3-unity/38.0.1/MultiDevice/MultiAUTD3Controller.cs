@@ -87,6 +87,9 @@ public class MultiAUTD3Controller : MonoBehaviour
     [Tooltip("1周の分割")]
     [Range(8, 64)] public int stmPoints = 20;
 
+    [SerializeField] private PointCloudDepthSampler upperSampler;
+    [SerializeField] private PointCloudDepthSampler lowerSampler;  
+
     private Controller? _autd = null;
     private Vector3? _oldPosition;
     private Vector3? _oldPosition2;
@@ -212,9 +215,13 @@ public class MultiAUTD3Controller : MonoBehaviour
         private Vector3? CurrentPos1()
     {
         if(outputSide == OutputSide.None) return null;
-        if (outputSide == OutputSide.DownOnly) return null;   // 右だけモードなら左は出さない
+        if (outputSide == OutputSide.DownOnly) return null;
         if (Target == null) return null;                       // 設定し忘れ対策
-        return Target.transform.position;
+        
+        Vector3 p = Target.transform.position;
+        if (upperSampler != null && upperSampler.TryGetMedianY(p.x, p.z, out float y))
+        p.y = y;
+        return p;
     }
 
     private Vector3? CurrentPos2()
@@ -222,7 +229,11 @@ public class MultiAUTD3Controller : MonoBehaviour
         if(outputSide == OutputSide.None) return null;
         if (outputSide == OutputSide.UpperOnly) return null;    // 左だけモードなら右は出さない
         if (Target2 == null) return null;
-        return Target2.transform.position;
+        
+        Vector3 p = Target.transform.position;
+        if (lowerSampler != null && lowerSampler.TryGetMedianY(p.x, p.z, out float y))
+        p.y = y;
+        return p;
     }
     public void SetMode(OutputSide side)
     {
