@@ -66,6 +66,26 @@ namespace RealSense.DummyPointCloud
         }
 
         /// <summary>
+        /// キャッシュを強制的に無効化し、次回の SamplePointCloud で確実に再サンプリングを実行させます。
+        /// </summary>
+        public void InvalidateCache()
+        {
+            _hasCachedResult = false;
+        }
+
+        /// <summary>
+        /// 指定された Renderer が点群サンプリング対象として有効かどうかを判定します。
+        /// 非アクティブなオブジェクトや無効化されたコンポーネントは確実に除外します。
+        /// </summary>
+        public static bool IsRendererActiveForSampling(Renderer r, GameObject rootObj = null)
+        {
+            if (r == null || !r.enabled) return false;
+            if (r.gameObject == null || !r.gameObject.activeInHierarchy) return false;
+            if (rootObj != null && !rootObj.activeInHierarchy) return false;
+            return true;
+        }
+
+        /// <summary>
         /// 指定された GameObject のリスト配下から Mesh を取得し、
         /// トランスフォーム（位置・回転・スケール）の変化がない場合は前回のサンプリング結果を再利用 (CPU 0ms) します。
         /// </summary>
@@ -83,14 +103,14 @@ namespace RealSense.DummyPointCloud
                 return new SampledPointCloudData { Positions = Array.Empty<Vector3>(), Colors = Array.Empty<Color>(), PointCount = 0 };
             }
 
-            // 1. レンダラー一覧の検出とトランスフォーム変更判定
+            // 1. レンダラー一覧の検出とトランスフォーム変更判定 (アクティブなもののみ収集)
             List<Renderer> allRenderers = new List<Renderer>();
             bool transformChanged = false;
             bool isSkinnedMeshPresent = false;
 
             foreach (var rootObj in rootObjects)
             {
-                if (rootObj == null) continue;
+                if (rootObj == null || !rootObj.activeInHierarchy) continue;
 
                 var renderers = includeChildren
                     ? rootObj.GetComponentsInChildren<Renderer>()
@@ -98,7 +118,7 @@ namespace RealSense.DummyPointCloud
 
                 foreach (var r in renderers)
                 {
-                    if (r != null && r.enabled && r.gameObject.activeInHierarchy && !allRenderers.Contains(r))
+                    if (r != null && IsRendererActiveForSampling(r, rootObj) && !allRenderers.Contains(r))
                     {
                         allRenderers.Add(r);
                         if (r is SkinnedMeshRenderer) isSkinnedMeshPresent = true;

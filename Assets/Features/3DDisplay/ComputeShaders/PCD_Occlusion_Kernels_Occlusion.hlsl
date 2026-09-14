@@ -159,7 +159,11 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
 
     if (_EvaluationMode == 0) // Average Mode
     {
-        avgOcclusion = (validSectorCount > 0u) ? (occlusionSum / 8.0) : 1.0;
+        // 空セクタ（手前に遮蔽点群が存在しないセクタ）に先行研究 (Bouchiba / Pintus) 通り F_max = 2.0 を代入
+        // validSectorCount: 手前に点群が存在したセクタ数 (0〜8)
+        // (8u - validSectorCount): 空セクタ数
+        float occlusionSumWithEmpty2 = occlusionSum + (float)(8u - validSectorCount) * 2.0;
+        avgOcclusion = occlusionSumWithEmpty2 / 8.0;
 
         if (_EnableSoftOcclusionFade > 0 && _OcclusionFadeWidth > 1e-4)
         {
@@ -214,11 +218,17 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
     // デバッグ情報の記録
     if (_RecordOcclusionDebug > 0)
     {
-        float debugLabel = alpha;
+        float debugLabel = saturate(alpha);
         if (originType == 0u) debugLabel = -3.0; // 実点群は緑
         else if (originType == 2u) debugLabel = -1.0; // 背景は白
 
-        _OcclusionValueMap_RW[fullResUV] = float2(debugLabel, avgOcclusion);
+        // DebugMap の生値記録 (.y):
+        // avgOcclusion は空セクタに 2.0 を代入したため [0.0, 2.0] の範囲を取りうる。
+        // パレットおよび特殊ラベル(1.9以上=マゼンタ)との衝突を防ぎ、従来の配色(0=遮蔽/濃紺, 1=非遮蔽/赤)を
+        // 完全に維持するため、デバッグ表示用の値は上限 1.0 にクランプして記録する。
+        float debugAvgOcclusion = min(avgOcclusion, 1.0);
+
+        _OcclusionValueMap_RW[fullResUV] = float2(debugLabel, debugAvgOcclusion);
         _NeighborCountMap_RW[fullResUV] = validSectorCount;
     }
 }

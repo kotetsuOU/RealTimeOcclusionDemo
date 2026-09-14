@@ -103,11 +103,17 @@ void InitFromCamera(uint3 id : SV_DispatchThreadID, uint groupIndex : SV_GroupIn
             float4 cameraColor = _CameraColorTexture[id.xy];
             _ColorMap_RW[writeUV] = float4(cameraColor.rgb, 1.0);
 
-            float2 uv = float2(id.xy) / _ScreenParams.xy;
+            float2 uv = (float2(id.xy) + 0.5) / _ScreenParams.xy;
             float2 ndc = uv * 2.0 - 1.0;
-            float4 clipPos = float4(ndc.x, ndc.y, cameraDepth * 2.0 - 1.0, 1.0);
+
+            // GPU生深度 (rawDepth: 1=近, 0=遠) をクリップ空間 Z に直接渡す
+            float4 clipPos = float4(ndc.x, ndc.y, rawDepth, 1.0);
             float4 viewPos = mul(_InverseProjectionMatrix, clipPos);
             viewPos /= viewPos.w;
+
+            // Unity のカメラビュー空間は右手系 (前方が -Z) のため、逆投影結果の Z を反転
+            // これにより、点群側の mul(_ViewMatrix, worldPos) とXYZ座標系が完全に一致する
+            viewPos.z = -viewPos.z;
 
             _ViewPositionMap_RW[writeUV] = float4(viewPos.xyz, cameraDepth);
             _OriginTypeMap_RW[writeUV] = 1u;
