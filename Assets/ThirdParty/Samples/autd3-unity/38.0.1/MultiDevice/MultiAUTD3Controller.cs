@@ -20,13 +20,14 @@ public class MultiAUTD3Controller : MonoBehaviour
     }
 
     public enum OutputSide
-{
-    Both,       // 両方出す
-    UpperOnly,   // 左グループ（0,1,6,7）だけ
-    DownOnly,   // 右グループ（2,3,4,5）だけ
-    None
-}
-    [Tooltip("実行中にA/S/Dキーでモード切替を許可する（実験集はオフ）")]
+    {
+        Both,       // 両方出す
+        UpperOnly,  // 上グループ（0,1,6,7）だけ
+        DownOnly,   // 下グループ（2,3,4,5）だけ
+        None
+    }
+
+    [Tooltip("実行中にW/S/D/Fキーでモード・変調切替を許可する（実験時はオフ）")]
     public bool enableDebugKeys = false;
 
     public enum NonCollisionBehavior
@@ -65,30 +66,42 @@ public class MultiAUTD3Controller : MonoBehaviour
     public GameObject? Target2 = null;
 
     [Header("Independent Focus Settings")]
-    [Tooltip("Target に対応するデバイスのインデックス一覧（左側グループ）")]
+    [Tooltip("Target に対応するデバイスのインデックス一覧（上側グループ）")]
     public int[] upperDeviceIndices = new[] { 0, 1, 6, 7 };
 
-    [Tooltip("Target2 に対応するデバイスのインデックス一覧（右側グループ）")]
+    [Tooltip("Target2 に対応するデバイスのインデックス一覧（下側グループ）")]
     public int[] downDeviceIndices = new[] { 2, 3, 4, 5 };
 
-    [Tooltip("実行中に 1 / 2 / 3 キーで切り替え可能")]
-    public OutputSide outputSide = OutputSide.Both; 
+    [Tooltip("実行中に W / S / D キーで切り替え可能")]
+    public OutputSide outputSide = OutputSide.Both;
 
     [Header("STM Settings")]
     [Tooltip("ONでSTM,OFFでAM変調")]
     public bool useSTM = false;
 
     [Tooltip("円軌道の半径")]
-    [Range(0.001f, 0.01f)]public float stmRadius = 0.003f;
+    [Range(0.001f, 0.01f)] public float stmRadius = 0.003f;
 
     [Tooltip("周期")]
-    [Range(50f, 300f)] public float stmFreq = 150f;
+    [Range(50f, 300f)] public float stmFreq = 125f;
 
     [Tooltip("1周の分割")]
-    [Range(8, 64)] public int stmPoints = 20;
+    [Range(4, 64)] public int stmPoints = 8;
 
-    [SerializeField] private PointCloudDepthSampler upperSampler;
-    [SerializeField] private PointCloudDepthSampler lowerSampler;  
+    [Header("Depth Settings")]
+    [Tooltip("UpperTargetに対応するPointCloudDepthSampler")]
+    [SerializeField] private PointCloudDepthSampler? upperSampler;
+
+    [Tooltip("手の厚み（上面のY座標からこの値を引いて下側の焦点にする）")]
+    [SerializeField] private float handThickness = 0.03f;
+
+    [Tooltip("この距離以上動いたときだけ送信し直す（点群の揺れ対策）")]
+    [SerializeField] private float moveThreshold = 0.002f;
+
+    [Header("Debug Markers")]
+    [Tooltip("実際に送信している焦点位置を表示するマーカー")]
+    [SerializeField] private Transform? focusMarker1;
+    [SerializeField] private Transform? focusMarker2;
 
     private Controller? _autd = null;
     private Vector3? _oldPosition;
@@ -123,7 +136,7 @@ public class MultiAUTD3Controller : MonoBehaviour
             return;
         }
 
-        _autd.Send(new Sine(freq: modFreq * Hz, option: new SineOption()));
+        ApplyModulation();
 
         if (mode == ControlMode.TargetOnly && Target != null)
         {
@@ -132,10 +145,54 @@ public class MultiAUTD3Controller : MonoBehaviour
         }
         else if (mode == ControlMode.IndependentFocus && (Target != null || Target2 != null))
         {
-            SendIndependentFocus(Target?.transform.position, Target2?.transform.position);
-            _oldPosition = Target?.transform.position;
-            _oldPosition2 = Target2?.transform.position;
+            var pos1 = CurrentPos1();
+            var pos2 = CurrentPos2();
+            SendIndependentFocus(pos1, pos2);
+            _oldPosition = pos1;
+            _oldPosition2 = pos2;
         }
+    }
+
+    // 上面のY座標を点群から取得する。失敗したらnull
+    private float? GetSurfaceY()
+    {
+        if (upperSampler == null || Target == null) return null;
+
+        Vector3 t = Target.transform.position;
+        if (upperSampler.TryGetMedianY(t.x, t.z, out float y)) return y;
+        return null;
+    }
+
+    private Vector3? CurrentPos1()
+    {
+        if (outputSide == OutputSide.None) return null;
+        if (outputSide == OutputSide.DownOnly) return null;
+        if (Target == null) return null;
+
+        Vector3 p = Target.transform.position;
+        float? surfaceY = GetSurfaceY();
+        if (surfaceY.HasValue) p.y = surfaceY.Value;
+        return p;
+    }
+
+    private Vector3? CurrentPos2()
+    {
+        if (outputSide == OutputSide.None) return null;
+        if (outputSide == OutputSide.UpperOnly) return null;
+        if (Target2 == null) return null;
+
+        Vector3 p = Target2.transform.position;
+        float? surfaceY = GetSurfaceY();
+        if (surfaceY.HasValue) p.y = surfaceY.Value - handThickness;
+        return p;
+    }
+
+    // 点群の揺れで毎フレーム再送信されないよう、一定以上動いたときだけtrue
+    private bool Moved(Vector3? a, Vector3? b)
+    {
+        if (a == null && b == null) return false;
+        if (a == null || b == null) return true;
+        return Vector3.Distance(a.Value, b.Value) > moveThreshold;
     }
 
     private void SendIndependentFocus(Vector3? pos1, Vector3? pos2)
@@ -152,27 +209,26 @@ public class MultiAUTD3Controller : MonoBehaviour
 
     private void SendStaticFocus(Vector3? pos1, Vector3? pos2)
     {
-        var leftSet = new HashSet<int>(upperDeviceIndices);
-        var rightSet = new HashSet<int>(downDeviceIndices);
+        var upperSet = new HashSet<int>(upperDeviceIndices);
+        var downSet  = new HashSet<int>(downDeviceIndices);
 
-        // ① 指示書を空で作って、必要なぶんだけ入れる
         var gainMap = new Dictionary<object, IGain>();
         if (pos1.HasValue)
-            gainMap["left"] = new Focus(pos: pos1.Value, option: new FocusOption{Intensity = new Intensity((byte)upperIntensity)});
+            gainMap["left"] = new Focus(pos: pos1.Value,
+                option: new FocusOption { Intensity = new Intensity((byte)upperIntensity) });
         if (pos2.HasValue)
-            gainMap["right"] = new Focus(pos: pos2.Value, option: new FocusOption{Intensity = new Intensity((byte)downIntensity)});
+            gainMap["right"] = new Focus(pos: pos2.Value,
+                option: new FocusOption { Intensity = new Intensity((byte)downIntensity) });
 
-        // ② 両方ないなら全停止
         if (gainMap.Count == 0)
         {
             _autd!.Send(new Null());
             return;
         }
 
-        // ③ 名札付け。座標がない側には名札を付けない
         var gain = new GainGroup(
-            keyMap: dev => tr => (pos1.HasValue && leftSet.Contains(dev.Idx()))  ? "left"
-                            : (pos2.HasValue && rightSet.Contains(dev.Idx())) ? "right"
+            keyMap: dev => tr => (pos1.HasValue && upperSet.Contains(dev.Idx())) ? "left"
+                            : (pos2.HasValue && downSet.Contains(dev.Idx())) ? "right"
                             : null,
             gainMap: gainMap
         );
@@ -212,29 +268,7 @@ public class MultiAUTD3Controller : MonoBehaviour
 
         _autd!.Send(new GainSTM(gains, stmFreq * Hz, new GainSTMOption()).IntoNearest());
     }
-        private Vector3? CurrentPos1()
-    {
-        if(outputSide == OutputSide.None) return null;
-        if (outputSide == OutputSide.DownOnly) return null;
-        if (Target == null) return null;                       // 設定し忘れ対策
-        
-        Vector3 p = Target.transform.position;
-        if (upperSampler != null && upperSampler.TryGetMedianY(p.x, p.z, out float y))
-        p.y = y;
-        return p;
-    }
 
-    private Vector3? CurrentPos2()
-    {
-        if(outputSide == OutputSide.None) return null;
-        if (outputSide == OutputSide.UpperOnly) return null;    // 左だけモードなら右は出さない
-        if (Target2 == null) return null;
-        
-        Vector3 p = Target.transform.position;
-        if (lowerSampler != null && lowerSampler.TryGetMedianY(p.x, p.z, out float y))
-        p.y = y;
-        return p;
-    }
     public void SetMode(OutputSide side)
     {
         outputSide = side;
@@ -281,11 +315,14 @@ public class MultiAUTD3Controller : MonoBehaviour
             var pos1 = CurrentPos1();
             var pos2 = CurrentPos2();
 
-            if (pos1 != _oldPosition || pos2 != _oldPosition2)
+            if (Moved(pos1, _oldPosition) || Moved(pos2, _oldPosition2))
             {
                 SendIndependentFocus(pos1, pos2);
                 _oldPosition = pos1;
                 _oldPosition2 = pos2;
+
+                if (focusMarker1 != null && pos1.HasValue) focusMarker1.position = pos1.Value;
+                if (focusMarker2 != null && pos2.HasValue) focusMarker2.position = pos2.Value;
             }
             return;
         }
@@ -348,10 +385,9 @@ public class MultiAUTD3Controller : MonoBehaviour
             _oldPosition = currentFocusPos;
         }
     }
+
     private void OnApplicationQuit()
     {
         _autd?.Dispose();
     }
 }
-
-#nullable restore

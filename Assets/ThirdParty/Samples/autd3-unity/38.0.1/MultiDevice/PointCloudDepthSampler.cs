@@ -5,7 +5,9 @@ using System.Collections.Generic;
 public class PointCloudDepthSampler : MonoBehaviour
 {
     [Header("Point Cloud Source")]
-    [SerializeField] private RsIntegratedPointCloud pointCloud;
+    [Tooltip("対象カメラの RsProcessingPipe をアサイン")]
+    [SerializeField] private RsProcessingPipe processingPipe;
+
 
     [Header("Sampling")]
     [Tooltip("中心から何m以内の点を集めるか")]
@@ -15,29 +17,56 @@ public class PointCloudDepthSampler : MonoBehaviour
     [SerializeField] private int minPoints = 5;
 
     [Header("Debug")]
-    [Tooltip("座標系の確認用。UpperTarget などをアサイン")]
     [SerializeField] private Transform debugCompareTarget;
+
+    private RsIntegratedPointCloud pointCloud;
+    private bool subscribed = false;
 
     private float lastValidY;
     private bool hasValidY = false;
     private bool pending = false;
-    private Vector3[] latestPoints;   // 読み戻した点のコピー
+    private Vector3[] latestPoints;
     private int latestCount = 0;
 
-    void OnEnable()
+    private volatile bool needsReadback = false;
+
+    // ストリーミング開始後でないと見つからないので、見つかるまで毎フレーム試す
+    private void TryConnect()
     {
-        if (pointCloud != null) pointCloud.OnPointCloudUpdated += RequestReadback;
+        if (subscribed) return;
+        if (processingPipe == null || processingPipe.profile == null) return;
+
+        foreach (var block in processingPipe.profile._processingBlocks)
+        {
+            if (block is RsIntegratedPointCloud integrated)
+            {
+                pointCloud = integrated;
+                pointCloud.OnPointCloudUpdated += OnCloudUpdated;
+                subscribed = true;
+                Debug.Log($"[Sampler] 接続成功: {pointCloud.name}");
+                return;
+            }
+        }
     }
 
     void OnDisable()
     {
-        if (pointCloud != null) pointCloud.OnPointCloudUpdated -= RequestReadback;
+        if (subscribed && pointCloud != null)
+        {
+            pointCloud.OnPointCloudUpdated -= OnCloudUpdated;
+            subscribed = false;
+        }
+    }
+
+    // RealSenseのパイプラインスレッドから呼ばれる。フラグを立てるだけ
+    private void OnCloudUpdated()
+    {
+        needsReadback = true;
     }
 
     private void RequestReadback()
     {
-        if (pending) return;
-        if (pointCloud == null) return;
+        if (pending || pointCloud == null) return;
 
         var buf = pointCloud.PointCloudBuffer;
         int count = pointCloud.LastPointCount;
@@ -53,17 +82,19 @@ public class PointCloudDepthSampler : MonoBehaviour
         if (req.hasError) return;
 
         var data = req.GetData<Vector3>();
+
         if (latestPoints == null || latestPoints.Length < data.Length)
             latestPoints = new Vector3[data.Length];
 
-        data.CopyTo(latestPoints);
+        for (int i = 0; i < data.Length; i++)
+            latestPoints[i] = data[i];
+
         latestCount = data.Length;
     }
 
     public bool TryGetMedianY(float centerX, float centerZ, out float y)
     {
         y = lastValidY;
-
         if (latestCount == 0) return hasValidY;
 
         var ys = new List<float>();
@@ -84,21 +115,30 @@ public class PointCloudDepthSampler : MonoBehaviour
         return true;
     }
 
-    // Start is called once before the first execution of Update after the MonoBehaviour is created
-    void Start()
-    {
-        
-    }
-
-    // Update is called once per frame
     void Update()
     {
-    if (latestCount > 0 && Input.GetKeyDown(KeyCode.P))
-    {
-        Debug.Log($"点数:{latestCount} 先頭:{latestPoints[0]}");
-        if (debugCompareTarget != null)
-            Debug.Log($"比較対象: {debugCompareTarget.position}");
-    }
+        TryConnect();
 
+        if (needsReadback)
+        {
+            needsReadback = false;
+            RequestReadback();
+        }
+
+        if (Input.GetKeyDown(KeyCode.P))
+        {
+            Debug.Log($"接続: OK / 点数: {latestCount}");
+
+            if (debugCompareTarget != null)
+            {
+                Debug.Log($"Buffer:{(pointCloud?.PointCloudBuffer == null ? "null" : "あり")} " +
+              $"LastPointCount:{pointCloud?.LastPointCount}");
+                Vector3 t = debugCompareTarget.position;
+                if (TryGetMedianY(t.x, t.z, out float y))
+                    Debug.Log($"中央値Y: {y:F4} / Targetの Y: {t.y:F4}");
+                else
+                    Debug.Log($"点が足りない（範囲{sampleRange}m 内に{minPoints}点未満）");
+            }
+        }
     }
 }
