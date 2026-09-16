@@ -12,6 +12,7 @@ public class PCDOcclusionPipelineControllerEditor : Editor
     private SerializedProperty _kernelType;
     private SerializedProperty _evaluationMode;
     private SerializedProperty _minOccludedSectors;
+    private SerializedProperty _maxConsecutiveEmptySectors;
     private SerializedProperty _minSearchLevel;
 
     private SerializedProperty _exponentAlpha;
@@ -70,6 +71,7 @@ public class PCDOcclusionPipelineControllerEditor : Editor
         _kernelType = serializedObject.FindProperty("kernelType");
         _evaluationMode = serializedObject.FindProperty("evaluationMode");
         _minOccludedSectors = serializedObject.FindProperty("minOccludedSectors");
+        _maxConsecutiveEmptySectors = serializedObject.FindProperty("maxConsecutiveEmptySectors");
         _minSearchLevel = serializedObject.FindProperty("minSearchLevel");
 
         _exponentAlpha = serializedObject.FindProperty("exponentAlpha");
@@ -168,7 +170,14 @@ public class PCDOcclusionPipelineControllerEditor : Editor
         EditorGUI.indentLevel++;
         EditorGUILayout.PropertyField(_kernelType);
         EditorGUILayout.PropertyField(_evaluationMode);
-        EditorGUILayout.PropertyField(_minOccludedSectors);
+        if (_evaluationMode.enumValueIndex != (int)PCDRendererFeature.PCD_OcclusionEvaluationMode.Average)
+        {
+            EditorGUILayout.PropertyField(_minOccludedSectors);
+        }
+        if (_evaluationMode.enumValueIndex == (int)PCDRendererFeature.PCD_OcclusionEvaluationMode.SectorConsecutiveZeros)
+        {
+            EditorGUILayout.PropertyField(_maxConsecutiveEmptySectors);
+        }
         EditorGUILayout.PropertyField(_minSearchLevel);
         EditorGUI.indentLevel--;
         EditorGUILayout.Space();

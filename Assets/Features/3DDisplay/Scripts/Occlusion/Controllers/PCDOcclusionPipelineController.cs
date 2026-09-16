@@ -26,6 +26,10 @@ public class PCDOcclusionPipelineController : MonoBehaviour, IAppLoggable
     [Range(1, 8)]
     public int minOccludedSectors = 1;
 
+    [Tooltip("SectorConsecutiveZerosモード時: 許容最大連続非占有セクター数 L_th (0〜8。8で方向制限無効)")]
+    [Range(0, 8)]
+    public int maxConsecutiveEmptySectors = 2;
+
     [Tooltip("オクルージョン近傍探索のベース/最小レベル(0〜6)。OFF時は固定レベルとして使用され、ON時は探索レベルの下限および空領域のデフォルト値として使用されます。")]
     [Range(0, 6)]
     public int minSearchLevel = 6;
@@ -180,6 +184,7 @@ public class PCDOcclusionPipelineController : MonoBehaviour, IAppLoggable
             kernelType = this.kernelType,
             evaluationMode = this.evaluationMode,
             minOccludedSectors = this.minOccludedSectors,
+            maxConsecutiveEmptySectors = this.maxConsecutiveEmptySectors,
             minSearchLevel = this.minSearchLevel,
             exponentAlpha = this.exponentAlpha,
             densityThreshold_e = this.densityThreshold_e,

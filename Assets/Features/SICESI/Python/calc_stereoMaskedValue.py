@@ -208,12 +208,13 @@ def natural_sort_key(s: str):
     return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', s)]
 
 def parse_condition_metadata(cond_str: str, test_dir_abs: Optional[str] = None) -> Dict[str, any]:
-    """パス文字列および evaluation_params.json から実験パラメータ（固定モード、密度、セクター数、オクルージョン閾値）を抽出"""
+    """パス文字列および evaluation_params.json から実験パラメータ（固定モード、密度、セクター数、連続0数、オクルージョン閾値）を抽出"""
     meta = {
         "Fixed_Mode": "",
         "Density_Value": "",
         "Density_Unit": "",
         "Sector": "",
+        "Max_Consecutive_Zeros": "",
         "Threshold": ""
     }
 
@@ -229,6 +230,7 @@ def parse_condition_metadata(cond_str: str, test_dir_abs: Optional[str] = None) 
                     meta["Threshold"] = float(data.get("occlusionThreshold", 0.0))
                     meta["Fixed_Mode"] = str(data.get("evaluationMode", ""))
                     meta["Sector"] = str(data.get("minOccludedSectors", ""))
+                    meta["Max_Consecutive_Zeros"] = str(data.get("maxConsecutiveEmptySectors", ""))
                     return meta
             except Exception:
                 pass
@@ -257,6 +259,10 @@ def parse_condition_metadata(cond_str: str, test_dir_abs: Optional[str] = None) 
             meta["Sector"] = m_sec.group(1)
         elif "average" in cond_str.lower():
             meta["Sector"] = "Average"
+
+    m_zero = re.search(r'maxzero_(\d+)', cond_str, re.IGNORECASE)
+    if m_zero:
+        meta["Max_Consecutive_Zeros"] = m_zero.group(1)
 
     m_occ = re.search(r'occ_([0-9\.]+)', cond_str, re.IGNORECASE)
     if m_occ:
@@ -480,6 +486,7 @@ def main():
             "Density_Value": meta["Density_Value"],
             "Density_Unit": meta["Density_Unit"],
             "Sector_Rth": meta["Sector"],
+            "Max_Consecutive_Zeros": meta["Max_Consecutive_Zeros"],
             "Occlusion_Threshold": meta["Threshold"],
 
             # --- 両眼集計 (論文用: 画素数は Left+Right 厳密合算、率は左右平均) ---

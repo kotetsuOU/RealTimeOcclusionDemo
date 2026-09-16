@@ -100,6 +100,42 @@ namespace SICESI.Editor
 
             EditorGUILayout.Space(4);
 
+            // 占有数 × 最大連続非占有数 スイープ一括実行ボタン (SICE 2026 Proposed)
+            GUI.backgroundColor = new Color(1.0f, 0.55f, 0.7f);
+            var validPairs = controller.GetValidConsecutivePairs();
+            int pairCount = validPairs.Count;
+            int densityMultiplier = controller.sweepDensitiesAcrossConsecutive && controller.sweepDensities != null && controller.sweepDensities.Length > 0
+                ? controller.sweepDensities.Length
+                : 1;
+            int totalConsecutiveCombinations = densityMultiplier * pairCount;
+
+            string skipModeNote = controller.skipRedundantConditions ? $"厳選 {pairCount}組 (重複スキップ)" : $"全 {pairCount}組";
+            string consecutiveBtnLabel = densityMultiplier > 1
+                ? $"🚀 占有数 × 連続非占有数 スイープ (全{densityMultiplier}密度 × {skipModeNote}: 計{totalConsecutiveCombinations}組)"
+                : $"🚀 占有数 × 連続非占有数 スイープ ({skipModeNote}: 計{totalConsecutiveCombinations}組)";
+
+            if (GUILayout.Button(consecutiveBtnLabel, GUILayout.Height(42)))
+            {
+                string savePath = Path.Combine(controller.outputDirectory, controller.conditionName, "ConsecutiveSweep");
+                string desc = densityMultiplier > 1
+                    ? $"{densityMultiplier} 段階の密度 × {skipModeNote} (計 {totalConsecutiveCombinations} パターン)"
+                    : $"{skipModeNote} (計 {totalConsecutiveCombinations} パターン)";
+
+                if (EditorUtility.DisplayDialog(
+                    "占有数 × 最大連続非占有数 スイープの開始",
+                    $"条件名: [{controller.conditionName}]\n" +
+                    $"評価モード: SectorConsecutiveZeros (提案手法)\n" +
+                    $"探索条件: {desc}\n" +
+                    $"重複スキップ: {(controller.skipRedundantConditions ? $"ON (72組 -> {pairCount}組)" : "OFF (全72組)")}\n\n" +
+                    $"保存先: {savePath}\n\n自動一括撮影を開始しますか？",
+                    "開始", "キャンセル"))
+                {
+                    controller.RunConsecutiveSectorSweep();
+                }
+            }
+
+            EditorGUILayout.Space(4);
+
             // 密度 × オクルージョン閾値スイープ一括実行ボタン
             GUI.backgroundColor = new Color(0.4f, 0.85f, 0.95f);
             string fixedModeStr = (controller.fixedEvaluationMode == PCDRendererFeature.PCD_OcclusionEvaluationMode.Average)

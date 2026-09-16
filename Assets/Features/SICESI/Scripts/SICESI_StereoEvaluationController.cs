@@ -67,6 +67,16 @@ namespace SICESI
         [Tooltip("セクタースイープ時に、比較用として従来の Average (平均値判定) モードも各密度で一緒に撮影するか")]
         public bool includeAverageMode = true;
 
+        [Header("Consecutive Unoccupied Sectors Sweep Settings (SICE 2026 Proposed)")]
+        [Tooltip("新手法: 許容最大連続非占有セクター数 L_th のスイープリスト (0〜8)")]
+        public int[] sweepMaxConsecutiveZeros = new int[] { 0, 1, 2, 3, 4, 5, 6, 7, 8 };
+
+        [Tooltip("数学的・幾何学的に等価な重複条件を自動スキップする (72組 -> 20組に短縮)")]
+        public bool skipRedundantConditions = true;
+
+        [Tooltip("連続非占有数スイープ時に点群密度 (sweepDensities) も全パターン組み合わせて一括撮影するか (OFF時は現在の密度のみで撮影)")]
+        public bool sweepDensitiesAcrossConsecutive = false;
+
         [Header("Density & Occlusion Threshold Sweep Settings")]
         [Tooltip("固定する評価モード (Average: 平均値判定, SectorThreshold: セクター分割判定)")]
         public PCDRendererFeature.PCD_OcclusionEvaluationMode fixedEvaluationMode = PCDRendererFeature.PCD_OcclusionEvaluationMode.SectorThreshold;
@@ -465,6 +475,191 @@ namespace SICESI
         }
 
         /// <summary>
+        /// 最低占有数 (sweepSectors: 1〜8) × 許容最大連続0数 (sweepMaxConsecutiveZeros: 0〜8) の計72設定
+        /// （および必要に応じて各点群密度）の左右画像を自動一括キャプチャします。
+        /// 保存先: outputDirectory / conditionName / ConsecutiveSweep / density_{X} / sector_{s}_maxzero_{z}
+        /// </summary>
+        public void RunConsecutiveSectorSweep()
+        {
+            if (isCapturing) return;
+            if (occlusionPipelineController == null)
+            {
+                FindDummyComponents();
+            }
+            if (occlusionPipelineController == null)
+            {
+                Debug.LogError("[SICESI] PCDOcclusionPipelineController が見つかりません。");
+                return;
+            }
+            StartCoroutine(ConsecutiveSectorSweepRoutine());
+        }
+
+        private IEnumerator ConsecutiveSectorSweepRoutine()
+        {
+            isCapturing = true;
+            string conditionRootDir = Path.Combine(outputDirectory, conditionName);
+            Debug.Log($"[SICESI] === 占有数 × 最大連続0数 スイープキャプチャ開始 (条件: {conditionName}) 保存先: {conditionRootDir} ===");
+
+            // Step 1: まず GT を撮影 (conditionRootDir/GT に保存)
+            var backup = SetGroundTruthState(true);
+            if (pointCloudObject != null) pointCloudObject.SetActive(false);
+
+            for (int i = 0; i < 3; i++) yield return null;
+            yield return new WaitForEndOfFrame();
+
+            string gtDir = Path.Combine(conditionRootDir, "GT");
+            CaptureStereoViews(gtDir, "gt");
+            Debug.Log($"[SICESI] [1/2] Ground Truth 撮影完了: {gtDir}");
+
+            RestoreGroundTruthState(backup);
+
+            // Step 2: 点群表示に切り替え & パイプラインを Bouchiba + SectorConsecutiveZeros に設定
+            if (pointCloudObject != null) pointCloudObject.SetActive(true);
+
+            occlusionPipelineController.kernelType = PCDRendererFeature.PCD_OcclusionKernel.Bouchiba;
+            occlusionPipelineController.evaluationMode = PCDRendererFeature.PCD_OcclusionEvaluationMode.SectorConsecutiveZeros;
+
+            var pairs = GetValidConsecutivePairs();
+            int perGridCount = pairs.Count;
+            bool runAllDensities = sweepDensitiesAcrossConsecutive && sweepDensities != null && sweepDensities.Length > 0;
+            int totalCombinations = runAllDensities ? (sweepDensities.Length * perGridCount) : perGridCount;
+            int progress = 0;
+            string unitSuffix = GetDensityUnitSuffix();
+
+            if (runAllDensities)
+            {
+                for (int d = 0; d < sweepDensities.Length; d++)
+                {
+                    float density = sweepDensities[d];
+                    string densityStr = FormatFloat(density);
+                    string densitySubDir = $"density_{densityStr}{unitSuffix}";
+
+                    if (dummyPointCloudProvider != null)
+                    {
+                        dummyPointCloudProvider.densityUnit = densityUnit;
+                        dummyPointCloudProvider.densityValue = density;
+                        dummyPointCloudProvider.ForceUpdateSampling();
+                        Debug.Log($"[SICESI] 点群サンプリング強制更新完了: {dummyPointCloudProvider.LastSampledData.PointCount} 点 (密度: {densityStr}{unitSuffix})");
+                    }
+
+                    for (int p = 0; p < pairs.Count; p++)
+                    {
+                        int sector = pairs[p].sector;
+                        int maxZero = pairs[p].maxZero;
+                        occlusionPipelineController.minOccludedSectors = sector;
+                        occlusionPipelineController.maxConsecutiveEmptySectors = maxZero;
+                        progress++;
+
+                        statusMessage = $"Consecutive Sweep ({progress}/{totalCombinations}): Density={densityStr}{unitSuffix}, MinOcc={sector}, MaxZero={maxZero}";
+                        Debug.Log($"[SICESI] 設定変更 ({progress}/{totalCombinations}): 密度={densityStr}{unitSuffix}, 最低占有={sector}/8, 許容連続0={maxZero}/8");
+
+                        for (int f = 0; f < waitFramesAfterDensityChange; f++) yield return null;
+                        yield return new WaitForEndOfFrame();
+
+                        string folder = Path.Combine("ConsecutiveSweep", densitySubDir, $"sector_{sector}_maxzero_{maxZero}");
+                        string targetDir = Path.Combine(conditionRootDir, folder);
+                        CaptureStereoViews(targetDir, $"test_{densityStr}{unitSuffix}_sector_{sector}_maxzero_{maxZero}");
+                        SaveEvaluationParamsJson(targetDir, density, occlusionPipelineController.occlusionThreshold, PCDRendererFeature.PCD_OcclusionEvaluationMode.SectorConsecutiveZeros, sector, maxZero);
+
+                        Debug.Log($"[SICESI] [{progress}/{totalCombinations}] 撮影完了: {folder}");
+                    }
+                }
+            }
+            else
+            {
+                float curDensity = dummyPointCloudProvider != null ? dummyPointCloudProvider.densityValue : 1.0f;
+                string densityStr = FormatFloat(curDensity);
+                string densitySubDir = $"density_{densityStr}{unitSuffix}";
+
+                for (int p = 0; p < pairs.Count; p++)
+                {
+                    int sector = pairs[p].sector;
+                    int maxZero = pairs[p].maxZero;
+                    occlusionPipelineController.minOccludedSectors = sector;
+                    occlusionPipelineController.maxConsecutiveEmptySectors = maxZero;
+                    progress++;
+
+                    statusMessage = $"Consecutive Sweep ({progress}/{totalCombinations}): MinOcc={sector}, MaxZero={maxZero}";
+                    Debug.Log($"[SICESI] 設定変更 ({progress}/{totalCombinations}): 最低占有={sector}/8, 許容連続0={maxZero}/8");
+
+                    for (int f = 0; f < waitFramesAfterDensityChange; f++) yield return null;
+                    yield return new WaitForEndOfFrame();
+
+                    string folder = Path.Combine("ConsecutiveSweep", densitySubDir, $"sector_{sector}_maxzero_{maxZero}");
+                    string targetDir = Path.Combine(conditionRootDir, folder);
+                    CaptureStereoViews(targetDir, $"test_sector_{sector}_maxzero_{maxZero}");
+                    SaveEvaluationParamsJson(targetDir, curDensity, occlusionPipelineController.occlusionThreshold, PCDRendererFeature.PCD_OcclusionEvaluationMode.SectorConsecutiveZeros, sector, maxZero);
+
+                    Debug.Log($"[SICESI] [{progress}/{totalCombinations}] 撮影完了: {folder}");
+                }
+            }
+
+            statusMessage = "All Consecutive Sector Sweeps Completed!";
+            Debug.Log($"[SICESI] === 占有数 × 最大連続0数 スイープキャプチャ完了! 保存先: {conditionRootDir} ===");
+            isCapturing = false;
+        }
+
+        /// <summary>
+        /// 8セクター円環において、数学的・幾何学的に重複（等価）なパラメータ組み合わせかどうかを判定します。
+        /// </summary>
+        public static bool IsRedundantCombination(int rTh, int lTh, int K = 8)
+        {
+            // 1. L_th = 0 は全セクター占有 (N_occ = 8) と等価。
+            //    R_th = 8, L_th = 8 (全占有) が代表として存在するため、それ以外の L_th = 0 はスキップ。
+            if (lTh == 0)
+            {
+                return true;
+            }
+
+            // 2. L_th >= K - rTh の領域は、すべて「占有数 rTh のみ」と等価。
+            //    代表値として L_th = K (8: 方向条件無効化) のみを残し、それ以外の K - rTh <= lTh < K はスキップ。
+            if (lTh >= K - rTh && lTh < K)
+            {
+                return true;
+            }
+
+            // 3. 最大連続0数が lTh 以下という幾何学的制約により、数学的に必然的に保証される最小占有数 minOccForL:
+            //    - lTh = 1: 0同士が隣接不可 -> 0は最大4個 -> N_occ >= 4. (R_th < 4 は R_th = 4 と同一)
+            //    - lTh = 2: 0が最大2連続 -> 0は最大5個 (00100101) -> N_occ >= 3. (R_th < 3 は R_th = 3 と同一)
+            //    - lTh = 3: 0が最大3連続 -> 0は最大6個 (00010001) -> N_occ >= 2. (R_th < 2 は R_th = 2 と同一)
+            if (lTh < K)
+            {
+                int maxZerosPossible = (K * lTh) / (lTh + 1);
+                int implicitMinOcc = K - maxZerosPossible;
+                if (rTh < implicitMinOcc)
+                {
+                    return true; // より大きい rTh と全く同じ条件になるため重複
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// 現在の設定において評価対象となる (R_th, L_th) の有効ペアリストを取得します。
+        /// </summary>
+        public List<(int sector, int maxZero)> GetValidConsecutivePairs()
+        {
+            var pairs = new List<(int sector, int maxZero)>();
+            if (sweepSectors == null || sweepMaxConsecutiveZeros == null) return pairs;
+
+            for (int s = 0; s < sweepSectors.Length; s++)
+            {
+                int sector = sweepSectors[s];
+                for (int z = 0; z < sweepMaxConsecutiveZeros.Length; z++)
+                {
+                    int maxZero = sweepMaxConsecutiveZeros[z];
+                    if (skipRedundantConditions && IsRedundantCombination(sector, maxZero))
+                    {
+                        continue;
+                    }
+                    pairs.Add((sector, maxZero));
+                }
+            }
+            return pairs;
+        }
+
+        /// <summary>
         /// 分割の R_th (セクター閾値: 1〜8) または Average モードを固定したまま、
         /// 点群密度 (sweepDensities) とオクルージョン判定閾値 (sweepOcclusionThresholds) を順次変更しながら
         /// 全パターンの左右画像を自動一括キャプチャします。
@@ -644,13 +839,14 @@ namespace SICESI
             public float occlusionThreshold;
             public string evaluationMode;
             public int minOccludedSectors;
+            public int maxConsecutiveEmptySectors;
             public string timestamp;
         }
 
         /// <summary>
         /// 撮影時の正確な設定値 (丸めなしの float) を JSON として記録します。
         /// </summary>
-        private void SaveEvaluationParamsJson(string targetDir, float density, float threshold, PCDRendererFeature.PCD_OcclusionEvaluationMode mode, int sectors)
+        private void SaveEvaluationParamsJson(string targetDir, float density, float threshold, PCDRendererFeature.PCD_OcclusionEvaluationMode mode, int sectors, int maxZeros = 8)
         {
             try
             {
@@ -662,6 +858,7 @@ namespace SICESI
                     occlusionThreshold = threshold,
                     evaluationMode = mode.ToString(),
                     minOccludedSectors = sectors,
+                    maxConsecutiveEmptySectors = maxZeros,
                     timestamp = System.DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss")
                 };
                 string json = JsonUtility.ToJson(data, true);

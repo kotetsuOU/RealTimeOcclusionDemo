@@ -98,6 +98,7 @@ internal class PCDPreProcessStage : IPCDPipelineStage
         cmd.SetComputeIntParam(cs, PCDShaderConstants.KernelType, (int)s.kernelType);
         cmd.SetComputeIntParam(cs, PCDShaderConstants.EvaluationMode, (int)s.evaluationMode);
         cmd.SetComputeIntParam(cs, PCDShaderConstants.MinOccludedSectors, s.minOccludedSectors);
+        cmd.SetComputeIntParam(cs, PCDShaderConstants.MaxConsecutiveEmptySectors, s.maxConsecutiveEmptySectors);
         cmd.SetComputeIntParam(cs, PCDShaderConstants.MinSearchLevel, s.minSearchLevel);
         cmd.SetComputeFloatParam(cs, PCDShaderConstants.Alpha, s.exponentAlpha);
         cmd.SetComputeFloatParam(cs, PCDShaderConstants.OcclusionThreshold, s.occlusionThreshold);

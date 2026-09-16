@@ -45,7 +45,8 @@ public class PCDRendererFeature : ScriptableRendererFeature
     public enum PCD_OcclusionEvaluationMode
     {
         Average = 0,
-        SectorThreshold = 1
+        SectorThreshold = 1,
+        SectorConsecutiveZeros = 2
     }
 
     public enum PCD_HoleFillingMethod
@@ -80,6 +81,7 @@ public class PCDRendererFeature : ScriptableRendererFeature
         public PCD_OcclusionKernel kernelType;
         public PCD_OcclusionEvaluationMode evaluationMode;
         [Range(1, 8)] public int minOccludedSectors;
+        [Range(0, 8)] public int maxConsecutiveEmptySectors;
         [Range(0, 6)] public int minSearchLevel;
 
         public float exponentAlpha;

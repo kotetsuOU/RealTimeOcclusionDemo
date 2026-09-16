@@ -10,6 +10,7 @@ public class PCDSettingsBridge
         kernelType = PCD_OcclusionKernel.Bouchiba,
         evaluationMode = PCD_OcclusionEvaluationMode.Average,
         minOccludedSectors = 1,
+        maxConsecutiveEmptySectors = 2,
         minSearchLevel = 6,
         exponentAlpha = 0f,
         densityThreshold_e = 0.04f,
@@ -90,6 +91,16 @@ public class PCDSettingsBridge
         {
             if (Controller != null) Controller.minOccludedSectors = value;
             else _fallbackSettings.minOccludedSectors = value;
+        }
+    }
+
+    public int maxConsecutiveEmptySectors
+    {
+        get => Controller != null ? Controller.maxConsecutiveEmptySectors : _fallbackSettings.maxConsecutiveEmptySectors;
+        set
+        {
+            if (Controller != null) Controller.maxConsecutiveEmptySectors = value;
+            else _fallbackSettings.maxConsecutiveEmptySectors = value;
         }
     }
 
