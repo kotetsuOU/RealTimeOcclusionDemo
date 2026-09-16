@@ -98,6 +98,37 @@ namespace SICESI.Editor
                 }
             }
 
+            EditorGUILayout.Space(4);
+
+            // 密度 × オクルージョン閾値スイープ一括実行ボタン
+            GUI.backgroundColor = new Color(0.4f, 0.85f, 0.95f);
+            string fixedModeStr = (controller.fixedEvaluationMode == PCDRendererFeature.PCD_OcclusionEvaluationMode.Average)
+                ? "固定: Average"
+                : $"固定: R_th={controller.fixedMinOccludedSectors}";
+            int densityCount = controller.sweepDensities != null ? controller.sweepDensities.Length : 0;
+            int threshCount = controller.sweepOcclusionThresholds != null ? controller.sweepOcclusionThresholds.Length : 0;
+            int totalGridCount = densityCount * threshCount;
+            string gridBtnLabel = $"🚀 密度 × 閾値スイープ ({fixedModeStr}, {densityCount}密度 × {threshCount}閾値: 計{totalGridCount}組)";
+
+            if (GUILayout.Button(gridBtnLabel, GUILayout.Height(40)))
+            {
+                string modeDirName = (controller.fixedEvaluationMode == PCDRendererFeature.PCD_OcclusionEvaluationMode.Average)
+                    ? "Fixed_Average"
+                    : $"Fixed_Sector_{controller.fixedMinOccludedSectors}";
+                string savePath = Path.Combine(controller.outputDirectory, controller.conditionName, modeDirName);
+
+                if (EditorUtility.DisplayDialog(
+                    "密度 × オクルージョン閾値スイープの開始",
+                    $"条件名: [{controller.conditionName}]\n" +
+                    $"評価モード: {fixedModeStr}\n" +
+                    $"グリッド組み合わせ: {densityCount} 段階の密度 × {threshCount} 段階の閾値 (計 {totalGridCount} パターン)\n\n" +
+                    $"保存先: {savePath}\n\n自動一括撮影を開始しますか？",
+                    "開始", "キャンセル"))
+                {
+                    controller.RunDensityOcclusionThresholdSweep();
+                }
+            }
+
             GUI.backgroundColor = Color.white;
             GUI.enabled = true;
 

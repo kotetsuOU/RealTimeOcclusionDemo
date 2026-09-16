@@ -67,6 +67,17 @@ namespace SICESI
         [Tooltip("セクタースイープ時に、比較用として従来の Average (平均値判定) モードも各密度で一緒に撮影するか")]
         public bool includeAverageMode = true;
 
+        [Header("Density & Occlusion Threshold Sweep Settings")]
+        [Tooltip("固定する評価モード (Average: 平均値判定, SectorThreshold: セクター分割判定)")]
+        public PCDRendererFeature.PCD_OcclusionEvaluationMode fixedEvaluationMode = PCDRendererFeature.PCD_OcclusionEvaluationMode.SectorThreshold;
+
+        [Tooltip("SectorThreshold モード時に固定するセクター閾値 R_th (1〜8)")]
+        [Range(1, 8)]
+        public int fixedMinOccludedSectors = 1;
+
+        [Tooltip("スイープするオクルージョン判定閾値のリスト (0.0〜1.0)")]
+        public float[] sweepOcclusionThresholds = new float[] { 0.1f, 0.2f, 0.3f, 0.4f, 0.5f, 0.6f, 0.7f, 0.8f, 0.9f };
+
         [Header("Output Settings")]
         [Tooltip("出力先ルートディレクトリ")]
         public string outputDirectory = @"C:\Users\hongo\Documents\tsutsumi\Estimation\SICESI_Dataset";
@@ -257,14 +268,15 @@ namespace SICESI
             for (int i = 0; i < sweepDensities.Length; i++)
             {
                 float density = sweepDensities[i];
-                statusMessage = $"Running sweep ({i + 1}/{sweepDensities.Length}): Density = {density:F2}{unitSuffix}";
-                Debug.Log($"[SICESI] 密度設定変更: {density:F2} ({densityUnit})");
+                string densityStr = FormatFloat(density);
+                statusMessage = $"Running sweep ({i + 1}/{sweepDensities.Length}): Density = {densityStr}{unitSuffix}";
+                Debug.Log($"[SICESI] 密度設定変更: {densityStr} ({densityUnit})");
 
                 dummyPointCloudProvider.densityUnit = densityUnit;
                 dummyPointCloudProvider.densityValue = density;
                 dummyPointCloudProvider.ForceUpdateSampling();
 
-                Debug.Log($"[SICESI] 点群サンプリング強制更新完了: {dummyPointCloudProvider.LastSampledData.PointCount} 点 (密度: {density:F2}{unitSuffix})");
+                Debug.Log($"[SICESI] 点群サンプリング強制更新完了: {dummyPointCloudProvider.LastSampledData.PointCount} 点 (密度: {densityStr}{unitSuffix})");
 
                 // 点群サンプリングとGPU転送・URP描画の反映を待機
                 for (int f = 0; f < waitFramesAfterDensityChange; f++)
@@ -273,9 +285,14 @@ namespace SICESI
                 }
                 yield return new WaitForEndOfFrame();
 
-                string densityFolder = $"density_{density:F2}{unitSuffix}";
+                string densityFolder = $"density_{densityStr}{unitSuffix}";
                 string targetDir = Path.Combine(conditionRootDir, densityFolder);
-                CaptureStereoViews(targetDir, $"test_{density:F2}{unitSuffix}");
+                CaptureStereoViews(targetDir, $"test_{densityStr}{unitSuffix}");
+
+                float curThreshold = occlusionPipelineController != null ? occlusionPipelineController.occlusionThreshold : 0.8f;
+                var curMode = occlusionPipelineController != null ? occlusionPipelineController.evaluationMode : PCDRendererFeature.PCD_OcclusionEvaluationMode.Average;
+                int curSectors = occlusionPipelineController != null ? occlusionPipelineController.minOccludedSectors : 1;
+                SaveEvaluationParamsJson(targetDir, density, curThreshold, curMode, curSectors);
 
                 Debug.Log($"[SICESI] [{i + 1}/{sweepDensities.Length}] 撮影完了: {densityFolder}");
             }
@@ -342,22 +359,23 @@ namespace SICESI
                 for (int d = 0; d < sweepDensities.Length; d++)
                 {
                     float density = sweepDensities[d];
-                    string densitySubDir = $"density_{density:F2}{unitSuffix}";
+                    string densityStr = FormatFloat(density);
+                    string densitySubDir = $"density_{densityStr}{unitSuffix}";
 
                     if (dummyPointCloudProvider != null)
                     {
                         dummyPointCloudProvider.densityUnit = densityUnit;
                         dummyPointCloudProvider.densityValue = density;
                         dummyPointCloudProvider.ForceUpdateSampling();
-                        Debug.Log($"[SICESI] 点群サンプリング強制更新完了: {dummyPointCloudProvider.LastSampledData.PointCount} 点 (密度: {density:F2}{unitSuffix})");
+                        Debug.Log($"[SICESI] 点群サンプリング強制更新完了: {dummyPointCloudProvider.LastSampledData.PointCount} 点 (密度: {densityStr}{unitSuffix})");
                     }
 
                     // (A) 従来の Average モード
                     if (includeAverageMode)
                     {
                         progress++;
-                        statusMessage = $"Sector Sweep ({progress}/{totalCombinations}): Density={density:F2}{unitSuffix}, Mode=Average";
-                        Debug.Log($"[SICESI] 設定変更 ({progress}/{totalCombinations}): 密度={density:F2}{unitSuffix}, 評価モード=Average");
+                        statusMessage = $"Sector Sweep ({progress}/{totalCombinations}): Density={densityStr}{unitSuffix}, Mode=Average";
+                        Debug.Log($"[SICESI] 設定変更 ({progress}/{totalCombinations}): 密度={densityStr}{unitSuffix}, 評価モード=Average");
 
                         occlusionPipelineController.evaluationMode = PCDRendererFeature.PCD_OcclusionEvaluationMode.Average;
 
@@ -366,7 +384,8 @@ namespace SICESI
 
                         string avgFolder = Path.Combine(densitySubDir, "Average");
                         string avgTargetDir = Path.Combine(conditionRootDir, avgFolder);
-                        CaptureStereoViews(avgTargetDir, $"test_{density:F2}{unitSuffix}_Average");
+                        CaptureStereoViews(avgTargetDir, $"test_{densityStr}{unitSuffix}_Average");
+                        SaveEvaluationParamsJson(avgTargetDir, density, occlusionPipelineController.occlusionThreshold, PCDRendererFeature.PCD_OcclusionEvaluationMode.Average, 1);
 
                         Debug.Log($"[SICESI] [{progress}/{totalCombinations}] 撮影完了: {avgFolder}");
                     }
@@ -377,8 +396,8 @@ namespace SICESI
                     {
                         int sector = sweepSectors[s];
                         progress++;
-                        statusMessage = $"Sector Sweep ({progress}/{totalCombinations}): Density={density:F2}{unitSuffix}, Sector={sector}";
-                        Debug.Log($"[SICESI] 設定変更 ({progress}/{totalCombinations}): 密度={density:F2}{unitSuffix}, セクター={sector}/8");
+                        statusMessage = $"Sector Sweep ({progress}/{totalCombinations}): Density={densityStr}{unitSuffix}, Sector={sector}";
+                        Debug.Log($"[SICESI] 設定変更 ({progress}/{totalCombinations}): 密度={densityStr}{unitSuffix}, セクター={sector}/8");
 
                         occlusionPipelineController.minOccludedSectors = sector;
 
@@ -387,7 +406,8 @@ namespace SICESI
 
                         string folder = Path.Combine(densitySubDir, $"sector_{sector}");
                         string targetDir = Path.Combine(conditionRootDir, folder);
-                        CaptureStereoViews(targetDir, $"test_{density:F2}{unitSuffix}_sector_{sector}");
+                        CaptureStereoViews(targetDir, $"test_{densityStr}{unitSuffix}_sector_{sector}");
+                        SaveEvaluationParamsJson(targetDir, density, occlusionPipelineController.occlusionThreshold, PCDRendererFeature.PCD_OcclusionEvaluationMode.SectorThreshold, sector);
 
                         Debug.Log($"[SICESI] [{progress}/{totalCombinations}] 撮影完了: {folder}");
                     }
@@ -395,6 +415,8 @@ namespace SICESI
             }
             else
             {
+                float curDensity = dummyPointCloudProvider != null ? dummyPointCloudProvider.densityValue : 1.0f;
+
                 // 現在の密度設定のまま (Average + セクター閾値) をスイープ
                 if (includeAverageMode)
                 {
@@ -410,6 +432,7 @@ namespace SICESI
                     string avgFolder = "Average";
                     string avgTargetDir = Path.Combine(conditionRootDir, avgFolder);
                     CaptureStereoViews(avgTargetDir, "test_Average");
+                    SaveEvaluationParamsJson(avgTargetDir, curDensity, occlusionPipelineController.occlusionThreshold, PCDRendererFeature.PCD_OcclusionEvaluationMode.Average, 1);
 
                     Debug.Log($"[SICESI] [{progress}/{totalCombinations}] 撮影完了: {avgFolder}");
                 }
@@ -430,6 +453,7 @@ namespace SICESI
                     string sectorFolder = $"sector_{sector}";
                     string targetDir = Path.Combine(conditionRootDir, sectorFolder);
                     CaptureStereoViews(targetDir, $"test_sector_{sector}");
+                    SaveEvaluationParamsJson(targetDir, curDensity, occlusionPipelineController.occlusionThreshold, PCDRendererFeature.PCD_OcclusionEvaluationMode.SectorThreshold, sector);
 
                     Debug.Log($"[SICESI] [{progress}/{totalCombinations}] 撮影完了: {sectorFolder}");
                 }
@@ -438,6 +462,155 @@ namespace SICESI
             statusMessage = "All Sector Sweeps Completed!";
             Debug.Log($"[SICESI] === セクタースイープキャプチャ完了! 保存先: {conditionRootDir} ===");
             isCapturing = false;
+        }
+
+        /// <summary>
+        /// 分割の R_th (セクター閾値: 1〜8) または Average モードを固定したまま、
+        /// 点群密度 (sweepDensities) とオクルージョン判定閾値 (sweepOcclusionThresholds) を順次変更しながら
+        /// 全パターンの左右画像を自動一括キャプチャします。
+        /// 保存先: outputDirectory / conditionName / Fixed_{Mode} / density_{X} / occ_{Y}
+        /// </summary>
+        public void RunDensityOcclusionThresholdSweep()
+        {
+            if (isCapturing) return;
+            if (occlusionPipelineController == null)
+            {
+                FindDummyComponents();
+            }
+            if (occlusionPipelineController == null)
+            {
+                Debug.LogError("[SICESI] PCDOcclusionPipelineController が見つかりません。");
+                return;
+            }
+            if (dummyPointCloudProvider == null)
+            {
+                Debug.LogError("[SICESI] RsDummyPointCloudProvider が設定されていません。");
+                return;
+            }
+            if (sweepDensities == null || sweepDensities.Length == 0)
+            {
+                Debug.LogError("[SICESI] sweepDensities が設定されていません。");
+                return;
+            }
+            if (sweepOcclusionThresholds == null || sweepOcclusionThresholds.Length == 0)
+            {
+                Debug.LogError("[SICESI] sweepOcclusionThresholds が設定されていません。");
+                return;
+            }
+
+            StartCoroutine(DensityOcclusionThresholdSweepRoutine());
+        }
+
+        private IEnumerator DensityOcclusionThresholdSweepRoutine()
+        {
+            isCapturing = true;
+
+            // 実験前の設定をバックアップ (終了時に確実に復元)
+            var prevEvalMode = occlusionPipelineController.evaluationMode;
+            var prevMinSectors = occlusionPipelineController.minOccludedSectors;
+            var prevThreshold = occlusionPipelineController.occlusionThreshold;
+
+            string modeFolderName = (fixedEvaluationMode == PCDRendererFeature.PCD_OcclusionEvaluationMode.Average)
+                ? "Fixed_Average"
+                : $"Fixed_Sector_{fixedMinOccludedSectors}";
+
+            // 保存先ルート: SICESI_Dataset/{conditionName}/{modeFolderName}
+            string conditionRootDir = Path.Combine(outputDirectory, conditionName);
+            string sweepTargetRootDir = Path.Combine(conditionRootDir, modeFolderName);
+
+            string modeDesc = (fixedEvaluationMode == PCDRendererFeature.PCD_OcclusionEvaluationMode.Average)
+                ? "Average (平均値)"
+                : $"SectorThreshold (R_th = {fixedMinOccludedSectors})";
+
+            int totalCombinations = sweepDensities.Length * sweepOcclusionThresholds.Length;
+            Debug.Log($"[SICESI] === 密度 × オクルージョン閾値 スイープ開始 (条件: {conditionName}, 固定: {modeDesc}, 全{totalCombinations}組) ===");
+            Debug.Log($"[SICESI] 出力先: {sweepTargetRootDir}");
+
+            try
+            {
+                // Step 1: まず GT を撮影
+                // sweepTargetRootDir/GT と conditionRootDir/GT の両方に保存して Python スクリプトの自動探索を確実化
+                var backup = SetGroundTruthState(true);
+                if (pointCloudObject != null) pointCloudObject.SetActive(false);
+
+                for (int i = 0; i < 3; i++) yield return null;
+                yield return new WaitForEndOfFrame();
+
+                string gtDir = Path.Combine(sweepTargetRootDir, "GT");
+                CaptureStereoViews(gtDir, "gt");
+
+                string commonGtDir = Path.Combine(conditionRootDir, "GT");
+                if (commonGtDir != gtDir)
+                {
+                    CaptureStereoViews(commonGtDir, "gt");
+                }
+                Debug.Log($"[SICESI] [1/2] Ground Truth 撮影完了: {gtDir}");
+
+                RestoreGroundTruthState(backup);
+
+                // Step 2: 点群表示に切り替え & 評価モードと R_th を設定
+                if (pointCloudObject != null) pointCloudObject.SetActive(true);
+
+                occlusionPipelineController.evaluationMode = fixedEvaluationMode;
+                if (fixedEvaluationMode == PCDRendererFeature.PCD_OcclusionEvaluationMode.SectorThreshold)
+                {
+                    occlusionPipelineController.minOccludedSectors = fixedMinOccludedSectors;
+                }
+
+                string unitSuffix = GetDensityUnitSuffix();
+                int progress = 0;
+
+                // Step 3: 密度 × 閾値 のグリッドスイープ
+                for (int d = 0; d < sweepDensities.Length; d++)
+                {
+                    float density = sweepDensities[d];
+                    string densityStr = FormatFloat(density);
+                    string densitySubDir = $"density_{densityStr}{unitSuffix}";
+
+                    dummyPointCloudProvider.densityUnit = densityUnit;
+                    dummyPointCloudProvider.densityValue = density;
+                    dummyPointCloudProvider.ForceUpdateSampling();
+                    Debug.Log($"[SICESI] 点群サンプリング更新: {dummyPointCloudProvider.LastSampledData.PointCount} 点 (密度: {densityStr}{unitSuffix})");
+
+                    for (int t = 0; t < sweepOcclusionThresholds.Length; t++)
+                    {
+                        float threshold = sweepOcclusionThresholds[t];
+                        string threshStr = FormatFloat(threshold);
+                        progress++;
+
+                        statusMessage = $"Sweep ({progress}/{totalCombinations}): Density={densityStr}{unitSuffix}, Thresh={threshStr}";
+                        Debug.Log($"[SICESI] 設定適用 ({progress}/{totalCombinations}): 密度={densityStr}{unitSuffix}, オクルージョン閾値={threshStr}");
+
+                        occlusionPipelineController.occlusionThreshold = threshold;
+
+                        // 点群更新とURP描画の安定待機
+                        for (int f = 0; f < waitFramesAfterDensityChange; f++) yield return null;
+                        yield return new WaitForEndOfFrame();
+
+                        string occFolder = $"occ_{threshStr}";
+                        string targetDir = Path.Combine(sweepTargetRootDir, densitySubDir, occFolder);
+                        string filePrefix = $"test_{densityStr}{unitSuffix}_occ_{threshStr}";
+                        CaptureStereoViews(targetDir, filePrefix);
+                        SaveEvaluationParamsJson(targetDir, density, threshold, fixedEvaluationMode, fixedMinOccludedSectors);
+
+                        Debug.Log($"[SICESI] [{progress}/{totalCombinations}] 撮影完了: {densitySubDir}/{occFolder}");
+                    }
+                }
+
+                statusMessage = "Density & Occlusion Sweep Completed!";
+                Debug.Log($"[SICESI] === 密度 × オクルージョン閾値 スイープ完了! 保存先: {sweepTargetRootDir} ===");
+            }
+            finally
+            {
+                // 実験前の設定をリストア
+                if (occlusionPipelineController != null)
+                {
+                    occlusionPipelineController.evaluationMode = prevEvalMode;
+                    occlusionPipelineController.minOccludedSectors = prevMinSectors;
+                    occlusionPipelineController.occlusionThreshold = prevThreshold;
+                }
+                isCapturing = false;
+            }
         }
 
         private string GetDensityUnitSuffix()
@@ -454,6 +627,50 @@ namespace SICESI
                     return "pts";
                 default:
                     return "";
+            }
+        }
+
+        private static string FormatFloat(float val)
+        {
+            return val.ToString("0.0###", System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        [System.Serializable]
+        private class EvaluationParamsData
+        {
+            public string conditionName;
+            public float densityValue;
+            public string densityUnit;
+            public float occlusionThreshold;
+            public string evaluationMode;
+            public int minOccludedSectors;
+            public string timestamp;
+        }
+
+        /// <summary>
+        /// 撮影時の正確な設定値 (丸めなしの float) を JSON として記録します。
+        /// </summary>
+        private void SaveEvaluationParamsJson(string targetDir, float density, float threshold, PCDRendererFeature.PCD_OcclusionEvaluationMode mode, int sectors)
+        {
+            try
+            {
+                var data = new EvaluationParamsData
+                {
+                    conditionName = this.conditionName,
+                    densityValue = density,
+                    densityUnit = this.densityUnit.ToString(),
+                    occlusionThreshold = threshold,
+                    evaluationMode = mode.ToString(),
+                    minOccludedSectors = sectors,
+                    timestamp = System.DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss")
+                };
+                string json = JsonUtility.ToJson(data, true);
+                Directory.CreateDirectory(targetDir);
+                File.WriteAllText(Path.Combine(targetDir, "evaluation_params.json"), json);
+            }
+            catch (System.Exception ex)
+            {
+                Debug.LogWarning($"[SICESI] evaluation_params.json 保存失敗: {ex.Message}");
             }
         }
 

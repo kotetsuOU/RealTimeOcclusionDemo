@@ -36,8 +36,8 @@ SICE SI 2026: ハーフミラー型3Dディスプレイにおけるリアルタ�
   # 3) 特定の密度のみ絞り込み:
   python calc_stereoMaskedValue.py -c density_1.00
 
-  # 4) ディレクトリ指定と組み合わせ:
-  python calc_stereoMaskedValue.py C:/Users/hongo/Documents/tsutsumi/Estimation/SICESI_Dataset/SectorSweep -c Bouchiba
+# 4) ディレクトリ指定と組み合わせ:
+  python calc_stereoMaskedValue.py C:/Users/hongo/Documents/tsutsumi/Estimation/SICESI_Dataset -c Bouchiba
 """
 
 import sys
@@ -45,6 +45,7 @@ import os
 import re
 import glob
 import csv
+import json
 import argparse
 from typing import Dict, Optional, List
 
@@ -65,7 +66,7 @@ class ImageHandler:
         return cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
 
 class UnionMaskMetrics:
-    """論理和(Union Mask)に基づく4つの評価指標 (IoU, MAE, PSNR, DSSIM) を計算"""
+    """論理和(Union Mask)およびGT可視領域に基づく評価指標を計算"""
     def __init__(self, ref_img: np.ndarray, test_img: np.ndarray, data_range: float = 255.0):
         self.ref_img = ref_img
         self.test_img = test_img
@@ -80,23 +81,36 @@ class UnionMaskMetrics:
         if self.ref_img.shape != self.test_img.shape:
             raise ValueError(f"画像サイズ不一致: 基準 {self.ref_img.shape} vs 対象 {self.test_img.shape}")
 
-    def calculate_metrics(self) -> Dict[str, float]:
+    def calculate_metrics(self) -> Dict[str, any]:
         valid_pixels = np.sum(self.union_mask)
         if valid_pixels == 0:
-            return {"IoU": 0.0, "MAE": 0.0, "PSNR": 0.0, "DSSIM": 0.0}
+            return {
+                "IoU": 0.0, "OverOcc_wrt_GT_Visible": 0.0,
+                "OverOcc_wrt_Union": 0.0, "UnderOcc_wrt_Union": 0.0,
+                "FN_pixels": 0, "FP_pixels": 0, "TP_pixels": 0,
+                "GT_Visible_pixels": 0, "Union_pixels": 0,
+                "MAE": 0.0, "PSNR": 0.0, "DSSIM": 0.0
+            }
 
         # [1] IoU & 誤遮蔽・誤透過の分析
-        intersection = self.ref_mask & self.test_mask  # TP: 正しく表示
+        intersection = self.ref_mask & self.test_mask  # TP: 正しく可視
         fn_mask = self.ref_mask & (~self.test_mask)    # FN: 誤遮蔽 (Over-occlusion: 本来見えるはずが遮蔽)
         fp_mask = (~self.ref_mask) & self.test_mask    # FP: 誤透過 (Under-occlusion: 本来隠れるはずが透過)
 
         tp_pixels = int(np.sum(intersection))
         fn_pixels = int(np.sum(fn_mask))
         fp_pixels = int(np.sum(fp_mask))
+        union_pixels = int(valid_pixels)
+        gt_visible_pixels = tp_pixels + fn_pixels  # GTで可視であるべき正解画素数 (Ref Mask)
 
-        iou = float(tp_pixels / valid_pixels)
-        over_occ_rate = float(fn_pixels / valid_pixels)   # 誤遮蔽率 (FN / Union)
-        under_occ_rate = float(fp_pixels / valid_pixels) # 誤透過率 (FP / Union)
+        iou = float(tp_pixels / union_pixels) if union_pixels > 0 else 0.0
+
+        # 和集合(Union)を分母とする誤遮蔽率・誤透過率 (IoU + OverOcc_Union + UnderOcc_Union = 1.0)
+        over_occ_wrt_union = float(fn_pixels / union_pixels) if union_pixels > 0 else 0.0
+        under_occ_wrt_union = float(fp_pixels / union_pixels) if union_pixels > 0 else 0.0
+
+        # GT可視領域(TP + FN)を分母とする過剰遮蔽率 (False Negative Rate = 1 - Recall)
+        over_occ_wrt_gt_visible = float(fn_pixels / gt_visible_pixels) if gt_visible_pixels > 0 else 0.0
 
         # [2] Masked MAE & PSNR
         ref_f = self.ref_img.astype(np.float64)
@@ -114,12 +128,14 @@ class UnionMaskMetrics:
 
         return {
             "IoU": iou,
-            "OverOccRate": over_occ_rate,
-            "UnderOccRate": under_occ_rate,
+            "OverOcc_wrt_GT_Visible": over_occ_wrt_gt_visible,
+            "OverOcc_wrt_Union": over_occ_wrt_union,
+            "UnderOcc_wrt_Union": under_occ_wrt_union,
             "FN_pixels": fn_pixels,
             "FP_pixels": fp_pixels,
             "TP_pixels": tp_pixels,
-            "Union_pixels": int(valid_pixels),
+            "GT_Visible_pixels": gt_visible_pixels,
+            "Union_pixels": union_pixels,
             "MAE": mae,
             "PSNR": psnr,
             "DSSIM": dssim
@@ -132,7 +148,7 @@ def find_first_image(folder_path: str) -> Optional[str]:
             return sorted(files)[0]
     return None
 
-def evaluate_stereo_pair(gt_dir: str, test_dir: str) -> Optional[Dict[str, Dict[str, float]]]:
+def evaluate_stereo_pair(gt_dir: str, test_dir: str) -> Optional[Dict[str, Dict[str, any]]]:
     # 左目
     gt_left_path = find_first_image(os.path.join(gt_dir, "Left"))
     test_left_path = find_first_image(os.path.join(test_dir, "Left"))
@@ -144,28 +160,112 @@ def evaluate_stereo_pair(gt_dir: str, test_dir: str) -> Optional[Dict[str, Dict[
     if not (gt_left_path and test_left_path and gt_right_path and test_right_path):
         return None
 
-    gt_l = ImageHandler.load_rgb(gt_left_path)
-    test_l = ImageHandler.load_rgb(test_left_path)
-    res_l = UnionMaskMetrics(gt_l, test_l).calculate_metrics()
+    try:
+        gt_l = ImageHandler.load_rgb(gt_left_path)
+        test_l = ImageHandler.load_rgb(test_left_path)
+        res_l = UnionMaskMetrics(gt_l, test_l).calculate_metrics()
 
-    gt_r = ImageHandler.load_rgb(gt_right_path)
-    test_r = ImageHandler.load_rgb(test_right_path)
-    res_r = UnionMaskMetrics(gt_r, test_r).calculate_metrics()
+        gt_r = ImageHandler.load_rgb(gt_right_path)
+        test_r = ImageHandler.load_rgb(test_right_path)
+        res_r = UnionMaskMetrics(gt_r, test_r).calculate_metrics()
+    except Exception as e:
+        print(f"  [画像読み込みスキップ: {test_dir}]: {e}", flush=True)
+        return None
 
-    # 両眼平均
-    res_bino = {
-        k: (res_l[k] + res_r[k]) / 2.0 for k in res_l.keys()
+    pixel_keys = ["TP_pixels", "FP_pixels", "FN_pixels", "GT_Visible_pixels", "Union_pixels"]
+    metric_keys = ["IoU", "OverOcc_wrt_GT_Visible", "OverOcc_wrt_Union", "UnderOcc_wrt_Union", "MAE", "PSNR", "DSSIM"]
+
+    # 左右合算 (Total: 論文等で画素数を直接足して示すための厳密な整数値)
+    res_bino_total = {
+        k: int(res_l[k] + res_r[k]) for k in pixel_keys
     }
+
+    # 左右平均 (Mean: 左右カメラの平均的な性能を表す指標)
+    res_bino_mean = {
+        k: (res_l[k] + res_r[k]) / 2.0 for k in (pixel_keys + metric_keys)
+    }
+
+    # 画素数合算値から直接算出した総合率 (Micro-average)
+    bino_union = res_bino_total["Union_pixels"]
+    bino_gt_vis = res_bino_total["GT_Visible_pixels"]
+    res_bino_total["IoU"] = float(res_bino_total["TP_pixels"] / bino_union) if bino_union > 0 else 0.0
+    res_bino_total["OverOcc_wrt_GT_Visible"] = float(res_bino_total["FN_pixels"] / bino_gt_vis) if bino_gt_vis > 0 else 0.0
+    res_bino_total["OverOcc_wrt_Union"] = float(res_bino_total["FN_pixels"] / bino_union) if bino_union > 0 else 0.0
+    res_bino_total["UnderOcc_wrt_Union"] = float(res_bino_total["FP_pixels"] / bino_union) if bino_union > 0 else 0.0
+    res_bino_total["MAE"] = (res_l["MAE"] + res_r["MAE"]) / 2.0
+    res_bino_total["PSNR"] = (res_l["PSNR"] + res_r["PSNR"]) / 2.0
+    res_bino_total["DSSIM"] = (res_l["DSSIM"] + res_r["DSSIM"]) / 2.0
 
     return {
         "Left": res_l,
         "Right": res_r,
-        "BinocularMean": res_bino
+        "BinocularMean": res_bino_mean,
+        "BinocularTotal": res_bino_total
     }
 
 def natural_sort_key(s: str):
     """文字列中の数値を数値として扱い自然順 (sector_0, sector_1, ..., sector_8) でソート"""
     return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', s)]
+
+def parse_condition_metadata(cond_str: str, test_dir_abs: Optional[str] = None) -> Dict[str, any]:
+    """パス文字列および evaluation_params.json から実験パラメータ（固定モード、密度、セクター数、オクルージョン閾値）を抽出"""
+    meta = {
+        "Fixed_Mode": "",
+        "Density_Value": "",
+        "Density_Unit": "",
+        "Sector": "",
+        "Threshold": ""
+    }
+
+    # 1. evaluation_params.json が存在する場合は正確な実数値を最優先で採用
+    if test_dir_abs:
+        json_path = os.path.join(test_dir_abs, "evaluation_params.json")
+        if os.path.isfile(json_path):
+            try:
+                with open(json_path, "r", encoding="utf-8") as jf:
+                    data = json.load(jf)
+                    meta["Density_Value"] = float(data.get("densityValue", 0.0))
+                    meta["Density_Unit"] = str(data.get("densityUnit", ""))
+                    meta["Threshold"] = float(data.get("occlusionThreshold", 0.0))
+                    meta["Fixed_Mode"] = str(data.get("evaluationMode", ""))
+                    meta["Sector"] = str(data.get("minOccludedSectors", ""))
+                    return meta
+            except Exception:
+                pass
+
+    # 2. JSON がない場合はパス文字列から正規表現でパース
+    m_fixed = re.search(r'Fixed_(Sector_\d+|Average)', cond_str, re.IGNORECASE)
+    if m_fixed:
+        meta["Fixed_Mode"] = m_fixed.group(1)
+
+    m_density = re.search(r'density_([0-9\.]+)(mm|pts_cm2|pts_mm2|pts)?', cond_str, re.IGNORECASE)
+    if m_density:
+        try:
+            meta["Density_Value"] = float(m_density.group(1))
+        except ValueError:
+            meta["Density_Value"] = m_density.group(1)
+        meta["Density_Unit"] = m_density.group(2) if m_density.group(2) else ""
+
+    if meta["Fixed_Mode"]:
+        if "Sector_" in meta["Fixed_Mode"]:
+            meta["Sector"] = meta["Fixed_Mode"].split('_')[-1]
+        elif "Average" in meta["Fixed_Mode"]:
+            meta["Sector"] = "Average"
+    else:
+        m_sec = re.search(r'sector_(\d+)', cond_str, re.IGNORECASE)
+        if m_sec:
+            meta["Sector"] = m_sec.group(1)
+        elif "average" in cond_str.lower():
+            meta["Sector"] = "Average"
+
+    m_occ = re.search(r'occ_([0-9\.]+)', cond_str, re.IGNORECASE)
+    if m_occ:
+        try:
+            meta["Threshold"] = float(m_occ.group(1))
+        except ValueError:
+            meta["Threshold"] = m_occ.group(1)
+
+    return meta
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -301,9 +401,9 @@ def main():
 
     csv_rows = []
 
-    print("\n" + "=" * 125, flush=True)
-    print(f"{'Condition':<40} | {'Bino IoU':<8} | {'誤遮蔽(過剰)':<12} | {'誤透過(漏れ)':<12} | {'Left(赤/青)':<16} | {'Right(赤/青)':<16} | {'Bino DSSIM':<10}", flush=True)
-    print("-" * 125, flush=True)
+    print("\n" + "=" * 135, flush=True)
+    print(f"{'Condition':<40} | {'Bino IoU':<8} | {'過剰遮蔽(GT基準)':<16} | {'誤遮蔽(Union)':<14} | {'誤透過(Union)':<14} | {'Total FN / FP':<18} | {'Bino DSSIM':<10}", flush=True)
+    print("-" * 135, flush=True)
 
     for idx, cond in enumerate(candidate_dirs):
         test_dir = os.path.join(base_dataset_dir, cond)
@@ -316,19 +416,33 @@ def main():
         if res is None:
             continue
 
-        l_iou = res["Left"]["IoU"]
-        r_iou = res["Right"]["IoU"]
+        # 両眼合算値 (Total: 左右加算)
+        total_fn = res["BinocularTotal"]["FN_pixels"]
+        total_fp = res["BinocularTotal"]["FP_pixels"]
+        total_tp = res["BinocularTotal"]["TP_pixels"]
+        total_gt_vis = res["BinocularTotal"]["GT_Visible_pixels"]
+        total_union = res["BinocularTotal"]["Union_pixels"]
+
+        # 指標
         b_iou = res["BinocularMean"]["IoU"]
         b_dssim = res["BinocularMean"]["DSSIM"]
 
-        l_over = res["Left"]["OverOccRate"] * 100
-        l_under = res["Left"]["UnderOccRate"] * 100
-        r_over = res["Right"]["OverOccRate"] * 100
-        r_under = res["Right"]["UnderOccRate"] * 100
-        b_over = res["BinocularMean"]["OverOccRate"] * 100
-        b_under = res["BinocularMean"]["UnderOccRate"] * 100
+        b_over_gt = res["BinocularMean"]["OverOcc_wrt_GT_Visible"] * 100
+        b_over_union = res["BinocularMean"]["OverOcc_wrt_Union"] * 100
+        b_under_union = res["BinocularMean"]["UnderOcc_wrt_Union"] * 100
 
-        print(f"{cond:<40} | {b_iou:<8.4f} | {b_over:>5.1f}% ({int(res['BinocularMean']['FN_pixels']):>5}px) | {b_under:>5.1f}% ({int(res['BinocularMean']['FP_pixels']):>5}px) | {l_over:>4.1f}% / {l_under:>4.1f}%    | {r_over:>4.1f}% / {r_under:>4.1f}%    | {b_dssim:<10.4f}", flush=True)
+        l_iou = res["Left"]["IoU"]
+        l_over_gt = res["Left"]["OverOcc_wrt_GT_Visible"] * 100
+        l_over_union = res["Left"]["OverOcc_wrt_Union"] * 100
+        l_under_union = res["Left"]["UnderOcc_wrt_Union"] * 100
+
+        r_iou = res["Right"]["IoU"]
+        r_over_gt = res["Right"]["OverOcc_wrt_GT_Visible"] * 100
+        r_over_union = res["Right"]["OverOcc_wrt_Union"] * 100
+        r_under_union = res["Right"]["UnderOcc_wrt_Union"] * 100
+
+        fn_fp_str = f"{total_fn} / {total_fp}"
+        print(f"{cond:<40} | {b_iou:<8.4f} | {b_over_gt:>5.2f}% ({total_fn:>6}px) | {b_over_union:>5.2f}%         | {b_under_union:>5.2f}%         | {fn_fp_str:<18} | {b_dssim:<10.4f}", flush=True)
 
         if args.export_diff:
             try:
@@ -358,31 +472,60 @@ def main():
             except Exception as e:
                 print(f"  [差分出力エラー]: {e}", flush=True)
 
+        meta = parse_condition_metadata(cond, test_dir)
+
         csv_rows.append({
             "Condition": cond,
+            "Fixed_Mode": meta["Fixed_Mode"],
+            "Density_Value": meta["Density_Value"],
+            "Density_Unit": meta["Density_Unit"],
+            "Sector_Rth": meta["Sector"],
+            "Occlusion_Threshold": meta["Threshold"],
+
+            # --- 両眼集計 (論文用: 画素数は Left+Right 厳密合算、率は左右平均) ---
             "Bino_IoU": b_iou,
-            "Bino_誤遮蔽率(過剰遮蔽)%": round(b_over, 2),
-            "Bino_誤透過率(遮蔽漏れ)%": round(b_under, 2),
-            "Bino_誤遮蔽画素数(FN)": int(res["BinocularMean"]["FN_pixels"]),
-            "Bino_誤透過画素数(FP)": int(res["BinocularMean"]["FP_pixels"]),
-            "Left_IoU": l_iou,
-            "Left_誤遮蔽率%": round(l_over, 2),
-            "Left_誤透過率%": round(l_under, 2),
-            "Left_誤遮蔽画素数": int(res["Left"]["FN_pixels"]),
-            "Left_誤透過画素数": int(res["Left"]["FP_pixels"]),
-            "Right_IoU": r_iou,
-            "Right_誤遮蔽率%": round(r_over, 2),
-            "Right_誤透過率%": round(r_under, 2),
-            "Right_誤遮蔽画素数": int(res["Right"]["FN_pixels"]),
-            "Right_誤透過画素数": int(res["Right"]["FP_pixels"]),
+            "Bino_誤遮蔽率(GT可視基準)%": round(b_over_gt, 2),
+            "Bino_誤遮蔽率(Union基準)%": round(b_over_union, 2),
+            "Bino_誤透過率(Union基準)%": round(b_under_union, 2),
+            "Bino_Total_誤遮蔽画素(FN)": total_fn,
+            "Bino_Total_誤透過画素(FP)": total_fp,
+            "Bino_Total_正解可視画素(TP)": total_tp,
+            "Bino_Total_GT可視画素数": total_gt_vis,
+            "Bino_Total_Union画素数": total_union,
             "Bino_DSSIM": b_dssim,
+
+            # --- 左眼詳細 ---
+            "Left_IoU": l_iou,
+            "Left_誤遮蔽率(GT可視基準)%": round(l_over_gt, 2),
+            "Left_誤遮蔽率(Union基準)%": round(l_over_union, 2),
+            "Left_誤透過率(Union基準)%": round(l_under_union, 2),
+            "Left_誤遮蔽画素数(FN)": int(res["Left"]["FN_pixels"]),
+            "Left_誤透過画素数(FP)": int(res["Left"]["FP_pixels"]),
+            "Left_正解可視画素数(TP)": int(res["Left"]["TP_pixels"]),
+            "Left_GT可視画素数": int(res["Left"]["GT_Visible_pixels"]),
+            "Left_Union画素数": int(res["Left"]["Union_pixels"]),
             "Left_DSSIM": res["Left"]["DSSIM"],
+
+            # --- 右眼詳細 ---
+            "Right_IoU": r_iou,
+            "Right_誤遮蔽率(GT可視基準)%": round(r_over_gt, 2),
+            "Right_誤遮蔽率(Union基準)%": round(r_over_union, 2),
+            "Right_誤透過率(Union基準)%": round(r_under_union, 2),
+            "Right_誤遮蔽画素数(FN)": int(res["Right"]["FN_pixels"]),
+            "Right_誤透過画素数(FP)": int(res["Right"]["FP_pixels"]),
+            "Right_正解可視画素数(TP)": int(res["Right"]["TP_pixels"]),
+            "Right_GT可視画素数": int(res["Right"]["GT_Visible_pixels"]),
+            "Right_Union画素数": int(res["Right"]["Union_pixels"]),
             "Right_DSSIM": res["Right"]["DSSIM"],
+
+            # --- 補足・参考値 ---
+            "Bino_Mean_誤遮蔽画素(FN)": round(res["BinocularMean"]["FN_pixels"], 1),
+            "Bino_Mean_誤透過画素(FP)": round(res["BinocularMean"]["FP_pixels"], 1),
             "Bino_PSNR": res["BinocularMean"]["PSNR"],
             "Bino_MAE": res["BinocularMean"]["MAE"]
         })
 
-    print("=" * 125, flush=True)
+    print("=" * 135, flush=True)
 
     # CSV保存 (Excelでそのまま開けるよう UTF-8 with BOM で出力)
     if csv_rows:
