@@ -103,11 +103,22 @@ public class MultiAUTD3Controller : MonoBehaviour
     [SerializeField] private Transform? focusMarker1;
     [SerializeField] private Transform? focusMarker2;
 
+    [Header("External Focus Settings")]
+    [Tooltip("座標指定型の出力（SendFocusAtWorld）を使うとき、AM変調(Sine)を自動で適用する。"
+           + "useSTM=ON のままだと Static 変調のままになり知覚できないため")]
+    [SerializeField] private bool externalFocusForcesAM = true;
+
     private Controller? _autd = null;
     private Vector3? _oldPosition;
     private Vector3? _oldPosition2;
     private HapCollisionDetectors? _collisionDetector;
     private bool _isCurrentlyOff = false;
+
+    // 座標指定型の出力が有効な間は Update() の自動送信を止める
+    private bool _externalFocusActive = false;
+
+    // 直近に送った変調がAM(Sine)かどうか。null は未送信
+    private bool? _modIsAM = null;
 
     void Awake()
     {
@@ -274,6 +285,9 @@ public class MultiAUTD3Controller : MonoBehaviour
         outputSide = side;
         if (_autd == null) return;
 
+        // OutputSide による決め打ち出力に戻すので、座標指定型の出力は解除扱いにする
+        _externalFocusActive = false;
+
         var pos1 = CurrentPos1();
         var pos2 = CurrentPos2();
 
@@ -291,11 +305,99 @@ public class MultiAUTD3Controller : MonoBehaviour
             _autd.Send(new Static());
         else
             _autd.Send(new Sine(freq: modFreq * Hz, option: new SineOption()));
+
+        _modIsAM = !useSTM;
     }
 
     public void StopOutput()
     {
         SetMode(OutputSide.None);
+    }
+
+    // ------------------------------------------------------------------
+    // 座標指定型の出力経路（刷り込みタスク用）
+    // OutputSide(Upper/Down/Both/None) による決め打ちとは独立に、
+    // 任意のワールド座標へ静止フォーカス(Focus)を出す。
+    // AUTD3Sharp の Focus はワールド座標をそのまま受け取る（Controller.Open 時に
+    // 各デバイスの position/rotation を渡しているため）ので、手動の座標変換は不要。
+    // ------------------------------------------------------------------
+
+    /// <summary>座標指定型の出力が有効かどうか</summary>
+    public bool IsExternalFocusActive => _externalFocusActive;
+
+    /// <summary>
+    /// 指定したワールド座標へ静止フォーカスを出す。呼ばれている間は Update() の自動送信を止める。
+    /// </summary>
+    /// <param name="worldPos">焦点のワールド座標</param>
+    /// <param name="side">出力するデバイスグループ</param>
+    /// <param name="intensity">出力強度。null なら side に応じた upperIntensity / downIntensity</param>
+    /// <returns>送信できたら true</returns>
+    public bool SendFocusAtWorld(Vector3 worldPos, OutputSide side, int? intensity = null)
+    {
+        if (_autd == null) return false;
+
+        if (side == OutputSide.None)
+        {
+            ClearExternalFocus();
+            return false;
+        }
+
+        var devIndices = side switch
+        {
+            OutputSide.UpperOnly => upperDeviceIndices,
+            OutputSide.DownOnly  => downDeviceIndices,
+            _                    => upperDeviceIndices.Concat(downDeviceIndices).ToArray()
+        };
+
+        var devSet = new HashSet<int>(devIndices);
+        if (devSet.Count == 0)
+        {
+            ClearExternalFocus();
+            return false;
+        }
+
+        // useSTM=ON のまま Awake で Static() が送られているとAM変調が無く知覚できないため、
+        // 座標指定型の出力に入るタイミングで Sine に切り替える
+        if (externalFocusForcesAM && _modIsAM != true)
+        {
+            _autd.Send(new Sine(freq: modFreq * Hz, option: new SineOption()));
+            _modIsAM = true;
+        }
+
+        int amp = intensity ?? (side == OutputSide.UpperOnly ? upperIntensity : downIntensity);
+
+        var gainMap = new Dictionary<object, IGain>
+        {
+            ["ext"] = new Focus(pos: worldPos,
+                option: new FocusOption { Intensity = new Intensity((byte)Mathf.Clamp(amp, 0, 255)) })
+        };
+
+        _autd.Send(new GainGroup(
+            keyMap: dev => tr => devSet.Contains(dev.Idx()) ? "ext" : null,
+            gainMap: gainMap
+        ));
+
+        _externalFocusActive = true;
+
+        // 解除後に Update() が必ず再送するよう、キャッシュしている前回位置を無効化しておく
+        _oldPosition  = null;
+        _oldPosition2 = null;
+
+        if (focusMarker1 != null) focusMarker1.position = worldPos;
+
+        return true;
+    }
+
+    /// <summary>座標指定型の出力を止めて、Update() の通常制御に戻す。</summary>
+    public void ClearExternalFocus()
+    {
+        if (!_externalFocusActive) return;
+
+        _externalFocusActive = false;
+        _autd?.Send(new Null());
+
+        _oldPosition  = null;
+        _oldPosition2 = null;
     }
 
     private void Update()
@@ -309,6 +411,9 @@ public class MultiAUTD3Controller : MonoBehaviour
         }
 
         if (_autd == null) return;
+
+        // 座標指定型の出力中は、こちらの自動送信で上書きしない
+        if (_externalFocusActive) return;
 
         if (mode == ControlMode.IndependentFocus)
         {
