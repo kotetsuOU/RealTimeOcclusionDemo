@@ -48,6 +48,7 @@ public class PCDRenderPass : ScriptableRenderPass
     // =========================================================================
     private readonly PCDKernelRegistry _kernels = new PCDKernelRegistry();
     private readonly PCDResourcePool _resources = new PCDResourcePool();
+    internal PCDResourcePool Resources => _resources;
     private readonly PCDPointBufferManager _bufferManager = new PCDPointBufferManager();
     private readonly PCDDebugReadbackManager _debugManager = new PCDDebugReadbackManager();
 

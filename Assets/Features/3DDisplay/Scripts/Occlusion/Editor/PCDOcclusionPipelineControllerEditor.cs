@@ -268,6 +268,33 @@ public class PCDOcclusionPipelineControllerEditor : Editor
         EditorGUILayout.PropertyField(_enableBufferManagerLog);
         EditorGUI.indentLevel--;
 
+        EditorGUILayout.Space(6);
+        EditorGUILayout.LabelField("📸 Quick Capture DebugMaps (PlayMode)", EditorStyles.boldLabel);
+
+        GUI.backgroundColor = new Color(0.4f, 0.85f, 0.95f);
+        if (GUILayout.Button("📸 占有セクターマスク (SectorMask RAW/CSV/PNG) を出力", GUILayout.Height(30)))
+        {
+            var controller = (PCDOcclusionPipelineController)target;
+            controller.TriggerRecordSectorMask();
+            EditorUtility.SetDirty(controller);
+        }
+
+        GUI.backgroundColor = new Color(0.95f, 0.85f, 0.4f);
+        if (GUILayout.Button("📸 オクルージョンマップ (OcclusionMap PNG/CSV) を出力", GUILayout.Height(26)))
+        {
+            var controller = (PCDOcclusionPipelineController)target;
+            controller.TriggerRecordOcclusionMap();
+            EditorUtility.SetDirty(controller);
+        }
+
+        GUI.backgroundColor = Color.white;
+        if (GUILayout.Button("📸 全デバッグマップ (Occlusion, Depth, SectorMask) 一括出力", GUILayout.Height(26)))
+        {
+            var controller = (PCDOcclusionPipelineController)target;
+            controller.TriggerRecordAllDebugMaps();
+            EditorUtility.SetDirty(controller);
+        }
+
         serializedObject.ApplyModifiedProperties();
     }
 }

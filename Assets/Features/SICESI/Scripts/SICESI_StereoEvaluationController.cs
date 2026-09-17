@@ -101,7 +101,7 @@ namespace SICESI
 
         private Material _blackMaterialCache;
 
-        private class GroundTruthStateBackup
+        public class GroundTruthStateBackup
         {
             public Dictionary<Renderer, Material[]> Materials = new Dictionary<Renderer, Material[]>();
             public Dictionary<GameObject, int> Layers = new Dictionary<GameObject, int>();
@@ -871,7 +871,7 @@ namespace SICESI
             }
         }
 
-        private GroundTruthStateBackup SetGroundTruthState(bool enable)
+        public GroundTruthStateBackup SetGroundTruthState(bool enable)
         {
             var backup = new GroundTruthStateBackup();
             if (groundTruthObject == null) return backup;
@@ -932,7 +932,7 @@ namespace SICESI
             return backup;
         }
 
-        private void RestoreGroundTruthState(GroundTruthStateBackup backup)
+        public void RestoreGroundTruthState(GroundTruthStateBackup backup)
         {
             if (backup == null) return;
 
@@ -958,7 +958,7 @@ namespace SICESI
         /// <summary>
         /// 左右のカメラから画像を取得して保存します。
         /// </summary>
-        private void CaptureStereoViews(string baseDirectory, string filePrefix)
+        public void CaptureStereoViews(string baseDirectory, string filePrefix)
         {
             if (leftEyeCamera != null)
             {

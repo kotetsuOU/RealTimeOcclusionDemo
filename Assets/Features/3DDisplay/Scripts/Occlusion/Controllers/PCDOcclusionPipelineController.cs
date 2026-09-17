@@ -255,6 +255,38 @@ public class PCDOcclusionPipelineController : MonoBehaviour, IAppLoggable
         }
     }
 
+    /// <summary>
+    /// 次のフレームで占有セクターマスク (SectorMask DebugMap) を1フレーム出力します。
+    /// 保存先: Assets/HandTrackingData/SectorMasks/ (.raw バイナリ, .csv サマリー, .png グレースケール)
+    /// </summary>
+    public void TriggerRecordSectorMask()
+    {
+        recordNeighborCountMap = true;
+        Debug.Log("[PCD] 占有セクターマスク (SectorMask DebugMap) のキャプチャをリクエストしました (次フレームで出力されます)");
+    }
+
+    /// <summary>
+    /// 次のフレームでオクルージョンマップ (OcclusionMap) を1フレーム出力します。
+    /// </summary>
+    public void TriggerRecordOcclusionMap()
+    {
+        recordOcclusionDebugMap = true;
+        Debug.Log("[PCD] オクルージョンマップ (OcclusionMap) のキャプチャをリクエストしました");
+    }
+
+    /// <summary>
+    /// 全てのデバッグマップを一括出力します。
+    /// </summary>
+    public void TriggerRecordAllDebugMaps()
+    {
+        recordOcclusionDebugMap = true;
+        recordPixelTagMap = true;
+        recordIntegratedDepthMap = true;
+        recordNeighborhoodMap = true;
+        recordNeighborCountMap = true;
+        Debug.Log("[PCD] 全デバッグマップの一括キャプチャをリクエストしました");
+    }
+
     public void RegisterLogTriggers(LogCategoryGroup group, System.Collections.Generic.HashSet<string> existingLabels)
     {
         var triggers = GetComponent<PCD_LogTriggers>() ?? gameObject.AddComponent<PCD_LogTriggers>();

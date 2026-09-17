@@ -324,4 +324,109 @@ public static class PCDOcclusionDebugExporter
         AppLogger.Log(PCD_LogTriggers.TagExporter, $"Saved Occlusion Map with 16-palette to: {fullPath}");
         AppLogger.Log(PCD_LogTriggers.TagExporter, $"Saved Occlusion Data (CSV) to: {csvFullPath}");
     }
+
+    /// <summary>
+    /// シェーダーからパック出力されたセクター占有マスクデータ (R32_UInt) をディスクに保存します。
+    /// - 生バイナリファイル (.raw): Python 等での高速・ロスレス解析用 (uint32[height, width])
+    /// - サマリー CSV (.csv): 評価対象画素の x, y, mask (0〜255), 2進数ビット列, validSectors, N_occ, L_max
+    /// - 8bit グレースケール PNG (.png): mask 値をそのまま輝度とした視覚的確認用
+    /// </summary>
+    public static void ExportSectorMaskData(uint[] packedData, int width, int height, string savePath = "Assets/HandTrackingData/SectorMasks", string prefix = "")
+    {
+        AppLogger.Log(PCD_LogTriggers.TagExporter, $"Exporting SectorMask Data (width={width}, height={height})...");
+        if (packedData == null || packedData.Length != width * height) return;
+
+#if !UNITY_EDITOR
+        savePath = Path.Combine(Application.persistentDataPath, "SectorMasks");
+#endif
+
+        if (!Directory.Exists(savePath))
+        {
+            Directory.CreateDirectory(savePath);
+        }
+
+        string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+        string rawFileName = $"SectorMask_{prefix}_{timestamp}.raw";
+        string csvFileName = $"SectorMask_{prefix}_{timestamp}.csv";
+        string pngFileName = $"SectorMask_{prefix}_{timestamp}.png";
+
+        string rawFullPath = Path.Combine(savePath, rawFileName);
+        string csvFullPath = Path.Combine(savePath, csvFileName);
+        string pngFullPath = Path.Combine(savePath, pngFileName);
+
+        // 1. 生バイナリ (.raw) の保存: uint32 配列をそのままバイト書き出し
+        try
+        {
+            byte[] byteData = new byte[packedData.Length * 4];
+            Buffer.BlockCopy(packedData, 0, byteData, 0, byteData.Length);
+            File.WriteAllBytes(rawFullPath, byteData);
+            AppLogger.Log(PCD_LogTriggers.TagExporter, $"Saved SectorMask RAW buffer to: {rawFullPath}");
+        }
+        catch (Exception ex)
+        {
+            AppLogger.LogError(PCD_LogTriggers.TagExporter, $"Failed to save RAW buffer: {ex.Message}");
+        }
+
+        // 2. 評価対象画素 (isEvaluated == 1) のサマリー CSV 出力
+        try
+        {
+            using (StreamWriter writer = new StreamWriter(csvFullPath, false, System.Text.Encoding.UTF8))
+            {
+                writer.WriteLine("pixel_x,pixel_y,mask,bits_b7_to_b0,valid_sectors,n_occ,l_max,gpu_occluded");
+                for (int y = 0; y < height; y++)
+                {
+                    for (int x = 0; x < width; x++)
+                    {
+                        uint val = packedData[y * width + x];
+                        uint isEvaluated = (val >> 12) & 1u;
+                        if (isEvaluated == 0u) continue; // 未評価画素はスキップ
+
+                        uint mask = val & 0xFFu;
+                        uint validSectors = (val >> 8) & 0x0Fu;
+                        uint isGpuOcc = (val >> 13) & 1u;
+                        uint nOcc = (val >> 16) & 0xFFu;
+                        uint lMax = (val >> 24) & 0x0Fu;
+                        string bits = Convert.ToString(mask, 2).PadLeft(8, '0');
+
+                        writer.WriteLine($"{x},{y},{mask},{bits},{validSectors},{nOcc},{lMax},{isGpuOcc}");
+                    }
+                }
+            }
+            AppLogger.Log(PCD_LogTriggers.TagExporter, $"Saved SectorMask CSV to: {csvFullPath}");
+        }
+        catch (Exception ex)
+        {
+            AppLogger.LogError(PCD_LogTriggers.TagExporter, $"Failed to save SectorMask CSV: {ex.Message}");
+        }
+
+        // 3. 8bit グレースケール PNG の保存
+        try
+        {
+            Texture2D tex = new Texture2D(width, height, TextureFormat.RGBA32, false);
+            Color32[] colors = new Color32[width * height];
+            for (int i = 0; i < packedData.Length; i++)
+            {
+                uint val = packedData[i];
+                uint isEvaluated = (val >> 12) & 1u;
+                if (isEvaluated == 1u)
+                {
+                    byte maskByte = (byte)(val & 0xFFu);
+                    colors[i] = new Color32(maskByte, maskByte, maskByte, 255);
+                }
+                else
+                {
+                    colors[i] = new Color32(0, 0, 0, 0); // 未評価画素は透明
+                }
+            }
+            tex.SetPixels32(colors);
+            tex.Apply();
+            File.WriteAllBytes(pngFullPath, tex.EncodeToPNG());
+            UnityEngine.Object.Destroy(tex);
+            AppLogger.Log(PCD_LogTriggers.TagExporter, $"Saved SectorMask PNG to: {pngFullPath}");
+        }
+        catch (Exception ex)
+        {
+            AppLogger.LogError(PCD_LogTriggers.TagExporter, $"Failed to save SectorMask PNG: {ex.Message}");
+        }
+    }
 }

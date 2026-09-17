@@ -127,6 +127,7 @@ public class PCDRendererFeature : ScriptableRendererFeature
     public PCDSettingsBridge settings { get; private set; }
 
     private PCDRenderPass _scriptablePass;
+    internal PCDResourcePool CurrentResources => _scriptablePass != null ? _scriptablePass.Resources : null;
 
     private bool _useGlobalBufferMode = false;
     public bool IsGlobalBufferMode => _useGlobalBufferMode;

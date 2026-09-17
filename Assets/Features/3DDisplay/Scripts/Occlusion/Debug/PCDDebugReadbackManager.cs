@@ -174,8 +174,8 @@ internal class PCDDebugReadbackManager
             }
         }
 
-        // --- NeighborCountMap ---
-        if (settings.recordNeighborCountMap)
+        // --- NeighborCountMap (単発デバッグ出力用。SICESIスイープ中は自前リードバックを行うためスキップ) ---
+        if (settings.recordNeighborCountMap && !SICESI.SICESI_SectorMaskCollector.IsCollectingActive)
         {
             using (var builder = renderGraph.AddUnsafePass<DebugReadbackPassData>("PCD Extract NeighborCount Map", out var debugData))
             {
@@ -199,10 +199,16 @@ internal class PCDDebugReadbackManager
                         int w = request.width;
                         int h = request.height;
                         var rawData = request.GetData<uint>();
-                        int[] countData = new int[w * h];
-                        for (int i = 0; i < w * h; i++) countData[i] = (int)rawData[i];
+                        uint[] uintRaw = rawData.ToArray();
 
                         AppLogger.Log(PCD_LogTriggers.TagRecordDebug, $"AsyncGPUReadback success! NeighborCountMap w:{w}, h:{h}");
+
+                        // 1. 実測8ビット占有マスク詳細データ (RAWバイナリ, サマリーCSV, グレースケールPNG) を保存
+                        PCDOcclusionDebugExporter.ExportSectorMaskData(uintRaw, w, h, "Assets/HandTrackingData/SectorMasks", "SectorMask_" + methodPrefix);
+
+                        // 2. 従来の近傍カウント可視化PNGも同時に保存 (bit 8..11 の validSectorCount を抽出)
+                        int[] countData = new int[w * h];
+                        for (int i = 0; i < w * h; i++) countData[i] = (int)((uintRaw[i] >> 8) & 0x0Fu);
                         PCDOcclusionDebugExporter.ExportNeighborhoodMapFromData(countData, w, h, "Assets/HandTrackingData/NeighborCountMaps", "Count_" + methodPrefix, isNeighborCount: true);
                     });
                 });

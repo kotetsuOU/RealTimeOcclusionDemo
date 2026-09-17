@@ -164,6 +164,27 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
     float avgOcclusion = 1.0;
     float alpha = 1.0;
 
+    // 円環上の最大連続非占有セクタ数 L_max(x) を計算 (0: 非占有セクタ, 1: 占有セクタ)
+    // ※ どの評価モードでもデバッグ記録および分析用に共通で算出
+    uint L_max = 0u;
+    uint currentZeros = 0u;
+    [unroll]
+    for (int ci = 0; ci < 16; ++ci)
+    {
+        if (((occupiedSectorMask >> (ci % 8)) & 1u) == 0u)
+        {
+            currentZeros++;
+            if (currentZeros > L_max) L_max = currentZeros;
+        }
+        else
+        {
+            currentZeros = 0u;
+        }
+    }
+    if (occupiedSectorMask == 0u) L_max = 8u;
+    else if (occupiedSectorMask == 0xFFu) L_max = 0u;
+    else L_max = min(L_max, 8u);
+
     if (_EvaluationMode == 0) // Average Mode
     {
         // 空セクタ（手前に遮蔽点群が存在しないセクタ）に先行研究 (Bouchiba / Pintus) 通り F_max = 2.0 を代入
@@ -203,34 +224,9 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
     }
     else // SectorConsecutiveZeros Mode (新手法: 占有数 N_occ + 最大連続非占有セクタ数 L_max 判定)
     {
-        // 円環上の最大連続非占有セクタ数 L_max(x) を計算 (0: 非占有セクタ, 1: 占有セクタ)
-        // ※ 0 には「点が存在しない」と「点はあるが局所条件を満たさない」の両方が含まれる
-        uint L_max = 0u;
-        uint currentZeros = 0u;
-        [unroll]
-        for (int ci = 0; ci < 16; ++ci)
-        {
-            if (((occupiedSectorMask >> (ci % 8)) & 1u) == 0u)
-            {
-                currentZeros++;
-                if (currentZeros > L_max) L_max = currentZeros;
-            }
-            else
-            {
-                currentZeros = 0u;
-            }
-        }
-        if (occupiedSectorMask == 0u) L_max = 8u;
-        else if (occupiedSectorMask == 0xFFu) L_max = 0u;
-        else L_max = min(L_max, 8u);
-
         // 遮蔽条件: N_occ(x) >= R_th  and  L_max(x) <= L_th
         // R_th: _MinOccludedSectors (最低占有セクタ数)
         // L_th: _MaxConsecutiveEmptySectors (許容最大連続非占有セクタ数, 0〜8)
-        // 例: K=8, R_th=4, L_th=2 の場合:
-        //   - 01010101 (N_occ=4, L_max=1) -> L_max <= 2 を満たすため遮蔽 (alpha=0.0)
-        //   - 01111110 (N_occ=6, L_max=2) -> 先頭と末尾が連続し L_max=2 <= 2 を満たすため遮蔽 (alpha=0.0)
-        //   - 00001111 (N_occ=4, L_max=4) -> L_max=4 > 2 で非占有が3個以上連続するため除外 -> 表示 (alpha=1.0)
         // ※ L_th = 8 (K) の設定は、全画素で L_max <= 8 が成立するため占有数のみの判定と等価。
         bool passesDirectionCondition = (L_max <= (uint)_MaxConsecutiveEmptySectors);
 
@@ -284,7 +280,24 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
         float debugAvgOcclusion = min(avgOcclusion, 1.0);
 
         _OcclusionValueMap_RW[fullResUV] = float2(debugLabel, debugAvgOcclusion);
-        _NeighborCountMap_RW[fullResUV] = validSectorCount;
+
+        // 占有マスクとセクタ詳細のパッキング記録 (R32_UInt)
+        // bit 0..7   (8bit): 実測占有ビットマスク occupiedSectorMask (0〜255)
+        // bit 8..11  (4bit): 点群支持セクタ数 validSectorCount (0〜8)
+        // bit 12     (1bit): セクタ評価対象フラグ isEvaluated (1: 仮想オブジェクト画素, 0: 未評価・背景)
+        // bit 13     (1bit): GPU生判定結果 isGpuOccluded (1: 遮蔽, 0: 非遮蔽/可視)
+        // bit 16..23 (8bit): 占有セクタ数 N_occ (binaryOccludedCount: 0〜8)
+        // bit 24..27 (4bit): 最大連続非占有セクタ数 L_max (0〜8)
+        uint isEvaluated = 1u;
+        uint isGpuOccluded = (alpha <= 0.0) ? 1u : 0u;
+        uint packedDebug = (occupiedSectorMask & 0xFFu)
+                         | ((validSectorCount & 0x0Fu) << 8)
+                         | (isEvaluated << 12)
+                         | (isGpuOccluded << 13)
+                         | ((binaryOccludedCount & 0xFFu) << 16)
+                         | ((L_max & 0x0Fu) << 24);
+
+        _NeighborCountMap_RW[fullResUV] = packedDebug;
     }
 }
 

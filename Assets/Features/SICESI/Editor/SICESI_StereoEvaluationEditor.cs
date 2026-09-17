@@ -165,6 +165,33 @@ namespace SICESI.Editor
                 }
             }
 
+            EditorGUILayout.Space(8);
+            EditorGUILayout.LabelField("🔬 占有セクターマスク (SectorMask) 実測データ取得", EditorStyles.boldLabel);
+
+            var collector = controller.GetComponent<SICESI_SectorMaskCollector>();
+            if (collector == null)
+            {
+                collector = controller.gameObject.AddComponent<SICESI_SectorMaskCollector>();
+            }
+
+            GUI.backgroundColor = new Color(0.6f, 0.9f, 0.6f);
+            string sectorMaskBtnLabel = $"🔬 全{densityCount}密度 占有セクターマスク (SectorMask) 一括取得";
+
+            if (GUILayout.Button(sectorMaskBtnLabel, GUILayout.Height(40)))
+            {
+                string sweepRootDir = Path.Combine(controller.outputDirectory, controller.conditionName, "SectorMaskSweep");
+                if (EditorUtility.DisplayDialog(
+                    "全密度の占有セクターマスク一括取得",
+                    $"条件名: [{controller.conditionName}]\n" +
+                    $"密度数: {densityCount} 段階 ({controller.densityUnit})\n" +
+                    $"出力先: {sweepRootDir}\n\n" +
+                    $"各密度の実測8ビット占有マスク (.raw, .csv, .png) と GT画像の一括自動取得を開始しますか？",
+                    "開始", "キャンセル"))
+                {
+                    collector.RunSectorMaskDensitySweep();
+                }
+            }
+
             GUI.backgroundColor = Color.white;
             GUI.enabled = true;
 
@@ -176,6 +203,11 @@ namespace SICESI.Editor
             if (controller.isCapturing)
             {
                 EditorGUILayout.HelpBox($"進行中: {controller.statusMessage}", MessageType.Warning);
+                Repaint();
+            }
+            else if (collector != null && collector.isCollecting)
+            {
+                EditorGUILayout.HelpBox($"SectorMask 収集進行中: {collector.statusMessage}", MessageType.Warning);
                 Repaint();
             }
         }
