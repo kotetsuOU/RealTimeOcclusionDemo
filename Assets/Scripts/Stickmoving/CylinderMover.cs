@@ -8,7 +8,7 @@ public class CylinderMover : MonoBehaviour
     [SerializeField] private float startZ = -1.0f;   // 手前側のZ座標
     [SerializeField] private float endZ = 1.0f;      // 奥側のZ座標
     [SerializeField] private float fixedX = 0.0f;    // X座標（固定値）
-    [SerializeField] private float fixedY = 0.0f;    // Y座標（仮の固定値。後で点群取得に差し替え予定）
+    [SerializeField] private float fixedY = 0.0f;    // Y座標のフォールバック値（upperSampler未設定・取得失敗時に使用）
 
     [Header("タイミング")]
     [SerializeField] private float moveDuration = 2.0f;  // 手前→奥までの所要時間（秒）
@@ -17,10 +17,19 @@ public class CylinderMover : MonoBehaviour
     [Header("見た目の切り替え")]
     [SerializeField] private Renderer cylinderRenderer;  // インスペクターでCylinderのRendererをアタッチ
 
+    [Header("Depth Settings")]
+    [Tooltip("手のひら上面のY座標を取得するPointCloudDepthSampler（MultiAUTD3Controllerと同じ仕組み）。未設定ならfixedYを使う")]
+    [SerializeField] private PointCloudDepthSampler upperSampler;
+
+    [Tooltip("点群から取得したYの平滑化速度。大きいほど追従が速く、小さいほどノイズに強い")]
+    [SerializeField] private float ySmoothSpeed = 10f;
+
     private CylinderState state = CylinderState.Moving;
     private float elapsedTime = 0f;
     private float waitTimer = 0f;
     private int passIndex = 0;
+    private float smoothedY;
+    private bool ySmoothInitialized = false;
 
     /// <summary>移動中（＝stickが見えている区間）かどうか</summary>
     public bool IsMoving => state == CylinderState.Moving;
@@ -40,7 +49,8 @@ public class CylinderMover : MonoBehaviour
                 float t = Mathf.Clamp01(elapsedTime / moveDuration);
 
                 float z = Mathf.Lerp(startZ, endZ, t);
-                transform.position = new Vector3(fixedX, fixedY, z);
+                float y = GetSmoothedSurfaceY(z);
+                transform.position = new Vector3(fixedX, y, z);
 
                 cylinderRenderer.enabled = true;
 
@@ -62,5 +72,26 @@ public class CylinderMover : MonoBehaviour
                 }
                 break;
         }
+    }
+
+    // MultiAUTD3Controller.GetSurfaceY() と同じ仕組み：
+    // 点群の中央値Yを取得し、生値のジッターをLerpで平滑化してから使う
+    private float GetSmoothedSurfaceY(float z)
+    {
+        float rawY = fixedY;
+        if (upperSampler != null && upperSampler.TryGetMedianY(fixedX, z, out float sampledY))
+            rawY = sampledY;
+
+        if (!ySmoothInitialized)
+        {
+            smoothedY = rawY;
+            ySmoothInitialized = true;
+        }
+        else
+        {
+            smoothedY = Mathf.Lerp(smoothedY, rawY, 1f - Mathf.Exp(-ySmoothSpeed * Time.deltaTime));
+        }
+
+        return smoothedY;
     }
 }
