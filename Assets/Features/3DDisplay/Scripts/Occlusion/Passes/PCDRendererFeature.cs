@@ -111,6 +111,12 @@ public class PCDRendererFeature : ScriptableRendererFeature
         [Range(-1, 255)]
         public int debugPatternId;
 
+        /// <summary>
+        /// 8セクターの単独二値マスク表示 (-1: 通常描画, 0..7: 指定セクターの二値マスク表示)
+        /// </summary>
+        [Range(-1, 7)]
+        public int debugSectorId;
+
         public bool enableVirtualDepthIntegration;
 
         public bool enableTagBasedOptimization;   // ① タグに基づく探索スキップ

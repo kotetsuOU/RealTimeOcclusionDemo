@@ -59,18 +59,24 @@ internal class PCDPostProcessStage : IPCDPipelineStage
     private void ExecuteStageDebugVisualize(CommandBuffer cmd, PCDPipelineContext ctx)
     {
         var s = ctx.Settings;
+        bool isSectorMode = s.debugSectorId >= 0 && s.debugSectorId <= 9;
         bool isPatternMode = s.debugPatternId >= 0 && s.debugPatternId < 256;
-        if (!s.enablePixelTagMap && !s.enableOcclusionMap && !isPatternMode)
+        if (!s.enablePixelTagMap && !s.enableOcclusionMap && !isPatternMode && !isSectorMode)
             return;
 
         var cs = ctx.ComputeShader;
         var k = ctx.Kernels;
         var r = ctx.Resources;
 
-        int displayMode = isPatternMode ? 3 : (s.enablePixelTagMap ? 1 : 2);
+        int displayMode = isSectorMode ? 4 : (isPatternMode ? 3 : (s.enablePixelTagMap ? 1 : 2));
         cmd.SetComputeIntParam(cs, PCDShaderConstants.DebugDisplayMode, displayMode);
 
-        if (isPatternMode)
+        if (isSectorMode)
+        {
+            cmd.SetComputeIntParam(cs, PCDShaderConstants.DebugSectorId, s.debugSectorId);
+            cmd.SetComputeTextureParam(cs, k.VisualizeOcclusionDebug, PCDShaderConstants.NeighborCountMap_RW, r.NeighborCountMap);
+        }
+        else if (isPatternMode)
         {
             cmd.SetComputeIntParam(cs, PCDShaderConstants.DebugPatternId, s.debugPatternId);
             cmd.SetComputeTextureParam(cs, k.VisualizeOcclusionDebug, PCDShaderConstants.NeighborCountMap_RW, r.NeighborCountMap);

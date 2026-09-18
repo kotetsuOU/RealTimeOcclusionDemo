@@ -34,6 +34,7 @@ public class PCDOcclusionPipelineControllerEditor : Editor
     private SerializedProperty _enablePixelTagMap;
     private SerializedProperty _enableOcclusionMap;
     private SerializedProperty _debugPatternId;
+    private SerializedProperty _debugSectorId;
 
     private SerializedProperty _recordOcclusionDebugMap;
     private SerializedProperty _recordPixelTagMap;
@@ -94,6 +95,7 @@ public class PCDOcclusionPipelineControllerEditor : Editor
         _enablePixelTagMap = serializedObject.FindProperty("enablePixelTagMap");
         _enableOcclusionMap = serializedObject.FindProperty("enableOcclusionMap");
         _debugPatternId = serializedObject.FindProperty("debugPatternId");
+        _debugSectorId = serializedObject.FindProperty("debugSectorId");
 
         _recordOcclusionDebugMap = serializedObject.FindProperty("recordOcclusionDebugMap");
         _recordPixelTagMap = serializedObject.FindProperty("recordPixelTagMap");
@@ -262,6 +264,8 @@ public class PCDOcclusionPipelineControllerEditor : Editor
         EditorGUI.indentLevel++;
         EditorGUILayout.PropertyField(_enablePixelTagMap);
         EditorGUILayout.PropertyField(_enableOcclusionMap);
+        EditorGUILayout.PropertyField(_debugSectorId);
+        EditorGUILayout.PropertyField(_debugPatternId);
         EditorGUILayout.PropertyField(_recordOcclusionDebugMap);
         EditorGUILayout.PropertyField(_recordPixelTagMap);
         EditorGUILayout.PropertyField(_recordIntegratedDepthMap);

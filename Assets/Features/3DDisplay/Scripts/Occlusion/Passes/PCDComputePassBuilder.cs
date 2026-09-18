@@ -115,7 +115,8 @@ internal class PCDComputePassBuilder
             }
 
             bool isDebugDisplay = settings.enablePixelTagMap || settings.enableOcclusionMap
-                || (settings.debugPatternId >= 0 && settings.debugPatternId < 256);
+                || (settings.debugPatternId >= 0 && settings.debugPatternId < 256)
+                || (settings.debugSectorId >= 0 && settings.debugSectorId <= 9);
             if (isDebugDisplay)
             {
                 outHandles.debugDisplayMap = renderGraph.ImportTexture(resources.DebugDisplayMap);

@@ -32,6 +32,7 @@ public class PCDSettingsBridge
         recordNeighborhoodMap = false,
         recordNeighborCountMap = false,
         debugPatternId = -1,
+        debugSectorId = -1,
         enableVirtualDepthIntegration = true,
         enableTagBasedOptimization = true,
         enableTypeAwareDensity = true,
@@ -322,6 +323,16 @@ public class PCDSettingsBridge
         {
             if (Controller != null) Controller.debugPatternId = value;
             else _fallbackSettings.debugPatternId = value;
+        }
+    }
+
+    public int debugSectorId
+    {
+        get => Controller != null ? Controller.debugSectorId : _fallbackSettings.debugSectorId;
+        set
+        {
+            if (Controller != null) Controller.debugSectorId = value;
+            else _fallbackSettings.debugSectorId = value;
         }
     }
 

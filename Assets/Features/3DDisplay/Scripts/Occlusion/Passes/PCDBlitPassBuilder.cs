@@ -34,7 +34,8 @@ internal class PCDBlitPassBuilder
             data.useDirectGpuImageBuffer = false;
 
             bool isDebugDisplay = data.enablePixelTagMap || data.enableOcclusionMap
-                || (settings.debugPatternId >= 0 && settings.debugPatternId < 256);
+                || (settings.debugPatternId >= 0 && settings.debugPatternId < 256)
+                || (settings.debugSectorId >= 0 && settings.debugSectorId <= 9);
             if (isDebugDisplay)
             {
                 data.sourceImage = handles.debugDisplayMap;

@@ -1066,12 +1066,12 @@ namespace SICESI
         /// <summary>
         /// 左右のカメラから画像を取得して保存します。
         /// </summary>
-        public void CaptureStereoViews(string baseDirectory, string filePrefix)
+        public void CaptureStereoViews(string baseDirectory, string filePrefix, bool bypassSRGBConversion = false)
         {
             if (leftEyeCamera != null)
             {
                 string leftPath = Path.Combine(baseDirectory, "Left", $"{filePrefix}_left.png");
-                SaveCameraView(leftEyeCamera, leftPath);
+                SaveCameraView(leftEyeCamera, leftPath, bypassSRGBConversion);
             }
             else
             {
@@ -1081,7 +1081,7 @@ namespace SICESI
             if (rightEyeCamera != null)
             {
                 string rightPath = Path.Combine(baseDirectory, "Right", $"{filePrefix}_right.png");
-                SaveCameraView(rightEyeCamera, rightPath);
+                SaveCameraView(rightEyeCamera, rightPath, bypassSRGBConversion);
             }
             else
             {
@@ -1091,9 +1091,10 @@ namespace SICESI
 
         /// <summary>
         /// 指定カメラの描画結果 (targetTexture またはバックバッファ) からピクセルを読み出してPNG保存します。
-        /// リニア色空間から sRGB ガンマ補正を正しく適用して保存します。
+        /// 通常画像ではリニア色空間から sRGB ガンマ補正を正しく適用して保存します。
+        /// 占有マスク・デバッグ判定マスク等の数値データ画像では bypassSRGBConversion=true によりガンマ歪みを防止します。
         /// </summary>
-        public void SaveCameraView(Camera cam, string destinationPath)
+        public void SaveCameraView(Camera cam, string destinationPath, bool bypassSRGBConversion = false)
         {
             int width = cam.pixelWidth > 0 ? cam.pixelWidth : Screen.width;
             int height = cam.pixelHeight > 0 ? cam.pixelHeight : Screen.height;
@@ -1103,7 +1104,7 @@ namespace SICESI
 
             if (cam.targetTexture != null)
             {
-                if (applySRGBConversion && QualitySettings.desiredColorSpace == ColorSpace.Linear)
+                if (!bypassSRGBConversion && applySRGBConversion && QualitySettings.desiredColorSpace == ColorSpace.Linear)
                 {
                     // Linear RT から sRGB 補正をかけて一時RTへBlit
                     RenderTexture tempSRGB = RenderTexture.GetTemporary(

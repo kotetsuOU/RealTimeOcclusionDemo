@@ -87,6 +87,10 @@ public class PCDOcclusionPipelineController : MonoBehaviour, IAppLoggable
     [Range(-1, 255)]
     public int debugPatternId = -1;
 
+    [Tooltip("セクターマスク表示 (-1: 通常描画, 0..7: 個別セクター二値マスク, 8: 全8セクター統合8bit占有マスク, 9: GPU実判定マスク)")]
+    [Range(-1, 9)]
+    public int debugSectorId = -1;
+
     [Header("Record Debug")]
     [Tooltip("1フレームだけOcclusionMapを保存します（occlusionAverageをPNG/CSVへ出力）")]
     public bool recordOcclusionDebugMap = false;
@@ -211,6 +215,7 @@ public class PCDOcclusionPipelineController : MonoBehaviour, IAppLoggable
             recordNeighborhoodMap = this.recordNeighborhoodMap,
             recordNeighborCountMap = this.recordNeighborCountMap,
             debugPatternId = this.debugPatternId,
+            debugSectorId = this.debugSectorId,
             enableVirtualDepthIntegration = this.enableVirtualDepthIntegration,
             enableTagBasedOptimization = this.enableTagBasedOptimization,
             enableTypeAwareDensity = this.enableTypeAwareDensity,

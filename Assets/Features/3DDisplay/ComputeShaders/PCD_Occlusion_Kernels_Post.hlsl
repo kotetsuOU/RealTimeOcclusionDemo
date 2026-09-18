@@ -168,6 +168,7 @@ void InitFromCamera(uint3 id : SV_DispatchThreadID, uint groupIndex : SV_GroupIn
 
 int _DebugDisplayMode;
 int _DebugPatternId;
+int _DebugSectorId;
 
 // 13. Visualize Occlusion Debug
 // OcclusionValueMapの値をREADME/Exporterと同じルールでカラー変換し、
@@ -197,6 +198,49 @@ void VisualizeOcclusionDebug(uint3 id : SV_DispatchThreadID)
         else
         {
             _OriginMap_RW[id.xy] = float4(0, 0, 0, 1); // 非所属画素: 黒
+        }
+        return;
+    }
+
+    // mode 4: 8セクター二値マスク表示 (指定セクター _DebugSectorId 0..7 の bit が 1 なら白、0 なら黒)
+    // 更新: mode 分岐を増やさず、_DebugSectorId の指定により 8bit 占有パターン直接出力 (8) および GPU 実判定マスク直接出力 (9) を統合サポート
+    if (_DebugDisplayMode == 4)
+    {
+        uint val = _NeighborCountMap_RW[id.xy];
+        uint isEvaluated = (val >> 12) & 1u;
+        if (isEvaluated == 0u)
+        {
+            _OriginMap_RW[id.xy] = float4(0, 0, 0, 1);
+            return;
+        }
+
+        uint mask = val & 0xFFu;
+
+        // _DebugSectorId == 8: 全8セクター統合 8-bit グレースケール占有マスク (各画素のパターン m ∈ [0, 255] を直接出力)
+        if (_DebugSectorId == 8)
+        {
+            float p = (float)mask / 255.0;
+            _OriginMap_RW[id.xy] = float4(p, p, p, 1.0);
+            return;
+        }
+
+        // _DebugSectorId == 9: GPU 実遮蔽判定マスク (bit 13: 遮蔽なら白, 可視なら黒)
+        if (_DebugSectorId == 9)
+        {
+            uint isGpuOccluded = (val >> 13) & 1u;
+            float p = (isGpuOccluded != 0u) ? 1.0 : 0.0;
+            _OriginMap_RW[id.xy] = float4(p, p, p, 1.0);
+            return;
+        }
+
+        // 従来互換: _DebugSectorId 0..7 (個別セクター二値マスク)
+        if (_DebugSectorId >= 0 && _DebugSectorId < 8 && (((mask >> (uint)_DebugSectorId) & 1u) != 0u))
+        {
+            _OriginMap_RW[id.xy] = float4(1, 1, 1, 1); // セクターが占有(1): 白
+        }
+        else
+        {
+            _OriginMap_RW[id.xy] = float4(0, 0, 0, 1); // 非占有(0): 黒
         }
         return;
     }

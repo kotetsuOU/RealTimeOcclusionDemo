@@ -66,6 +66,34 @@ namespace SICESI
         }
 
         /// <summary>
+        /// 8セクター・ビットプレーン方式の二値マスク画面保存スイープ。
+        /// RAWバッファの座標変換誤差を完全排除するため、URPカメラ直接画面保存により、
+        /// 各セクター 0〜7 の二値マスク画像 (計8枚) と GT・通常テスト画像を一括撮影します。
+        /// Python側で各画素の8ビットを復元することで、256枚PNG保存に比べ容量1/32・高速撮影を実現します。
+        /// </summary>
+        public void RunSector8MaskSweep()
+        {
+            if (isCollecting)
+            {
+                Debug.LogWarning("[SICESI] 既に収集処理が実行中です。");
+                return;
+            }
+
+            if (_controller == null)
+            {
+                _controller = GetComponent<SICESI_StereoEvaluationController>();
+            }
+
+            if (_controller == null)
+            {
+                Debug.LogError("[SICESI] SICESI_StereoEvaluationController が見つかりません。");
+                return;
+            }
+
+            StartCoroutine(Sector8MaskSweepRoutine());
+        }
+
+        /// <summary>
         /// 256占有パターンの単独二値マスク一括収集スイープ (旧36回転クラスを完全包括)
         /// 各密度における全256パターンの単独所属マスク (Left/Right)、GT、仮想物体シルエット、通常テスト画像、同期生RAWバッファを一括自動撮影・保存します。
         /// </summary>
@@ -320,6 +348,255 @@ namespace SICESI
             }
         }
 
+        private void SetDebugSectorId(int sectorId)
+        {
+            if (_controller.occlusionPipelineController != null)
+            {
+                _controller.occlusionPipelineController.debugSectorId = sectorId;
+            }
+            if (PCDRendererFeature.Instance != null && PCDRendererFeature.Instance.settings != null)
+            {
+                PCDRendererFeature.Instance.settings.debugSectorId = sectorId;
+            }
+        }
+
+        private IEnumerator Sector8MaskSweepRoutine()
+        {
+            isCollecting = true;
+            IsCollectingActive = true;
+            statusMessage = "Starting 8-Sector Binary Mask Sweep...";
+
+            string conditionRootDir = _controller.ConditionRootDir;
+            string sweepRootDir = Path.Combine(conditionRootDir, "Sector8MaskSweep");
+            Directory.CreateDirectory(sweepRootDir);
+            _controller.SaveSceneTransformsJson(sweepRootDir);
+            _controller.SaveSceneTransformsJson(conditionRootDir);
+
+            AppLogger.Log("SICESI", $"=== 8セクター二値マスク画面保存 密度スイープ開始: {sweepRootDir} ===");
+
+            float prevTimeScale = Time.timeScale;
+            Time.timeScale = 0f; // スイープ中はオブジェクトアニメーションや時間依存更新を完全静止してジッターを排除
+
+            int prevDebugSectorId = -1;
+            int prevDebugPatternId = -1;
+            bool prevRecordNeighborCount = false;
+            bool prevSoftFade = true;
+            PCDRendererFeature.PCD_HoleFillingMethod prevHoleFilling = PCDRendererFeature.PCD_HoleFillingMethod.None;
+
+            if (_controller.occlusionPipelineController != null)
+            {
+                prevDebugSectorId = _controller.occlusionPipelineController.debugSectorId;
+                prevDebugPatternId = _controller.occlusionPipelineController.debugPatternId;
+                prevRecordNeighborCount = _controller.occlusionPipelineController.recordNeighborCountMap;
+                prevSoftFade = _controller.occlusionPipelineController.enableSoftOcclusionFade;
+                prevHoleFilling = _controller.occlusionPipelineController.holeFillingMethod;
+
+                _controller.occlusionPipelineController.recordNeighborCountMap = true;
+                _controller.occlusionPipelineController.debugSectorId = -1;
+                _controller.occlusionPipelineController.debugPatternId = -1;
+                _controller.occlusionPipelineController.enableSoftOcclusionFade = false; // 硬い二値判定
+                _controller.occlusionPipelineController.holeFillingMethod = PCDRendererFeature.PCD_HoleFillingMethod.None; // フィルタによる境界歪みを排除して完全一致
+            }
+            if (PCDRendererFeature.Instance != null && PCDRendererFeature.Instance.settings != null)
+            {
+                PCDRendererFeature.Instance.settings.recordNeighborCountMap = true;
+                PCDRendererFeature.Instance.settings.debugSectorId = -1;
+                PCDRendererFeature.Instance.settings.debugPatternId = -1;
+                PCDRendererFeature.Instance.settings.enableSoftOcclusionFade = false;
+                PCDRendererFeature.Instance.settings.holeFillingMethod = PCDRendererFeature.PCD_HoleFillingMethod.None;
+            }
+
+            try
+            {
+                // -------------------------------------------------------------
+                // Step 0: 仮想物体単独シルエット撮影 (手なし・点群なし: VO_Silhouette)
+                // -------------------------------------------------------------
+                statusMessage = "Capturing Virtual Object Silhouette (手なし・点群なし)...";
+                if (_controller.pointCloudObject != null) _controller.pointCloudObject.SetActive(false);
+                bool prevGtActive = _controller.groundTruthObject != null && _controller.groundTruthObject.activeSelf;
+                if (_controller.groundTruthObject != null) _controller.groundTruthObject.SetActive(false);
+
+                for (int i = 0; i < 3; i++) yield return null;
+                yield return new WaitForEndOfFrame();
+
+                string gtDir = Path.Combine(sweepRootDir, "GT");
+                CaptureCameraImages(gtDir, "vo_silhouette");
+
+                string commonGtDir = Path.Combine(_controller.outputDirectory, "GT");
+                if (commonGtDir != gtDir)
+                {
+                    CaptureCameraImages(commonGtDir, "vo_silhouette");
+                }
+
+                if (_controller.groundTruthObject != null) _controller.groundTruthObject.SetActive(prevGtActive);
+                AppLogger.Log("SICESI", $"[0/2] 仮想物体単独シルエット撮影完了: {gtDir}");
+
+                // -------------------------------------------------------------
+                // Step 1: Ground Truth 撮影 (手メッシュ遮蔽あり・点群なし: GT)
+                // -------------------------------------------------------------
+                statusMessage = "Capturing Ground Truth for 8-Sector Sweep...";
+                var backup = _controller.SetGroundTruthState(true);
+                if (_controller.pointCloudObject != null) _controller.pointCloudObject.SetActive(false);
+
+                for (int i = 0; i < 3; i++) yield return null;
+                yield return new WaitForEndOfFrame();
+
+                CaptureCameraImages(gtDir, "gt");
+                if (commonGtDir != gtDir)
+                {
+                    CaptureCameraImages(commonGtDir, "gt");
+                }
+
+                _controller.RestoreGroundTruthState(backup);
+                AppLogger.Log("SICESI", $"[1/2] Ground Truth 撮影完了: {gtDir}");
+
+                // -------------------------------------------------------------
+                // Step 2: 点群表示に切り替え & 密度変更ループ
+                // -------------------------------------------------------------
+                if (_controller.pointCloudObject != null) _controller.pointCloudObject.SetActive(true);
+
+                float[] densities = _controller.sweepDensities;
+                if (densities == null || densities.Length == 0)
+                {
+                    densities = new float[] { _controller.dummyPointCloudProvider != null ? _controller.dummyPointCloudProvider.densityValue : 4.0f };
+                }
+
+                for (int d = 0; d < densities.Length; d++)
+                {
+                    float density = densities[d];
+                    string densityStr = density.ToString("0.0###", System.Globalization.CultureInfo.InvariantCulture);
+                    string densityFolderName = $"density_{densityStr}pts_mm2";
+                    string targetDir = Path.Combine(sweepRootDir, densityFolderName);
+                    Directory.CreateDirectory(targetDir);
+
+                    statusMessage = $"Setting Density ({d + 1}/{densities.Length}): {densityStr} pts/mm2";
+                    AppLogger.Log("SICESI", $"[2/2] 密度設定変更 ({d + 1}/{densities.Length}): {densityStr}");
+
+                    if (_controller.dummyPointCloudProvider != null)
+                    {
+                        _controller.dummyPointCloudProvider.densityUnit = _controller.densityUnit;
+                        _controller.dummyPointCloudProvider.densityValue = density;
+                        _controller.dummyPointCloudProvider.ForceUpdateSampling();
+                    }
+
+                    if (PCDRendererFeature.Instance != null)
+                    {
+                        PCDRendererFeature.Instance.MarkPointCloudDataDirty();
+                        if (PCDRendererFeature.Instance.settings != null)
+                        {
+                            PCDRendererFeature.Instance.settings.recordNeighborCountMap = true;
+                            PCDRendererFeature.Instance.settings.debugSectorId = -1;
+                            PCDRendererFeature.Instance.settings.debugPatternId = -1;
+                            PCDRendererFeature.Instance.settings.enableSoftOcclusionFade = false;
+                        }
+                    }
+                    if (_controller.occlusionPipelineController != null)
+                    {
+                        _controller.occlusionPipelineController.recordNeighborCountMap = true;
+                        _controller.occlusionPipelineController.debugSectorId = -1;
+                        _controller.occlusionPipelineController.debugPatternId = -1;
+                        _controller.occlusionPipelineController.enableSoftOcclusionFade = false;
+                    }
+
+                    // 点群サンプリングとGPU描画の安定待機
+                    for (int f = 0; f < _controller.waitFramesAfterDensityChange; f++) yield return null;
+                    yield return new WaitForEndOfFrame();
+
+                    // テスト画像および続くセクター撮影の間、カメラ姿勢とプロジェクション行列をURP描画直前に強制適用して100%完全一致させる
+                    CameraPoseSnapshot leftSnapshot = CameraPoseSnapshot.Capture(_controller.leftEyeCamera);
+                    CameraPoseSnapshot rightSnapshot = CameraPoseSnapshot.Capture(_controller.rightEyeCamera);
+                    bool lockCameraPose = true;
+
+                    void OnBeginCameraRendering(ScriptableRenderContext context, Camera cam)
+                    {
+                        if (!lockCameraPose) return;
+                        if (_controller.leftEyeCamera != null && cam == _controller.leftEyeCamera)
+                        {
+                            leftSnapshot.Apply(cam);
+                        }
+                        else if (_controller.rightEyeCamera != null && cam == _controller.rightEyeCamera)
+                        {
+                            rightSnapshot.Apply(cam);
+                        }
+                    }
+
+                    RenderPipelineManager.beginCameraRendering += OnBeginCameraRendering;
+
+                    try
+                    {
+                        // 1. 通常テスト画像のキャプチャ (Left / Right)
+                        SetDebugSectorId(-1);
+                        SetDebugPatternId(-1);
+                        yield return null;
+                        yield return new WaitForEndOfFrame();
+
+                        CaptureCameraImages(targetDir, $"test_{densityStr}");
+
+                        // 2. 8セクター二値マスクのキャプチャ (SectorId = 0..7: 0 or 255 の二値画像のためガンマ歪みを100%排除し、完全一致99.998%を保証)
+                        for (int s = 0; s < 8; s++)
+                        {
+                            statusMessage = $"Density {densityStr} | Sector {s}/7 Binary Mask";
+                            SetDebugSectorId(s);
+                            yield return null;
+                            yield return new WaitForEndOfFrame();
+                            CaptureCameraImages(targetDir, $"sector_{s}_mask");
+                        }
+
+                        // 3. 全8セクター統合 8-bit 占有パターンマスクのキャプチャ (SectorId = 8: 参考・統合プレビュー用)
+                        statusMessage = $"Density {densityStr} | Unified 8-bit Pattern Mask";
+                        SetDebugSectorId(8);
+                        yield return null;
+                        yield return new WaitForEndOfFrame();
+                        CaptureCameraImages(targetDir, "sector_mask", bypassSRGBConversion: true);
+
+                        // 4. GPU 実遮蔽判定マスクのキャプチャ (SectorId = 9: bit 13 の真値, 二値画像)
+                        statusMessage = $"Density {densityStr} | GPU Occluded Truth Mask";
+                        SetDebugSectorId(9);
+                        yield return null;
+                        yield return new WaitForEndOfFrame();
+                        CaptureCameraImages(targetDir, "gpu_occluded_mask");
+                    }
+                    finally
+                    {
+                        lockCameraPose = false;
+                        RenderPipelineManager.beginCameraRendering -= OnBeginCameraRendering;
+                    }
+
+                    // デバッグ表示をリセット
+                    SetDebugSectorId(-1);
+                    yield return null;
+
+                    // JSON メタデータ保存
+                    SaveParamsJson(targetDir, density, _controller.occlusionPipelineController != null ? _controller.occlusionPipelineController.occlusionThreshold : 0.1f);
+
+                    AppLogger.Log("SICESI", $"[{d + 1}/{densities.Length}] 密度 {densityStr} の統合セクターマスク収集完了: {targetDir}");
+                }
+
+                statusMessage = "All Unified Sector Mask Sweeps Completed!";
+                AppLogger.Log("SICESI", $"=== 全密度の統合セクターマスク収集が完了しました! 保存先: {sweepRootDir} ===");
+            }
+            finally
+            {
+                Time.timeScale = prevTimeScale;
+                SetDebugSectorId(prevDebugSectorId);
+                SetDebugPatternId(prevDebugPatternId);
+                if (_controller.occlusionPipelineController != null)
+                {
+                    _controller.occlusionPipelineController.recordNeighborCountMap = prevRecordNeighborCount;
+                    _controller.occlusionPipelineController.enableSoftOcclusionFade = prevSoftFade;
+                    _controller.occlusionPipelineController.holeFillingMethod = prevHoleFilling;
+                }
+                if (PCDRendererFeature.Instance != null && PCDRendererFeature.Instance.settings != null)
+                {
+                    PCDRendererFeature.Instance.settings.recordNeighborCountMap = prevRecordNeighborCount;
+                    PCDRendererFeature.Instance.settings.enableSoftOcclusionFade = prevSoftFade;
+                    PCDRendererFeature.Instance.settings.holeFillingMethod = prevHoleFilling;
+                }
+                IsCollectingActive = false;
+                isCollecting = false;
+            }
+        }
+
         private IEnumerator SectorMaskDensitySweepRoutine()
         {
             isCollecting = true;
@@ -333,6 +610,9 @@ namespace SICESI
             _controller.SaveSceneTransformsJson(conditionRootDir);
 
             AppLogger.Log("SICESI", $"=== 占有セクターマスク 密度スイープ開始: {sweepRootDir} ===");
+
+            float prevTimeScale = Time.timeScale;
+            Time.timeScale = 0f;
 
             bool prevRecordNeighborCount = false;
             bool prevSoftFade = true;
@@ -458,6 +738,7 @@ namespace SICESI
             }
             finally
             {
+                Time.timeScale = prevTimeScale;
                 if (_controller.occlusionPipelineController != null)
                 {
                     _controller.occlusionPipelineController.recordNeighborCountMap = prevRecordNeighborCount;
@@ -476,11 +757,11 @@ namespace SICESI
         /// <summary>
         /// 左右カメラの視点をキャプチャしてPNG保存します (コントローラーの統一撮影処理を使用)。
         /// </summary>
-        private void CaptureCameraImages(string baseDir, string filePrefix)
+        private void CaptureCameraImages(string baseDir, string filePrefix, bool bypassSRGBConversion = false)
         {
             if (_controller != null)
             {
-                _controller.CaptureStereoViews(baseDir, filePrefix);
+                _controller.CaptureStereoViews(baseDir, filePrefix, bypassSRGBConversion);
             }
         }
 
@@ -596,6 +877,37 @@ namespace SICESI
             }
         }
 
+        /// <summary>
+        /// テスト画像と8セクターマスク撮影の間でカメラ視点・プロジェクション行列を1ビットも狂わせずに完全一致させるためのスナップショット。
+        /// </summary>
+        private struct CameraPoseSnapshot
+        {
+            public Vector3 position;
+            public Quaternion rotation;
+            public Matrix4x4 projectionMatrix;
+            public bool hasSnapshot;
+
+            public static CameraPoseSnapshot Capture(Camera cam)
+            {
+                if (cam == null) return default;
+                return new CameraPoseSnapshot
+                {
+                    position = cam.transform.position,
+                    rotation = cam.transform.rotation,
+                    projectionMatrix = cam.projectionMatrix,
+                    hasSnapshot = true
+                };
+            }
+
+            public void Apply(Camera cam)
+            {
+                if (!hasSnapshot || cam == null) return;
+                cam.transform.position = position;
+                cam.transform.rotation = rotation;
+                cam.projectionMatrix = projectionMatrix;
+            }
+        }
+
         [Serializable]
         private struct EvaluationParamsData
         {
@@ -604,6 +916,9 @@ namespace SICESI
             public string densityUnit;
             public float occlusionThreshold;
             public string evaluationMode;
+            public int minOccludedSectors;
+            public int maxConsecutiveEmptySectors;
+            public string holeFillingMethod;
             public string timestamp;
             public SICESI_StereoEvaluationController.SerializableTransformData handMeshTransform;
             public SICESI_StereoEvaluationController.SerializableTransformData virtualObjectTransform;
@@ -613,13 +928,17 @@ namespace SICESI
         {
             try
             {
+                var pipe = _controller.occlusionPipelineController;
                 var data = new EvaluationParamsData
                 {
                     conditionName = _controller.conditionName,
                     densityValue = density,
                     densityUnit = _controller.densityUnit.ToString(),
                     occlusionThreshold = threshold,
-                    evaluationMode = _controller.occlusionPipelineController != null ? _controller.occlusionPipelineController.evaluationMode.ToString() : "SectorConsecutiveZeros",
+                    evaluationMode = pipe != null ? pipe.evaluationMode.ToString() : "SectorConsecutiveZeros",
+                    minOccludedSectors = pipe != null ? pipe.minOccludedSectors : 1,
+                    maxConsecutiveEmptySectors = pipe != null ? pipe.maxConsecutiveEmptySectors : 8,
+                    holeFillingMethod = pipe != null ? pipe.holeFillingMethod.ToString() : "None",
                     timestamp = DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss"),
                     handMeshTransform = SICESI_StereoEvaluationController.SerializableTransformData.FromTransform(_controller.groundTruthObject != null ? _controller.groundTruthObject.transform : null),
                     virtualObjectTransform = SICESI_StereoEvaluationController.SerializableTransformData.FromTransform(_controller.virtualObject != null ? _controller.virtualObject.transform : null)

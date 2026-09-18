@@ -141,7 +141,8 @@ public class PCDRenderPass : ScriptableRenderPass
     public Texture GetDebugDisplayMap()
     {
         bool isDebug = _settings.enablePixelTagMap || _settings.enableOcclusionMap
-            || (_settings.debugPatternId >= 0 && _settings.debugPatternId < 256);
+            || (_settings.debugPatternId >= 0 && _settings.debugPatternId < 256)
+            || (_settings.debugSectorId >= 0 && _settings.debugSectorId <= 9);
         if (isDebug && _resources.DebugDisplayMap != null)
             return _resources.DebugDisplayMap;
         return null;
