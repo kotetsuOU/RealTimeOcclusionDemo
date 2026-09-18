@@ -59,15 +59,23 @@ internal class PCDPostProcessStage : IPCDPipelineStage
     private void ExecuteStageDebugVisualize(CommandBuffer cmd, PCDPipelineContext ctx)
     {
         var s = ctx.Settings;
-        if (!s.enablePixelTagMap && !s.enableOcclusionMap)
+        bool isPatternMode = s.debugPatternId >= 0 && s.debugPatternId < 256;
+        if (!s.enablePixelTagMap && !s.enableOcclusionMap && !isPatternMode)
             return;
 
         var cs = ctx.ComputeShader;
         var k = ctx.Kernels;
         var r = ctx.Resources;
 
-        int displayMode = s.enablePixelTagMap ? 1 : 2;
+        int displayMode = isPatternMode ? 3 : (s.enablePixelTagMap ? 1 : 2);
         cmd.SetComputeIntParam(cs, PCDShaderConstants.DebugDisplayMode, displayMode);
+
+        if (isPatternMode)
+        {
+            cmd.SetComputeIntParam(cs, PCDShaderConstants.DebugPatternId, s.debugPatternId);
+            cmd.SetComputeTextureParam(cs, k.VisualizeOcclusionDebug, PCDShaderConstants.NeighborCountMap_RW, r.NeighborCountMap);
+        }
+
         cmd.SetComputeTextureParam(cs, k.VisualizeOcclusionDebug, PCDShaderConstants.OcclusionValueMap_RW, r.OcclusionValueMap);
         cmd.SetComputeTextureParam(cs, k.VisualizeOcclusionDebug, PCDShaderConstants.OriginMap_RW, r.DebugDisplayMap);
         cmd.DispatchCompute(cs, k.VisualizeOcclusionDebug, ctx.ThreadGroupsX, ctx.ThreadGroupsY, 1);

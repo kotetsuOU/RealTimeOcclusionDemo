@@ -33,6 +33,7 @@ public class PCDOcclusionPipelineControllerEditor : Editor
 
     private SerializedProperty _enablePixelTagMap;
     private SerializedProperty _enableOcclusionMap;
+    private SerializedProperty _debugPatternId;
 
     private SerializedProperty _recordOcclusionDebugMap;
     private SerializedProperty _recordPixelTagMap;
@@ -92,6 +93,7 @@ public class PCDOcclusionPipelineControllerEditor : Editor
 
         _enablePixelTagMap = serializedObject.FindProperty("enablePixelTagMap");
         _enableOcclusionMap = serializedObject.FindProperty("enableOcclusionMap");
+        _debugPatternId = serializedObject.FindProperty("debugPatternId");
 
         _recordOcclusionDebugMap = serializedObject.FindProperty("recordOcclusionDebugMap");
         _recordPixelTagMap = serializedObject.FindProperty("recordPixelTagMap");

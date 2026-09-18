@@ -36,7 +36,9 @@ namespace SICESI.Editor
 
             EditorGUILayout.Space(8);
 
-            GUI.enabled = Application.isPlaying && !controller.isCapturing;
+            var collector = controller.GetComponent<SICESI_SectorMaskCollector>();
+            bool isBusy = controller.isCapturing || (collector != null && collector.isCollecting);
+            GUI.enabled = Application.isPlaying && !isBusy;
 
             // GT撮影ボタン
             GUI.backgroundColor = new Color(0.6f, 0.9f, 0.6f);
@@ -62,7 +64,7 @@ namespace SICESI.Editor
             {
                 if (EditorUtility.DisplayDialog(
                     "点群密度スイープの開始",
-                    $"条件名 [{controller.conditionName}] で {controller.sweepDensities.Length} 段階の密度スイープを開始しますか？\n保存先: {controller.outputDirectory}",
+                    $"条件名 [{controller.conditionName}] で {controller.sweepDensities.Length} 段階の密度スイープを開始しますか？\n保存先: {controller.ConditionRootDir}",
                     "開始", "キャンセル"))
                 {
                     controller.RunDensitySweep();
@@ -91,7 +93,7 @@ namespace SICESI.Editor
 
                 if (EditorUtility.DisplayDialog(
                     "Bouchiba スイープの開始",
-                    $"条件名 [{controller.conditionName}] で {desc} の自動撮影を開始しますか？\n保存先: {Path.Combine(controller.outputDirectory, "SectorSweep")}",
+                    $"条件名 [{controller.conditionName}] で {desc} の自動撮影を開始しますか？\n保存先: {controller.ConditionRootDir}",
                     "開始", "キャンセル"))
                 {
                     controller.RunSectorSweep();
@@ -116,7 +118,7 @@ namespace SICESI.Editor
 
             if (GUILayout.Button(consecutiveBtnLabel, GUILayout.Height(42)))
             {
-                string savePath = Path.Combine(controller.outputDirectory, controller.conditionName, "ConsecutiveSweep");
+                string savePath = Path.Combine(controller.ConditionRootDir, "ConsecutiveSweep");
                 string desc = densityMultiplier > 1
                     ? $"{densityMultiplier} 段階の密度 × {skipModeNote} (計 {totalConsecutiveCombinations} パターン)"
                     : $"{skipModeNote} (計 {totalConsecutiveCombinations} パターン)";
@@ -151,7 +153,7 @@ namespace SICESI.Editor
                 string modeDirName = (controller.fixedEvaluationMode == PCDRendererFeature.PCD_OcclusionEvaluationMode.Average)
                     ? "Fixed_Average"
                     : $"Fixed_Sector_{controller.fixedMinOccludedSectors}";
-                string savePath = Path.Combine(controller.outputDirectory, controller.conditionName, modeDirName);
+                string savePath = Path.Combine(controller.ConditionRootDir, modeDirName);
 
                 if (EditorUtility.DisplayDialog(
                     "密度 × オクルージョン閾値スイープの開始",
@@ -168,27 +170,55 @@ namespace SICESI.Editor
             EditorGUILayout.Space(8);
             EditorGUILayout.LabelField("🔬 占有セクターマスク (SectorMask) 実測データ取得", EditorStyles.boldLabel);
 
-            var collector = controller.GetComponent<SICESI_SectorMaskCollector>();
             if (collector == null)
             {
                 collector = controller.gameObject.AddComponent<SICESI_SectorMaskCollector>();
             }
 
-            GUI.backgroundColor = new Color(0.6f, 0.9f, 0.6f);
-            string sectorMaskBtnLabel = $"🔬 全{densityCount}密度 占有セクターマスク (SectorMask) 一括取得";
+            GUI.backgroundColor = new Color(0.4f, 0.95f, 0.6f);
+            string sectorMaskBtnLabel = $"🔬 厳密スナップショット一括取得 (VO Silhouette + GT + 同期RAW + Test)";
 
-            if (GUILayout.Button(sectorMaskBtnLabel, GUILayout.Height(40)))
+            if (GUILayout.Button(sectorMaskBtnLabel, GUILayout.Height(42)))
             {
-                string sweepRootDir = Path.Combine(controller.outputDirectory, controller.conditionName, "SectorMaskSweep");
+                string sweepRootDir = Path.Combine(controller.ConditionRootDir, "SectorMaskSweep");
                 if (EditorUtility.DisplayDialog(
-                    "全密度の占有セクターマスク一括取得",
+                    "厳密スナップショット一括取得",
                     $"条件名: [{controller.conditionName}]\n" +
                     $"密度数: {densityCount} 段階 ({controller.densityUnit})\n" +
                     $"出力先: {sweepRootDir}\n\n" +
-                    $"各密度の実測8ビット占有マスク (.raw, .csv, .png) と GT画像の一括自動取得を開始しますか？",
+                    $"以下のデータを同一基準で完全同期取得します：\n" +
+                    $"・手なし仮想物体単独シルエット (VO_Silhouette)\n" +
+                    $"・手メッシュ遮蔽正解マスク (GT)\n" +
+                    $"・ソフトフェード無効（硬い二値判定）\n" +
+                    $"・同一フレームでのカメラ画像 (Test) と完全生占有バッファ (RAW)\n\n" +
+                    $"一括自動取得を開始しますか？",
                     "開始", "キャンセル"))
                 {
                     collector.RunSectorMaskDensitySweep();
+                }
+            }
+
+            EditorGUILayout.Space(4);
+
+            // 256占有パターン単独マスク 一括自動取得ボタン (旧36クラスを完全包括)
+            GUI.backgroundColor = new Color(0.35f, 0.75f, 0.95f);
+            int totalPatterns = densityCount * 256;
+            string pattern256BtnLabel = $"🪐 256占有パターン単独マスク (全{densityCount}密度 × 256パターン: 計{totalPatterns}枚) 一括取得";
+
+            if (GUILayout.Button(pattern256BtnLabel, GUILayout.Height(42)))
+            {
+                string sweepRootDir = Path.Combine(controller.ConditionRootDir, "Pattern256MaskSweep");
+                if (EditorUtility.DisplayDialog(
+                    "256占有パターン単独二値マスクの一括取得",
+                    $"条件名: [{controller.conditionName}]\n" +
+                    $"密度数: {densityCount} 段階 ({controller.densityUnit})\n" +
+                    $"撮影枚数: 1密度あたり256パターン (計 {totalPatterns} 枚 / 左右で {totalPatterns * 2} 枚)\n" +
+                    $"出力先: {sweepRootDir}\n\n" +
+                    $"PCDパイプラインを256パターンデバッグ表示に切り替え、0〜255の各占有パターンの二値マスク (PNG) と GT・VOシルエット・通常テスト画像・生RAWバッファの一括自動撮影を開始しますか？\n" +
+                    $"※ 36回転同値クラス・21特徴・9占有数は、この256パターンマスクから100%完全包含・再構成されます。",
+                    "開始", "キャンセル"))
+                {
+                    collector.RunPattern256MaskSweep();
                 }
             }
 

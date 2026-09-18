@@ -26,6 +26,9 @@ namespace SICESI
         [Tooltip("Ground Truth (正解) として表示する手メッシュなどのオブジェクト")]
         public GameObject groundTruthObject;
 
+        [Tooltip("オクルージョンされる仮想オブジェクト (位置・姿勢 Transform 記録用)")]
+        public GameObject virtualObject;
+
         [Tooltip("ダミー点群の表示オブジェクト (RsDummyPointCloudRenderer が付いているオブジェクト)")]
         public GameObject pointCloudObject;
 
@@ -92,8 +95,26 @@ namespace SICESI
         [Tooltip("出力先ルートディレクトリ")]
         public string outputDirectory = @"C:\Users\hongo\Documents\tsutsumi\Estimation\SICESI_Dataset";
 
-        [Tooltip("現在の実験条件名 (例: Proposed_Oct, Proposed_Hex, Bouchiba など)")]
-        public string conditionName = "Proposed_Oct";
+        [HideInInspector]
+        public string casesParentFolder = "RawTest_Cases";
+
+        [Tooltip("現在の実験条件・ケース名 (例: RawTest, RawTest_case1, RawTest_case2 など)")]
+        public string conditionName = "RawTest";
+
+        /// <summary>
+        /// 現在の実験条件のルートディレクトリを取得します (casesParentFolder が設定されている場合はその配下)。
+        /// </summary>
+        public string ConditionRootDir
+        {
+            get
+            {
+                if (!string.IsNullOrEmpty(casesParentFolder))
+                {
+                    return Path.Combine(outputDirectory, casesParentFolder, conditionName);
+                }
+                return Path.Combine(outputDirectory, conditionName);
+            }
+        }
 
         [Header("Capture Status")]
         public bool isCapturing = false;
@@ -167,6 +188,16 @@ namespace SICESI
             {
                 pointCloudObject = renderer.gameObject;
             }
+
+            if (virtualObject == null)
+            {
+                var vo = GameObject.Find("VirtualObjects");
+                if (vo != null)
+                {
+                    virtualObject = vo;
+                    Debug.Log($"[SICESI] 仮想オブジェクトを自動検出しました: {vo.name}");
+                }
+            }
         }
 
         /// <summary>
@@ -190,7 +221,8 @@ namespace SICESI
             for (int i = 0; i < 3; i++) yield return null;
             yield return new WaitForEndOfFrame();
 
-            string conditionRootDir = Path.Combine(outputDirectory, conditionName);
+            string conditionRootDir = ConditionRootDir;
+            SaveSceneTransformsJson(conditionRootDir);
             string gtDir = Path.Combine(conditionRootDir, "GT");
             CaptureStereoViews(gtDir, "gt");
 
@@ -228,8 +260,7 @@ namespace SICESI
             for (int i = 0; i < 3; i++) yield return null;
             yield return new WaitForEndOfFrame();
 
-            string folder = string.IsNullOrEmpty(subFolderName) ? conditionName : Path.Combine(conditionName, subFolderName);
-            string targetDir = Path.Combine(outputDirectory, folder);
+            string targetDir = string.IsNullOrEmpty(subFolderName) ? ConditionRootDir : Path.Combine(ConditionRootDir, subFolderName);
             CaptureStereoViews(targetDir, "test");
 
             statusMessage = $"Condition {conditionName} Capture Completed!";
@@ -254,7 +285,8 @@ namespace SICESI
         private IEnumerator DensitySweepRoutine()
         {
             isCapturing = true;
-            string conditionRootDir = Path.Combine(outputDirectory, conditionName);
+            string conditionRootDir = ConditionRootDir;
+            SaveSceneTransformsJson(conditionRootDir);
             Debug.Log($"[SICESI] === 点群密度スイープキャプチャ開始 (条件: {conditionName}) 保存先: {conditionRootDir} ===");
 
             // Step 1: まず GT を撮影
@@ -334,8 +366,9 @@ namespace SICESI
         private IEnumerator SectorSweepRoutine()
         {
             isCapturing = true;
-            // ConditionName を最上位フォルダーとする階層構造: SICESI_Dataset/{conditionName}/
-            string conditionRootDir = Path.Combine(outputDirectory, conditionName);
+            // ConditionName を最上位フォルダーとする階層構造: SICESI_Dataset/{casesParentFolder}/{conditionName}/
+            string conditionRootDir = ConditionRootDir;
+            SaveSceneTransformsJson(conditionRootDir);
             Debug.Log($"[SICESI] === Bouchiba セクタースイープキャプチャ開始 (条件: {conditionName}) 保存先: {conditionRootDir} ===");
 
             // Step 1: まず GT を撮影 (conditionRootDir/GT に保存)
@@ -497,7 +530,8 @@ namespace SICESI
         private IEnumerator ConsecutiveSectorSweepRoutine()
         {
             isCapturing = true;
-            string conditionRootDir = Path.Combine(outputDirectory, conditionName);
+            string conditionRootDir = ConditionRootDir;
+            SaveSceneTransformsJson(conditionRootDir);
             Debug.Log($"[SICESI] === 占有数 × 最大連続0数 スイープキャプチャ開始 (条件: {conditionName}) 保存先: {conditionRootDir} ===");
 
             // Step 1: まず GT を撮影 (conditionRootDir/GT に保存)
@@ -709,8 +743,9 @@ namespace SICESI
                 ? "Fixed_Average"
                 : $"Fixed_Sector_{fixedMinOccludedSectors}";
 
-            // 保存先ルート: SICESI_Dataset/{conditionName}/{modeFolderName}
-            string conditionRootDir = Path.Combine(outputDirectory, conditionName);
+            // 保存先ルート: SICESI_Dataset/{casesParentFolder}/{conditionName}/{modeFolderName}
+            string conditionRootDir = ConditionRootDir;
+            SaveSceneTransformsJson(conditionRootDir);
             string sweepTargetRootDir = Path.Combine(conditionRootDir, modeFolderName);
 
             string modeDesc = (fixedEvaluationMode == PCDRendererFeature.PCD_OcclusionEvaluationMode.Average)
@@ -831,6 +866,75 @@ namespace SICESI
         }
 
         [System.Serializable]
+        public class SerializableTransformData
+        {
+            public string name;
+            public Vector3 position;
+            public Vector3 rotationEuler;
+            public Quaternion rotationQuaternion;
+            public Vector3 lossyScale;
+            public Vector3 localPosition;
+            public Vector3 localEulerAngles;
+            public Vector3 localScale;
+
+            public static SerializableTransformData FromTransform(Transform t)
+            {
+                if (t == null) return null;
+                return new SerializableTransformData
+                {
+                    name = t.name,
+                    position = t.position,
+                    rotationEuler = t.eulerAngles,
+                    rotationQuaternion = t.rotation,
+                    lossyScale = t.lossyScale,
+                    localPosition = t.localPosition,
+                    localEulerAngles = t.localEulerAngles,
+                    localScale = t.localScale
+                };
+            }
+        }
+
+        [System.Serializable]
+        public class SceneTransformsData
+        {
+            public string timestamp;
+            public string conditionName;
+            public SerializableTransformData handMesh;
+            public SerializableTransformData virtualObject;
+            public SerializableTransformData leftCamera;
+            public SerializableTransformData rightCamera;
+        }
+
+        /// <summary>
+        /// 現在の手メッシュ (groundTruthObject) と仮想オブジェクト (virtualObject) およびカメラの Transform 情報を JSON に保存します。
+        /// </summary>
+        public void SaveSceneTransformsJson(string targetDir)
+        {
+            try
+            {
+                var data = new SceneTransformsData
+                {
+                    timestamp = System.DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss"),
+                    conditionName = this.conditionName,
+                    handMesh = SerializableTransformData.FromTransform(groundTruthObject != null ? groundTruthObject.transform : null),
+                    virtualObject = SerializableTransformData.FromTransform(virtualObject != null ? virtualObject.transform : null),
+                    leftCamera = SerializableTransformData.FromTransform(leftEyeCamera != null ? leftEyeCamera.transform : null),
+                    rightCamera = SerializableTransformData.FromTransform(rightEyeCamera != null ? rightEyeCamera.transform : null)
+                };
+
+                string json = JsonUtility.ToJson(data, true);
+                Directory.CreateDirectory(targetDir);
+                string savePath = Path.Combine(targetDir, "scene_transforms.json");
+                File.WriteAllText(savePath, json);
+                Debug.Log($"[SICESI] Transform 情報を保存しました: {savePath}");
+            }
+            catch (System.Exception ex)
+            {
+                Debug.LogWarning($"[SICESI] scene_transforms.json 保存失敗: {ex.Message}");
+            }
+        }
+
+        [System.Serializable]
         private class EvaluationParamsData
         {
             public string conditionName;
@@ -841,6 +945,8 @@ namespace SICESI
             public int minOccludedSectors;
             public int maxConsecutiveEmptySectors;
             public string timestamp;
+            public SerializableTransformData handMeshTransform;
+            public SerializableTransformData virtualObjectTransform;
         }
 
         /// <summary>
@@ -859,7 +965,9 @@ namespace SICESI
                     evaluationMode = mode.ToString(),
                     minOccludedSectors = sectors,
                     maxConsecutiveEmptySectors = maxZeros,
-                    timestamp = System.DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss")
+                    timestamp = System.DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss"),
+                    handMeshTransform = SerializableTransformData.FromTransform(groundTruthObject != null ? groundTruthObject.transform : null),
+                    virtualObjectTransform = SerializableTransformData.FromTransform(virtualObject != null ? virtualObject.transform : null)
                 };
                 string json = JsonUtility.ToJson(data, true);
                 Directory.CreateDirectory(targetDir);
@@ -985,7 +1093,7 @@ namespace SICESI
         /// 指定カメラの描画結果 (targetTexture またはバックバッファ) からピクセルを読み出してPNG保存します。
         /// リニア色空間から sRGB ガンマ補正を正しく適用して保存します。
         /// </summary>
-        private void SaveCameraView(Camera cam, string destinationPath)
+        public void SaveCameraView(Camera cam, string destinationPath)
         {
             int width = cam.pixelWidth > 0 ? cam.pixelWidth : Screen.width;
             int height = cam.pixelHeight > 0 ? cam.pixelHeight : Screen.height;
@@ -1023,12 +1131,23 @@ namespace SICESI
                 screenshot.ReadPixels(new Rect(x, y, width, height), 0, 0);
             }
 
-            screenshot.Apply();
             RenderTexture.active = prevActive;
 
             Directory.CreateDirectory(Path.GetDirectoryName(destinationPath));
-            File.WriteAllBytes(destinationPath, screenshot.EncodeToPNG());
+            byte[] pngBytes = screenshot.EncodeToPNG();
             Destroy(screenshot);
+
+            System.Threading.Tasks.Task.Run(() =>
+            {
+                try
+                {
+                    File.WriteAllBytes(destinationPath, pngBytes);
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning($"[SICESI] 非同期画像保存エラー ({destinationPath}): {ex.Message}");
+                }
+            });
         }
     }
 }

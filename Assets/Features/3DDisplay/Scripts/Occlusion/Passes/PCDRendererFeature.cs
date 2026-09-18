@@ -105,6 +105,12 @@ public class PCDRendererFeature : ScriptableRendererFeature
         public bool recordNeighborhoodMap;
         public bool recordNeighborCountMap;
 
+        /// <summary>
+        /// 256占有パターンの単独二値マスク表示 (-1: 通常描画, 0..255: 指定パターンの二値マスク表示)
+        /// </summary>
+        [Range(-1, 255)]
+        public int debugPatternId;
+
         public bool enableVirtualDepthIntegration;
 
         public bool enableTagBasedOptimization;   // ① タグに基づく探索スキップ

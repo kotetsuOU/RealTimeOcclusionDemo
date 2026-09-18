@@ -179,6 +179,7 @@ internal static class PCDShaderConstants
     public static readonly int OriginMap_RW = Shader.PropertyToID("_OriginMap_RW");
     public static readonly int NeighborCountMap_RW = Shader.PropertyToID("_NeighborCountMap_RW");
     public static readonly int DebugDisplayMode = Shader.PropertyToID("_DebugDisplayMode");
+    public static readonly int DebugPatternId = Shader.PropertyToID("_DebugPatternId");
     public static readonly int OcclusionValueMap_RW = Shader.PropertyToID("_OcclusionValueMap_RW");
     public static readonly int RecordOcclusionDebug = Shader.PropertyToID("_RecordOcclusionDebug");
 

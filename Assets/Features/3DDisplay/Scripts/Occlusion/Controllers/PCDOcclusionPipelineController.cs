@@ -83,6 +83,10 @@ public class PCDOcclusionPipelineController : MonoBehaviour, IAppLoggable
     [Tooltip("内積計算で得た occlusionAverage(0~1) を、Record Occlusion Debug Map と同じ配色ルールで画面上に常時表示します")]
     public bool enableOcclusionMap = false;
 
+    [Tooltip("256占有パターンの単独二値マスク表示 (-1: 通常描画, 0..255: 指定パターンの二値マスク表示)")]
+    [Range(-1, 255)]
+    public int debugPatternId = -1;
+
     [Header("Record Debug")]
     [Tooltip("1フレームだけOcclusionMapを保存します（occlusionAverageをPNG/CSVへ出力）")]
     public bool recordOcclusionDebugMap = false;
@@ -206,6 +210,7 @@ public class PCDOcclusionPipelineController : MonoBehaviour, IAppLoggable
             recordIntegratedDepthMap = this.recordIntegratedDepthMap,
             recordNeighborhoodMap = this.recordNeighborhoodMap,
             recordNeighborCountMap = this.recordNeighborCountMap,
+            debugPatternId = this.debugPatternId,
             enableVirtualDepthIntegration = this.enableVirtualDepthIntegration,
             enableTagBasedOptimization = this.enableTagBasedOptimization,
             enableTypeAwareDensity = this.enableTypeAwareDensity,

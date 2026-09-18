@@ -167,6 +167,7 @@ void InitFromCamera(uint3 id : SV_DispatchThreadID, uint groupIndex : SV_GroupIn
 }
 
 int _DebugDisplayMode;
+int _DebugPatternId;
 
 // 13. Visualize Occlusion Debug
 // OcclusionValueMapの値をREADME/Exporterと同じルールでカラー変換し、
@@ -176,6 +177,29 @@ void VisualizeOcclusionDebug(uint3 id : SV_DispatchThreadID)
 {
     if (id.x >= (uint)_ScreenParams.x || id.y >= (uint)_ScreenParams.y)
         return;
+
+    // mode 3: 256占有パターン単独二値マスク表示 (指定パターン 0..255 と完全一致する画素を白、他を黒)
+    if (_DebugDisplayMode == 3)
+    {
+        uint val = _NeighborCountMap_RW[id.xy];
+        uint isEvaluated = (val >> 12) & 1u;
+        if (isEvaluated == 0u)
+        {
+            _OriginMap_RW[id.xy] = float4(0, 0, 0, 1);
+            return;
+        }
+
+        uint mask = val & 0xFFu;
+        if (_DebugPatternId >= 0 && _DebugPatternId < 256 && mask == (uint)_DebugPatternId)
+        {
+            _OriginMap_RW[id.xy] = float4(1, 1, 1, 1); // 所属画素: 白
+        }
+        else
+        {
+            _OriginMap_RW[id.xy] = float4(0, 0, 0, 1); // 非所属画素: 黒
+        }
+        return;
+    }
 
     // mode 1: PixelTagMap(判定後), mode 2: OcclusionMap(生値)
     if (_DebugDisplayMode == 2)

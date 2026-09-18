@@ -33,7 +33,9 @@ internal class PCDBlitPassBuilder
             data.enableOcclusionMap = settings.enableOcclusionMap;
             data.useDirectGpuImageBuffer = false;
 
-            if (data.enablePixelTagMap || data.enableOcclusionMap)
+            bool isDebugDisplay = data.enablePixelTagMap || data.enableOcclusionMap
+                || (settings.debugPatternId >= 0 && settings.debugPatternId < 256);
+            if (isDebugDisplay)
             {
                 data.sourceImage = handles.debugDisplayMap;
                 builder.UseTexture(data.sourceImage, AccessFlags.Read);

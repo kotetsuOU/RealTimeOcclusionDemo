@@ -367,37 +367,41 @@ public static class PCDOcclusionDebugExporter
             AppLogger.LogError(PCD_LogTriggers.TagExporter, $"Failed to save RAW buffer: {ex.Message}");
         }
 
-        // 2. 評価対象画素 (isEvaluated == 1) のサマリー CSV 出力
-        try
+        // 2. 評価対象画素 (isEvaluated == 1) のサマリー CSV 出力 (メインスレッドのフレームフリーズを防ぐため非同期実行)
+        uint[] dataCopy = (uint[])packedData.Clone();
+        System.Threading.Tasks.Task.Run(() =>
         {
-            using (StreamWriter writer = new StreamWriter(csvFullPath, false, System.Text.Encoding.UTF8))
+            try
             {
-                writer.WriteLine("pixel_x,pixel_y,mask,bits_b7_to_b0,valid_sectors,n_occ,l_max,gpu_occluded");
-                for (int y = 0; y < height; y++)
+                using (StreamWriter writer = new StreamWriter(csvFullPath, false, System.Text.Encoding.UTF8))
                 {
-                    for (int x = 0; x < width; x++)
+                    writer.WriteLine("pixel_x,pixel_y,mask,bits_b7_to_b0,valid_sectors,n_occ,l_max,gpu_occluded");
+                    for (int y = 0; y < height; y++)
                     {
-                        uint val = packedData[y * width + x];
-                        uint isEvaluated = (val >> 12) & 1u;
-                        if (isEvaluated == 0u) continue; // 未評価画素はスキップ
+                        for (int x = 0; x < width; x++)
+                        {
+                            uint val = dataCopy[y * width + x];
+                            uint isEvaluated = (val >> 12) & 1u;
+                            if (isEvaluated == 0u) continue; // 未評価画素はスキップ
 
-                        uint mask = val & 0xFFu;
-                        uint validSectors = (val >> 8) & 0x0Fu;
-                        uint isGpuOcc = (val >> 13) & 1u;
-                        uint nOcc = (val >> 16) & 0xFFu;
-                        uint lMax = (val >> 24) & 0x0Fu;
-                        string bits = Convert.ToString(mask, 2).PadLeft(8, '0');
+                            uint mask = val & 0xFFu;
+                            uint validSectors = (val >> 8) & 0x0Fu;
+                            uint isGpuOcc = (val >> 13) & 1u;
+                            uint nOcc = (val >> 16) & 0xFFu;
+                            uint lMax = (val >> 24) & 0x0Fu;
+                            string bits = Convert.ToString(mask, 2).PadLeft(8, '0');
 
-                        writer.WriteLine($"{x},{y},{mask},{bits},{validSectors},{nOcc},{lMax},{isGpuOcc}");
+                            writer.WriteLine($"{x},{y},{mask},{bits},{validSectors},{nOcc},{lMax},{isGpuOcc}");
+                        }
                     }
                 }
+                AppLogger.Log(PCD_LogTriggers.TagExporter, $"Saved SectorMask CSV to: {csvFullPath}");
             }
-            AppLogger.Log(PCD_LogTriggers.TagExporter, $"Saved SectorMask CSV to: {csvFullPath}");
-        }
-        catch (Exception ex)
-        {
-            AppLogger.LogError(PCD_LogTriggers.TagExporter, $"Failed to save SectorMask CSV: {ex.Message}");
-        }
+            catch (Exception ex)
+            {
+                AppLogger.LogError(PCD_LogTriggers.TagExporter, $"Failed to save SectorMask CSV: {ex.Message}");
+            }
+        });
 
         // 3. 8bit グレースケール PNG の保存
         try
@@ -419,9 +423,9 @@ public static class PCDOcclusionDebugExporter
                 }
             }
             tex.SetPixels32(colors);
-            tex.Apply();
-            File.WriteAllBytes(pngFullPath, tex.EncodeToPNG());
+            byte[] pngBytes = tex.EncodeToPNG();
             UnityEngine.Object.Destroy(tex);
+            System.Threading.Tasks.Task.Run(() => File.WriteAllBytes(pngFullPath, pngBytes));
             AppLogger.Log(PCD_LogTriggers.TagExporter, $"Saved SectorMask PNG to: {pngFullPath}");
         }
         catch (Exception ex)
