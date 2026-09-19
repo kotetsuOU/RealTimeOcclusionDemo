@@ -52,6 +52,39 @@ from scipy.optimize import milp, LinearConstraint, Bounds
 # ==============================================================================
 # 0. パターンのコンパクト表現・補助関数
 # ==============================================================================
+def safe_write_csv(csv_path, rows, fieldnames):
+    """Excel等で開かれていてPermissionErrorになっても別名で確実に保存する"""
+    if not rows:
+        return
+    try:
+        with open(csv_path, 'w', newline='', encoding='utf-8-sig') as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(rows)
+    except PermissionError:
+        base, ext = os.path.splitext(csv_path)
+        alt_path = f"{base}_new{ext}"
+        print(f"[!] 警告: {csv_path} への書き込み権限がありません (Excel等で開かれている可能性があります)。{alt_path} に保存します。")
+        with open(alt_path, 'w', newline='', encoding='utf-8-sig') as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(rows)
+
+def safe_write_csv_raw(csv_path, header, rows):
+    """Excel等で開かれていてPermissionErrorになっても別名で確実に保存する (raw writer用)"""
+    try:
+        with open(csv_path, 'w', newline='', encoding='utf-8-sig') as f:
+            writer = csv.writer(f)
+            writer.writerow(header)
+            writer.writerows(rows)
+    except PermissionError:
+        base, ext = os.path.splitext(csv_path)
+        alt_path = f"{base}_new{ext}"
+        print(f"[!] 警告: {csv_path} への書き込み権限がありません (Excel等で開かれている可能性があります)。{alt_path} に保存します。")
+        with open(alt_path, 'w', newline='', encoding='utf-8-sig') as f:
+            writer = csv.writer(f)
+            writer.writerow(header)
+            writer.writerows(rows)
 def compress_indices(indices, prefix=""):
     """
     連続する数値を 0-7,9,11 のようにレンジ圧縮してカンマ区切りにする
@@ -187,6 +220,8 @@ def auto_generate_missing_pattern_counts(root_dir, lut):
     sweep_dirs = sorted(glob.glob(os.path.join(root_dir, "**", "Sector8MaskSweep"), recursive=True))
     sweep_dirs += sorted(glob.glob(os.path.join(root_dir, "**", "Pattern256MaskSweep"), recursive=True))
     sweep_dirs += sorted(glob.glob(os.path.join(root_dir, "**", "SectorMaskSweep"), recursive=True))
+    if os.path.basename(root_dir) in ["Sector8MaskSweep", "Pattern256MaskSweep", "SectorMaskSweep"]:
+        sweep_dirs.append(root_dir)
     sweep_dirs = sorted(list(set(sweep_dirs)))
     
     if not sweep_dirs:
@@ -234,7 +269,12 @@ def auto_generate_missing_pattern_counts(root_dir, lut):
         gt_img = np.array(Image.open(gt_path))[:, :, 0]
         H, W = gt_img.shape
         gt_mask = (gt_img > 128)
-        vo_mask = (np.array(Image.open(vo_path))[:, :, 0] > 128) if (vo_path and os.path.exists(vo_path)) else np.ones((H, W), dtype=bool)
+        if vo_path and os.path.exists(vo_path):
+            vo_mask = (np.array(Image.open(vo_path))[:, :, 0] > 128)
+        else:
+            # VOシルエットがない場合、全画面背景が遮蔽(O)に化けてIoUが暴落するのを防ぐ
+            print(f"[!] 警告: {eye_dir} に vo_silhouette が存在しません。GT画像描画領域で代用します。")
+            vo_mask = (gt_img > 10)
         
         sector_pngs = sorted(glob.glob(os.path.join(eye_dir, "sector_*_mask_*.png")))
         raw_files = sorted(glob.glob(os.path.join(eye_dir, "SectorMask_*.raw")))
@@ -308,7 +348,8 @@ def auto_generate_missing_pattern_counts(root_dir, lut):
             if fx:
                 occupied_mask = occupied_mask[:, ::-1]
                 is_evaluated = is_evaluated[:, ::-1]
-        else:
+
+        if occupied_mask is None:
             continue
             
         eval_mask = vo_mask & is_evaluated
@@ -437,6 +478,11 @@ def load_dataset(root_dir, lut):
         total_eval_pixels = int(np.sum(V) + np.sum(O))
         # 追加遮蔽なし (No extra occlusion: 全ビット可視) の基準IoU
         no_occ_iou = G / total_eval_pixels if total_eval_pixels > 0 else 0.0
+        
+        # 画面全体の黒背景が混入した古い壊れたデータ（O[0]が異常に多く、no_occ_iou < 0.4 など）を検出して除外
+        if no_occ_iou < 0.4 and O[0] > G:
+            print(f"[!] 警告: {path} はVOシルエット未適用による背景黒混入データと判定されたためスキップします (no_occ_iou: {no_occ_iou*100:.1f}%, O[0]: {O[0]:,})")
+            continue
         
         dataset.append({
             'data_id': data_id,
@@ -1048,18 +1094,25 @@ def run_pattern_rules_optimization(dataset_root=None, output_dir=None):
     print(f"    -> 規則詳細: {res_20_A['common_summary']} | 可視パターン: {res_20_A['common_details']}")
     
     # 2.2 36クラスLUT (MILP A)
-    fallback_z_256 = res_8_base['common_z']
-    fallback_z_36 = np.zeros(36, dtype=np.int32)
+    fallback_z_256_A = res_20_A['common_z']
+    fallback_z_36_A = np.zeros(36, dtype=np.int32)
     for cid in range(36):
         rep = lut['unique_reps'][cid]
-        fallback_z_36[cid] = fallback_z_256[rep]
+        fallback_z_36_A[cid] = fallback_z_256_A[rep]
         
     print("  [36クラス A] MILP 求解中 (平均IoU最大化)...")
     z_36_A, _, status_36_A, time_36_A, _ = optimize_weighted_iou_milp(
-        counts_V_36, counts_O_36, G_list, fallback_z_36, weights=None, time_limit_sec=60
+        counts_V_36, counts_O_36, G_list, fallback_z_36_A, weights=None, time_limit_sec=60
     )
     z_36_A_as_256 = np.array([z_36_A[lut['rot_cid'][m]] for m in range(256)], dtype=np.int32)
     eval_36_A = evaluate_lut_extended(z_36_A_as_256, dataset, base_ious)
+    # 包含関係保証: 36クラスは20候補を包含するため、平均IoUが下回った場合は20候補ルールを採用
+    if eval_36_A['mean_iou'] < res_20_A['common_eval']['mean_iou']:
+        print(f"    -> [包含関係補正] 36クラス A の MILP 解 ({eval_36_A['mean_iou']*100:.4f}%) が固定20候補 ({res_20_A['common_eval']['mean_iou']*100:.4f}%) を下回ったため、包含規則を採用")
+        z_36_A = fallback_z_36_A.copy()
+        z_36_A_as_256 = np.array([z_36_A[lut['rot_cid'][m]] for m in range(256)], dtype=np.int32)
+        eval_36_A = evaluate_lut_extended(z_36_A_as_256, dataset, base_ious)
+
     vis_c_A = [c for c in range(36) if z_36_A[c] == 1]
     print(f"    -> 完了 ({time_36_A:.2f}秒, {status_36_A}): 平均IoU = {eval_36_A['mean_iou']*100:.4f}%, 平均相対低減 = {eval_36_A['mean_rel_reduction']*100:+.2f}% (可視: {len(vis_c_A)}/36 クラス, 最悪悪化: {eval_36_A['worst_rel_drop']*100:+.2f}%)")
     print(f"    -> クラス詳細: {compress_indices(vis_c_A, prefix='c')} | 各占有数の可視クラス数: {class_breakdown_str(z_36_A, lut)}")
@@ -1067,9 +1120,15 @@ def run_pattern_rules_optimization(dataset_root=None, output_dir=None):
     # 2.3 256パターンLUT (MILP A)
     print("  [256パターン A] MILP 求解中 (平均IoU最大化)...")
     z_256_A, _, status_256_A, time_256_A, _ = optimize_weighted_iou_milp(
-        counts_V_256, counts_O_256, G_list, fallback_z_256, weights=None, time_limit_sec=60
+        counts_V_256, counts_O_256, G_list, z_36_A_as_256, weights=None, time_limit_sec=60
     )
     eval_256_A = evaluate_lut_extended(z_256_A, dataset, base_ious)
+    # 包含関係保証: 256パターンは36クラスを包含するため、平均IoUが下回った場合は36クラスルールを採用
+    if eval_256_A['mean_iou'] < eval_36_A['mean_iou']:
+        print(f"    -> [包含関係補正] 256パターン A の MILP 解 ({eval_256_A['mean_iou']*100:.4f}%) が36クラス ({eval_36_A['mean_iou']*100:.4f}%) を下回ったため、包含規則を採用")
+        z_256_A = z_36_A_as_256.copy()
+        eval_256_A = evaluate_lut_extended(z_256_A, dataset, base_ious)
+
     vis_m_A = [m for m in range(256) if z_256_A[m] == 1]
     print(f"    -> 完了 ({time_256_A:.2f}秒, {status_256_A}): 平均IoU = {eval_256_A['mean_iou']*100:.4f}%, 平均相対低減 = {eval_256_A['mean_rel_reduction']*100:+.2f}% (可視: {len(vis_m_A)}/256 パターン, 最悪悪化: {eval_256_A['worst_rel_drop']*100:+.2f}%)")
     print(f"    -> 各占有数の可視パターン数: {occ_breakdown_str(z_256_A, lut['n_occ'])}")
@@ -1092,12 +1151,25 @@ def run_pattern_rules_optimization(dataset_root=None, output_dir=None):
     print(f"    -> 規則詳細: {res_20_B['common_summary']} | 可視パターン: {res_20_B['common_details']}")
     
     # 3.3 36クラスLUT (MILP B)
+    fallback_z_256_B = res_20_B['common_z']
+    fallback_z_36_B = np.zeros(36, dtype=np.int32)
+    for cid in range(36):
+        rep = lut['unique_reps'][cid]
+        fallback_z_36_B[cid] = fallback_z_256_B[rep]
+
     print("  [36クラス B] MILP 求解中 (相対低減率最大化)...")
     z_36_B, _, status_36_B, time_36_B, _ = optimize_weighted_iou_milp(
-        counts_V_36, counts_O_36, G_list, fallback_z_36, weights=weights_rel, time_limit_sec=60
+        counts_V_36, counts_O_36, G_list, fallback_z_36_B, weights=weights_rel, time_limit_sec=60
     )
     z_36_B_as_256 = np.array([z_36_B[lut['rot_cid'][m]] for m in range(256)], dtype=np.int32)
     eval_36_B = evaluate_lut_extended(z_36_B_as_256, dataset, base_ious)
+    # 包含関係保証: 36クラスは20候補を包含
+    if eval_36_B['mean_rel_reduction'] < res_20_B['common_eval']['mean_rel_reduction']:
+        print(f"    -> [包含関係補正] 36クラス B の MILP 解 ({eval_36_B['mean_rel_reduction']*100:+.2f}%) が固定20候補 ({res_20_B['common_eval']['mean_rel_reduction']*100:+.2f}%) を下回ったため、包含規則を採用")
+        z_36_B = fallback_z_36_B.copy()
+        z_36_B_as_256 = np.array([z_36_B[lut['rot_cid'][m]] for m in range(256)], dtype=np.int32)
+        eval_36_B = evaluate_lut_extended(z_36_B_as_256, dataset, base_ious)
+
     vis_c_B = [c for c in range(36) if z_36_B[c] == 1]
     print(f"    -> 完了 ({time_36_B:.2f}秒, {status_36_B}): 平均相対低減 = {eval_36_B['mean_rel_reduction']*100:+.2f}%, 平均IoU = {eval_36_B['mean_iou']*100:.4f}% (可視: {len(vis_c_B)}/36 クラス, 最悪悪化: {eval_36_B['worst_rel_drop']*100:+.2f}%)")
     print(f"    -> クラス詳細: {compress_indices(vis_c_B, prefix='c')} | 各占有数の可視クラス数: {class_breakdown_str(z_36_B, lut)}")
@@ -1105,9 +1177,15 @@ def run_pattern_rules_optimization(dataset_root=None, output_dir=None):
     # 3.4 256パターンLUT (MILP B)
     print("  [256パターン B] MILP 求解中 (相対低減率最大化)...")
     z_256_B, _, status_256_B, time_256_B, _ = optimize_weighted_iou_milp(
-        counts_V_256, counts_O_256, G_list, fallback_z_256, weights=weights_rel, time_limit_sec=60
+        counts_V_256, counts_O_256, G_list, z_36_B_as_256, weights=weights_rel, time_limit_sec=60
     )
     eval_256_B = evaluate_lut_extended(z_256_B, dataset, base_ious)
+    # 包含関係保証: 256パターンは36クラスを包含
+    if eval_256_B['mean_rel_reduction'] < eval_36_B['mean_rel_reduction']:
+        print(f"    -> [包含関係補正] 256パターン B の MILP 解 ({eval_256_B['mean_rel_reduction']*100:+.2f}%) が36クラス ({eval_36_B['mean_rel_reduction']*100:+.2f}%) を下回ったため、包含規則を採用")
+        z_256_B = z_36_B_as_256.copy()
+        eval_256_B = evaluate_lut_extended(z_256_B, dataset, base_ious)
+
     vis_m_B = [m for m in range(256) if z_256_B[m] == 1]
     print(f"    -> 完了 ({time_256_B:.2f}秒, {status_256_B}): 平均相対低減 = {eval_256_B['mean_rel_reduction']*100:+.2f}%, 平均IoU = {eval_256_B['mean_iou']*100:.4f}% (可視: {len(vis_m_B)}/256 パターン, 最悪悪化: {eval_256_B['worst_rel_drop']*100:+.2f}%)")
     print(f"    -> 各占有数の可視パターン数: {occ_breakdown_str(z_256_B, lut['n_occ'])}")
@@ -1250,10 +1328,7 @@ def run_pattern_rules_optimization(dataset_root=None, output_dir=None):
         }
     ]
     csv_summary = os.path.join(output_dir, "common_rules_summary.csv")
-    with open(csv_summary, 'w', newline='', encoding='utf-8-sig') as f:
-        writer = csv.DictWriter(f, fieldnames=list(summary_rows[0].keys()))
-        writer.writeheader()
-        writer.writerows(summary_rows)
+    safe_write_csv(csv_summary, summary_rows, list(summary_rows[0].keys()))
     print(f"[+] 共通規則サマリー (common_rules_summary.csv) を保存しました: {csv_summary}")
     
     # 5.2 目的関数A vs B 直接比較表 (objective_comparison.csv) [新規]
@@ -1314,10 +1389,7 @@ def run_pattern_rules_optimization(dataset_root=None, output_dir=None):
     })
     
     csv_comp = os.path.join(output_dir, "objective_comparison.csv")
-    with open(csv_comp, 'w', newline='', encoding='utf-8-sig') as f:
-        writer = csv.DictWriter(f, fieldnames=list(comp_rows[0].keys()))
-        writer.writeheader()
-        writer.writerows(comp_rows)
+    safe_write_csv(csv_comp, comp_rows, list(comp_rows[0].keys()))
     print(f"[+] 目的関数A vs B 直接比較表 (objective_comparison.csv) を保存しました: {csv_comp}")
     
     # 5.3 全手法評価一覧 (common_rule_evaluation.csv)
@@ -1369,10 +1441,7 @@ def run_pattern_rules_optimization(dataset_root=None, output_dir=None):
     })
     
     csv_eval = os.path.join(output_dir, "common_rule_evaluation.csv")
-    with open(csv_eval, 'w', newline='', encoding='utf-8-sig') as f:
-        writer = csv.DictWriter(f, fieldnames=list(eval_rows[0].keys()))
-        writer.writeheader()
-        writer.writerows(eval_rows)
+    safe_write_csv(csv_eval, eval_rows, list(eval_rows[0].keys()))
     print(f"[+] 共通規則評価一覧 (common_rule_evaluation.csv) を保存しました: {csv_eval}")
     
     # 5.4 個別最適一覧 (individual_optima.csv)
@@ -1455,10 +1524,7 @@ def run_pattern_rules_optimization(dataset_root=None, output_dir=None):
         })
         
     csv_indiv = os.path.join(output_dir, "individual_optima.csv")
-    with open(csv_indiv, 'w', newline='', encoding='utf-8-sig') as f:
-        writer = csv.DictWriter(f, fieldnames=list(indiv_rows[0].keys()))
-        writer.writeheader()
-        writer.writerows(indiv_rows)
+    safe_write_csv(csv_indiv, indiv_rows, list(indiv_rows[0].keys()))
     print(f"[+] 個別最適一覧 (individual_optima.csv) を保存しました: {csv_indiv}")
     
     # 5.5 個別最適からの低下 (individual_gap_analysis.csv)
@@ -1501,10 +1567,7 @@ def run_pattern_rules_optimization(dataset_root=None, output_dir=None):
         })
         
     csv_gap = os.path.join(output_dir, "individual_gap_analysis.csv")
-    with open(csv_gap, 'w', newline='', encoding='utf-8-sig') as f:
-        writer = csv.DictWriter(f, fieldnames=list(gap_rows[0].keys()))
-        writer.writeheader()
-        writer.writerows(gap_rows)
+    safe_write_csv(csv_gap, gap_rows, list(gap_rows[0].keys()))
     print(f"[+] 個別最適からの低下分析 (individual_gap_analysis.csv) を保存しました: {csv_gap}")
     
     # 5.6 共通規則・共通LUTファイル (ObjA & ObjB)
@@ -1512,26 +1575,24 @@ def run_pattern_rules_optimization(dataset_root=None, output_dir=None):
         # common_lut_36
         csv_lut_36 = os.path.join(output_dir, f"common_lut_36_{obj_name}.csv")
         tot_obs_36 = np.sum(counts_V_36 + counts_O_36, axis=0)
-        with open(csv_lut_36, 'w', newline='', encoding='utf-8-sig') as f:
-            writer = csv.writer(f)
-            writer.writerow(["rotation_class_id", "rotation_representative", "representative_bits", "occupied_count", "decision", "label", "total_observed_pixels"])
-            for cid in range(36):
-                rep = lut['unique_reps'][cid]
-                tot_obs = int(tot_obs_36[cid])
-                dec = z36[cid]
-                writer.writerow([cid, rep, bin(rep)[2:].zfill(8), lut['n_occ'][rep], dec, "VISIBLE" if dec == 1 else "OCCLUDED", tot_obs])
-                
+        lut_36_rows = []
+        for cid in range(36):
+            rep = lut['unique_reps'][cid]
+            tot_obs = int(tot_obs_36[cid])
+            dec = z36[cid]
+            lut_36_rows.append([cid, rep, bin(rep)[2:].zfill(8), lut['n_occ'][rep], dec, "VISIBLE" if dec == 1 else "OCCLUDED", tot_obs])
+        safe_write_csv_raw(csv_lut_36, ["rotation_class_id", "rotation_representative", "representative_bits", "occupied_count", "decision", "label", "total_observed_pixels"], lut_36_rows)
+            
         # common_lut_256
         csv_lut_256 = os.path.join(output_dir, f"common_lut_256_{obj_name}.csv")
         tot_obs_256 = np.sum(counts_V_256 + counts_O_256, axis=0)
-        with open(csv_lut_256, 'w', newline='', encoding='utf-8-sig') as f:
-            writer = csv.writer(f)
-            writer.writerow(["mask", "bits_b7_to_b0", "occupied_count", "rotation_class_id", "decision", "label", "total_observed_pixels"])
-            for m in range(256):
-                tot_obs = int(tot_obs_256[m])
-                dec = z256[m]
-                writer.writerow([m, bin(m)[2:].zfill(8), lut['n_occ'][m], lut['rot_cid'][m], dec, "VISIBLE" if dec == 1 else "OCCLUDED", tot_obs])
-                
+        lut_256_rows = []
+        for m in range(256):
+            tot_obs = int(tot_obs_256[m])
+            dec = z256[m]
+            lut_256_rows.append([m, bin(m)[2:].zfill(8), lut['n_occ'][m], lut['rot_cid'][m], dec, "VISIBLE" if dec == 1 else "OCCLUDED", tot_obs])
+        safe_write_csv_raw(csv_lut_256, ["mask", "bits_b7_to_b0", "occupied_count", "rotation_class_id", "decision", "label", "total_observed_pixels"], lut_256_rows)
+            
     print(f"[+] 共通規則・共通LUTファイル (ObjA/ObjB) を保存しました。")
     
     # ==========================================================================

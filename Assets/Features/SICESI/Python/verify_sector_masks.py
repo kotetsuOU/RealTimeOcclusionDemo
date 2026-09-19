@@ -21,7 +21,7 @@ import json
 import numpy as np
 from PIL import Image
 
-def verify_dataset(root_dir):
+def verify_dataset(root_dir, test_th=128):
     sweep_dirs = sorted(glob.glob(os.path.join(root_dir, "**", "Sector8MaskSweep"), recursive=True))
     if not sweep_dirs:
         # 直下も検索
@@ -82,9 +82,9 @@ def verify_dataset(root_dir):
 
                 # Test画像 vs GT の評価
                 if test_path and gt_path:
-                    test_img = np.array(Image.open(test_path))
+                    test_img = np.array(Image.open(test_path))[:, :, :3]
                     gt_img = np.array(Image.open(gt_path))[:, :, 0]
-                    test_vis = np.any(test_img > 10, axis=-1) & vo_mask
+                    test_vis = (test_img.max(axis=-1) > test_th) & vo_mask
                     gt_vis = (gt_img > 128) & vo_mask
                     
                     tp = np.sum(test_vis & gt_vis)
@@ -92,7 +92,7 @@ def verify_dataset(root_dir):
                     fn = np.sum((~test_vis) & gt_vis)
                     denom = tp + fp + fn
                     iou = (tp / denom * 100.0) if denom > 0 else 0.0
-                    print(f"  実測 Test 画像 vs GT: IoU = {iou:.4f}% (TP:{tp:,}, FP:{fp:,}, FN:{fn:,})")
+                    print(f"  実測 Test 画像 (Th>{test_th}) vs GT: IoU = {iou:.4f}% (TP:{tp:,}, FP:{fp:,}, FN:{fn:,})")
 
                 # 占有マスクの読み込み
                 occupied_mask = None
@@ -126,18 +126,18 @@ def verify_dataset(root_dir):
                             print(f"  占有パターン (Occ >= {r}) vs GPU真値: 一致率 {match_pct:.4f}% (不一致: {diff:,} 画素)")
 
                             if test_path:
-                                test_img = np.array(Image.open(test_path))
-                                test_occ = vo_mask & (~np.any(test_img > 10, axis=-1))
+                                test_img = np.array(Image.open(test_path))[:, :, :3]
+                                test_occ = vo_mask & (test_img.max(axis=-1) <= test_th)
                                 diff_p_test = np.sum((pred_occ != test_occ) & vo_mask)
                                 match_p_test = (1.0 - diff_p_test / total_vo) * 100.0
-                                print(f"  占有パターン (Occ >= {r}) vs 実測 Test 画像: 一致率 {match_p_test:.4f}% (不一致: {diff_p_test:,} 画素)")
+                                print(f"  占有パターン (Occ >= {r}) vs 実測 Test 画像 (Th<={test_th}): 一致率 {match_p_test:.4f}% (不一致: {diff_p_test:,} 画素)")
 
                     if test_path:
-                        test_img = np.array(Image.open(test_path))
-                        test_occ = vo_mask & (~np.any(test_img > 10, axis=-1))
+                        test_img = np.array(Image.open(test_path))[:, :, :3]
+                        test_occ = vo_mask & (test_img.max(axis=-1) <= test_th)
                         diff_test = np.sum((gpu_occ != test_occ) & vo_mask)
                         match_test = (1.0 - diff_test / total_vo) * 100.0
-                        print(f"  GPU真値 vs 実測 Test 画像: 一致率 {match_test:.4f}% (不一致: {diff_test:,} 画素)")
+                        print(f"  GPU真値 vs 実測 Test 画像 (Th<={test_th}): 一致率 {match_test:.4f}% (不一致: {diff_test:,} 画素)")
 
                 total_checked += 1
 
@@ -146,7 +146,10 @@ def verify_dataset(root_dir):
     print("=" * 80)
 
 if __name__ == "__main__":
-    target_dir = r"C:\Users\hongo\Documents\tsutsumi\Estimation\SICESI_Dataset"
-    if len(sys.argv) > 1:
-        target_dir = sys.argv[1]
-    verify_dataset(target_dir)
+    import argparse
+    parser = argparse.ArgumentParser(description="セクター占有マスク・GPU遮蔽真値・Test画像 自動検証ツール")
+    parser.add_argument("target_dir", nargs="?", default=r"C:\Users\hongo\Documents\tsutsumi\Estimation\SICESI_Dataset", help="データセットルート")
+    parser.add_argument("--test-th", type=int, default=128, help="実測Test画像の二値化閾値 (0..255, デフォルト 128)")
+    args = parser.parse_args()
+
+    verify_dataset(args.target_dir, test_th=args.test_th)
