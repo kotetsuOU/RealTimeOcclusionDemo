@@ -17,22 +17,22 @@ public class CrossmodalTask : MonoBehaviour
     }
 
     [SerializeField] private string subjectID = "S01";
-    [Tooltip("各条件（Tactile Upper / Tactile Down）の試行数")]
-    [SerializeField] private int trialsPerCondition = 20;
+    [Tooltip("主試行4条件それぞれの試行数")]
+    [SerializeField] private int trialsPerCondition = 10;
     [SerializeField] private int seed = 1;
-    [SerializeField] private float stimulusDuration = 0.5f;
+    [SerializeField] private float stimulusDuration = 1.0f;
     [SerializeField] private float itiDuration = 1.0f;
     [SerializeField] private MultiAUTD3Controller autd;
     [SerializeField] private float responseDeadline = 3.0f;
-    [Tooltip("キャッチ試行（触覚なし）の数。0でなし")]
-    [SerializeField] private int catchTrialCount = 0;
+    [Tooltip("キャッチ試行（触覚なし）の数。視覚あり/なしを交互に割り当てる")]
+    [SerializeField] private int catchTrialCount = 10;
 
     [Header("Visual Stimulus")]
     [Tooltip("掌側に出す光点。Side.Upper のとき点灯")]
     [SerializeField] private GameObject visualUpper;
 
     [Header("Masking Noise")]
-    [Tooltip("ホワイトノイズの音量")]
+    [Tooltip("狭帯域ノイズの音量")]
     [Range(0f, 1f)] [SerializeField] private float noiseVolume = 0.3f;
 
     [Header("Trial UI")]
@@ -129,35 +129,36 @@ public class CrossmodalTask : MonoBehaviour
     }
 
     private AudioClip CreateBandNoise(float center, float bandwidth = 100f, float seconds = 1f)
-{
-    int rate = 44100;
-    int samples = (int)(rate * seconds);
-    var data = new float[samples];
-
-    var rng = new System.Random(0);
-    int n = 30;                                   // 足し合わせる成分の数
-
-    for (int k = 0; k < n; k++)
     {
-        float f = center - bandwidth / 2f + bandwidth * k / (n - 1);
-        float phase = (float)(rng.NextDouble() * 2.0 * Mathf.PI);
-        for (int i = 0; i < samples; i++)
-            data[i] += Mathf.Sin(2f * Mathf.PI * f * i / rate + phase);
+        int rate = 44100;
+        int samples = (int)(rate * seconds);
+        var data = new float[samples];
+
+        var rng = new System.Random(0);
+        int n = 30;                                   // 足し合わせる成分の数
+
+        for (int k = 0; k < n; k++)
+        {
+            float f = center - bandwidth / 2f + bandwidth * k / (n - 1);
+            float phase = (float)(rng.NextDouble() * 2.0 * Mathf.PI);
+            for (int i = 0; i < samples; i++)
+                data[i] += Mathf.Sin(2f * Mathf.PI * f * i / rate + phase);
+        }
+
+        // 振幅を -1〜1 に収める
+        float max = 0f;
+        for (int i = 0; i < samples; i++) max = Mathf.Max(max, Mathf.Abs(data[i]));
+        if (max > 0f) for (int i = 0; i < samples; i++) data[i] /= max;
+
+        var clip = AudioClip.Create("BandNoise", samples, 1, rate, false);
+        clip.SetData(data, 0);
+        return clip;
     }
 
-    // 振幅を -1〜1 に収める
-    float max = 0f;
-    for (int i = 0; i < samples; i++) max = Mathf.Max(max, Mathf.Abs(data[i]));
-    if (max > 0f) for (int i = 0; i < samples; i++) data[i] /= max;
-
-    var clip = AudioClip.Create("BandNoise", samples, 1, rate, false);
-    clip.SetData(data, 0);
-    return clip;
-    }  
     private void SetupNoise()
     {
         noiseSource = gameObject.AddComponent<AudioSource>();
-        float center = (autd != null) ? autd.modFreq : 250f;
+        float center = (autd != null) ? (autd.useSTM ? autd.stmFreq : autd.modFreq) : 250f;
         noiseSource.clip = CreateBandNoise(center);
         noiseSource.loop = true;
         noiseSource.volume = noiseVolume;
@@ -179,11 +180,12 @@ public class CrossmodalTask : MonoBehaviour
     private void OpenCsv()
     {
         string stamp = System.DateTime.Now.ToString("yyyyMMdd_HHmmss");
-        string fileName = $"{subjectID}_{stamp}.csv";
+        string modType = (autd != null && autd.useSTM) ? "STM" : "AM";
+        string fileName = $"{subjectID}_{modType}_{stamp}.csv";
         string path = Path.Combine(Application.persistentDataPath, fileName);
 
         writer = new StreamWriter(path, false);
-        writer.WriteLine("subjectID,seed,trialIndex,tactileSide,visualSide,congruency,response,correct,RT_ms,onsetTime,responseTime");
+        writer.WriteLine("subjectID,modType,seed,trialIndex,tactileSide,visualSide,congruency,response,correct,RT_ms,onsetTime,responseTime");
         writer.Flush();
 
         Debug.Log($"CSV: {path}");
@@ -193,14 +195,24 @@ public class CrossmodalTask : MonoBehaviour
     {
         trials.Clear();
 
+        // 主試行：触覚2条件 × 視覚2条件
         for (int i = 0; i < trialsPerCondition; i++)
         {
             trials.Add(new Trial { tactile = Side.Upper, visual = Side.Upper });
+            trials.Add(new Trial { tactile = Side.Upper, visual = Side.None  });
             trials.Add(new Trial { tactile = Side.Down,  visual = Side.Upper });
+            trials.Add(new Trial { tactile = Side.Down,  visual = Side.None  });
+        }
+
+        // キャッチ試行：触覚なし。視覚あり/なしを交互に
+        for (int i = 0; i < catchTrialCount; i++)
+        {
+            Side v = (i % 2 == 0) ? Side.Upper : Side.None;
+            trials.Add(new Trial { tactile = Side.None, visual = v });
         }
 
         Shuffle();
-        Debug.Log($"生成直後: {trials.Count} (Upper: {trialsPerCondition}回, Down: {trialsPerCondition}回)");
+        Debug.Log($"生成: 主試行{trialsPerCondition * 4} + キャッチ{catchTrialCount} = {trials.Count}");
     }
 
     private void Shuffle()
@@ -265,7 +277,7 @@ public class CrossmodalTask : MonoBehaviour
         {
             yield return StartCoroutine(RunTrial(i));
 
-            // 10回ごとのキャリブレーション・位置調整インターバル（全試行終了時は除く）
+            // 一定回数ごとのキャリブレーション・位置調整インターバル（全試行終了時は除く）
             int finishedCount = i + 1;
             if (calibrationInterval > 0 && finishedCount % calibrationInterval == 0 && finishedCount < trials.Count)
             {
@@ -380,8 +392,6 @@ public class CrossmodalTask : MonoBehaviour
             SetUiText("", false);
         }
 
-        Debug.Log($"[{index}] Please respond");
-
         Side? response = null;
         double responseTime = 0;
         double respStart = Time.realtimeSinceStartupAsDouble;
@@ -472,18 +482,18 @@ public class CrossmodalTask : MonoBehaviour
     private void WriteTrial(int index, Trial trial, Side? response, double responseTime)
     {
         string modType = (autd != null && autd.useSTM) ? "STM" : "AM";
+
         string congruency;
-            if (trial.visual == Side.None)          congruency = "novisual";
-            else if (trial.tactile == trial.visual) congruency = "congruent";
-            else                                     congruency = "incongruent";
+        if (trial.visual == Side.None)          congruency = "novisual";
+        else if (trial.tactile == trial.visual) congruency = "congruent";
+        else                                     congruency = "incongruent";
+
         string responseStr = (response == null) ? "timeout" : response.ToString();
         string correctStr  = (response == null) ? "NA" : (response == trial.tactile).ToString();
         string rtStr       = (response == null) ? "NA" : ((responseTime - onsetTime) * 1000.0).ToString("F1");
         string respTimeStr = (response == null) ? "NA" : responseTime.ToString("F4");
 
-        writer.WriteLine($"{subjectID},{seed},{index},{trial.tactile},{trial.visual},{congruency},{responseStr},{correctStr},{rtStr},{onsetTime:F4},{respTimeStr}");
+        writer.WriteLine($"{subjectID},{modType},{seed},{index},{trial.tactile},{trial.visual},{congruency},{responseStr},{correctStr},{rtStr},{onsetTime:F4},{respTimeStr}");
         writer.Flush();
-
-        Debug.Log($"[{index}] Tactile:{trial.tactile} Visual:{trial.visual} -> {responseStr} (Correct: {correctStr}) RT:{rtStr}ms");
     }
 }

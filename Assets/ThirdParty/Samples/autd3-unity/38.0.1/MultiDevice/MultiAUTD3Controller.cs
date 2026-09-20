@@ -73,7 +73,7 @@ public class MultiAUTD3Controller : MonoBehaviour
     public int[] downDeviceIndices = new[] { 2, 3, 4, 5 };
 
     [Tooltip("実行中に W / S / D キーで切り替え可能")]
-    public OutputSide outputSide = OutputSide.Both;
+    public OutputSide outputSide = OutputSide.None;
 
     [Header("STM Settings")]
     [Tooltip("ONでSTM,OFFでAM変調")]
