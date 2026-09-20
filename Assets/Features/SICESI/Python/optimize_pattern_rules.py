@@ -209,6 +209,8 @@ RULES_20_CANDIDATES = [
 ]
 
 
+EXCLUDED_DIR_PATTERNS = ["Bouchiba_", "RuleOptimizationResults", "DiffMaps"]
+
 # ==============================================================================
 # 2. 未集計撮影データの高速自動集計 (auto_generate_missing_pattern_counts)
 # ==============================================================================
@@ -223,6 +225,9 @@ def auto_generate_missing_pattern_counts(root_dir, lut):
     if os.path.basename(root_dir) in ["Sector8MaskSweep", "Pattern256MaskSweep", "SectorMaskSweep"]:
         sweep_dirs.append(root_dir)
     sweep_dirs = sorted(list(set(sweep_dirs)))
+    
+    # 不要なアーカイブ・一時フォルダを除外
+    sweep_dirs = [s for s in sweep_dirs if not any(ex in s for ex in EXCLUDED_DIR_PATTERNS)]
     
     if not sweep_dirs:
         return
@@ -265,6 +270,9 @@ def auto_generate_missing_pattern_counts(root_dir, lut):
             os.path.join(s_dir, "..", "GT", f"vo_silhouette_{eye.lower()}.png"),
         ]
         vo_path = next((c for c in vo_candidates if os.path.exists(c)), None)
+        if not vo_path:
+            # VOシルエットがないデータは背景黒が誤算入するため集計対象から除外
+            continue
         
         gt_img = np.array(Image.open(gt_path))[:, :, 0]
         H, W = gt_img.shape
@@ -416,6 +424,7 @@ def load_dataset(root_dir, lut):
     auto_generate_missing_pattern_counts(root_dir, lut)
     
     csv_paths = sorted(glob.glob(os.path.join(root_dir, "**", "pattern_counts_256.csv"), recursive=True))
+    csv_paths = [p for p in csv_paths if not any(ex in p for ex in EXCLUDED_DIR_PATTERNS)]
     if not csv_paths:
         print(f"[!] pattern_counts_256.csv が見つかりませんでした: {root_dir}")
         return []
@@ -644,29 +653,44 @@ def optimize_fixed_8(dataset, lut, base_ious=None, weights=None):
         })
         
     # 共通最適
-    best_common_r = 1
-    best_common_obj = -1.0
-    best_common_eval = None
-    best_common_z = None
-    
+    cands_eval = []
     for R, z in cands_z:
         ev = evaluate_lut_extended(z, dataset, base_ious)
         # 目的関数値: 重み付き平均 IoU
         obj_val = float(np.sum([ev['individual'][i]['iou'] * norm_w[i] for i in range(D)]))
-        if obj_val > best_common_obj:
-            best_common_obj = obj_val
-            best_common_r = R
-            best_common_eval = ev
-            best_common_z = z
+        cands_eval.append({
+            'r': R,
+            'rule_desc': f"Occ < {R}",
+            'summary': f"Threshold R={R} (Occ 0..{R - 1})",
+            'details': f"Occ 0..{R - 1} ({int(np.sum(z))} / 256 patterns)",
+            'hex_mask': z_to_hex(z),
+            'obj_score': obj_val,
+            'mean_iou': ev['mean_iou'],
+            'mean_rel_reduction': ev['mean_rel_reduction'],
+            'mean_net_err_reduction': ev['mean_net_err_reduction'],
+            'worst_iou_drop': ev['worst_iou_drop'],
+            'worst_rel_drop': ev['worst_rel_drop'],
+            'z': z,
+            'eval': ev
+        })
+        
+    cands_eval.sort(key=lambda x: x['obj_score'], reverse=True)
+    for rank, cand in enumerate(cands_eval, 1):
+        cand['rank'] = rank
+        
+    best_cand = cands_eval[0]
+    top5_cands = cands_eval[:5]
             
     return {
         'individual': indiv_opt,
-        'common_r': best_common_r,
-        'common_rule_desc': f"Occ < {best_common_r}",
-        'common_summary': f"Threshold R={best_common_r} (Occ 0..{best_common_r - 1})",
-        'common_details': f"Occ 0..{best_common_r - 1} ({int(np.sum(best_common_z))} / 256 patterns)",
-        'common_z': best_common_z,
-        'common_eval': best_common_eval
+        'common_r': best_cand['r'],
+        'common_rule_desc': best_cand['rule_desc'],
+        'common_summary': best_cand['summary'],
+        'common_details': best_cand['details'],
+        'common_z': best_cand['z'],
+        'common_eval': best_cand['eval'],
+        'top5': top5_cands,
+        'all_cands': cands_eval
     }
 
 def optimize_fixed_20(dataset, lut, base_ious=None, weights=None):
@@ -724,30 +748,45 @@ def optimize_fixed_20(dataset, lut, base_ious=None, weights=None):
         })
         
     # 共通最適
-    best_common_obj = -1.0
-    best_common_eval = None
-    best_common_z = None
-    best_common_params = (1, 8)
-    
+    cands_eval = []
     for R_th, L_th, z in cands_z:
         ev = evaluate_lut_extended(z, dataset, base_ious)
         obj_val = float(np.sum([ev['individual'][i]['iou'] * norm_w[i] for i in range(D)]))
-        if obj_val > best_common_obj:
-            best_common_obj = obj_val
-            best_common_eval = ev
-            best_common_z = z
-            best_common_params = (R_th, L_th)
-            
-    cr_th, cl_th = best_common_params
-    c_rule_name = f"Occ < {cr_th} or Unocc > {cl_th}" if cl_th < 8 else f"Occ < {cr_th}"
+        rule_name = f"Occ < {R_th} or Unocc > {L_th}" if L_th < 8 else f"Occ < {R_th}"
+        cands_eval.append({
+            'r_th': R_th,
+            'l_th': L_th,
+            'rule_desc': rule_name,
+            'summary': f"R_th={R_th}, L_th={L_th}",
+            'details': f"{int(np.sum(z))} / 256 patterns (occ: {occ_breakdown_str(z, lut['n_occ'])})",
+            'hex_mask': z_to_hex(z),
+            'obj_score': obj_val,
+            'mean_iou': ev['mean_iou'],
+            'mean_rel_reduction': ev['mean_rel_reduction'],
+            'mean_net_err_reduction': ev['mean_net_err_reduction'],
+            'worst_iou_drop': ev['worst_iou_drop'],
+            'worst_rel_drop': ev['worst_rel_drop'],
+            'z': z,
+            'eval': ev
+        })
+        
+    cands_eval.sort(key=lambda x: x['obj_score'], reverse=True)
+    for rank, cand in enumerate(cands_eval, 1):
+        cand['rank'] = rank
+        
+    best_cand = cands_eval[0]
+    top5_cands = cands_eval[:5]
+    
     return {
         'individual': indiv_opt,
-        'common_rule_desc': c_rule_name,
-        'common_summary': f"R_th={cr_th}, L_th={cl_th}",
-        'common_details': f"{int(np.sum(best_common_z))} / 256 patterns (occ: {occ_breakdown_str(best_common_z, lut['n_occ'])})",
-        'common_params': best_common_params,
-        'common_z': best_common_z,
-        'common_eval': best_common_eval
+        'common_rule_desc': best_cand['rule_desc'],
+        'common_summary': best_cand['summary'],
+        'common_details': best_cand['details'],
+        'common_params': (best_cand['r_th'], best_cand['l_th']),
+        'common_z': best_cand['z'],
+        'common_eval': best_cand['eval'],
+        'top5': top5_cands,
+        'all_cands': cands_eval
     }
 
 
@@ -1027,15 +1066,28 @@ def run_pattern_rules_optimization(dataset_root=None, output_dir=None):
     default_dataset_dir = os.path.abspath(os.path.join(script_dir, "../../../../../Estimation/SICESI_Dataset"))
     
     if dataset_root is None:
-        if os.path.exists(default_dataset_dir):
+        rawtest_dir = os.path.join(default_dataset_dir, "RawTest")
+        if os.path.exists(rawtest_dir):
+            dataset_root = rawtest_dir
+        elif os.path.exists(default_dataset_dir):
             dataset_root = default_dataset_dir
         else:
             dataset_root = script_dir
+    else:
+        # SICESI_Dataset 直下が渡された場合でも RawTest が存在すれば自動で RawTest を探索対象とする
+        rawtest_cand = os.path.join(dataset_root, "RawTest")
+        if os.path.exists(rawtest_cand):
+            dataset_root = rawtest_cand
             
     dataset_root = os.path.abspath(dataset_root)
     
     if output_dir is None:
-        output_dir = os.path.join(dataset_root, "RuleOptimizationResults")
+        # 親が SICESI_Dataset の場合はその直下の RuleOptimizationResults に配置
+        parent_dir = os.path.dirname(dataset_root)
+        if os.path.basename(parent_dir) == "SICESI_Dataset":
+            output_dir = os.path.join(parent_dir, "RuleOptimizationResults")
+        else:
+            output_dir = os.path.join(dataset_root, "RuleOptimizationResults")
     os.makedirs(output_dir, exist_ok=True)
     
     lut = build_256_lookup()
@@ -1072,7 +1124,10 @@ def run_pattern_rules_optimization(dataset_root=None, output_dir=None):
     print("[*] [ステップ 1/5] 基準従来法 (固定8候補 共通占有数ルール) の決定中...")
     res_8_base = optimize_fixed_8(dataset, lut)
     base_ious = np.array([r['iou'] for r in res_8_base['common_eval']['individual']], dtype=np.float64)
-    print(f"    -> 基準規則: {res_8_base['common_rule_desc']} (平均IoU: {res_8_base['common_eval']['mean_iou']*100:.4f}%)")
+    print(f"    -> 基準規則 (第1位): {res_8_base['common_rule_desc']} (平均IoU: {res_8_base['common_eval']['mean_iou']*100:.4f}%)")
+    print("    -> 【固定8候補 上位5位ランキング】")
+    for cand in res_8_base['top5']:
+        print(f"       第{cand['rank']}位: {cand['rule_desc']:<25} | 平均IoU: {cand['mean_iou']*100:.4f}% | 可視: {int(np.sum(cand['z'])):>3}/256 | 最悪低下: {cand['worst_iou_drop']*100:+.2f}%pt")
     
     # 相対低減率最大化用の重み w_i = 1 / max(1 - J_base, 1e-4)
     weights_rel = 1.0 / np.maximum(1.0 - base_ious, 1e-4)
@@ -1090,8 +1145,11 @@ def run_pattern_rules_optimization(dataset_root=None, output_dir=None):
     
     # 2.1 固定20候補
     res_20_A = optimize_fixed_20(dataset, lut, base_ious=base_ious)
-    print(f"  [20候補 A] 最良: {res_20_A['common_rule_desc']} (平均IoU: {res_20_A['common_eval']['mean_iou']*100:.4f}%, 平均相対低減: {res_20_A['common_eval']['mean_rel_reduction']*100:+.2f}%)")
+    print(f"  [20候補 A] 最良 (第1位): {res_20_A['common_rule_desc']} (平均IoU: {res_20_A['common_eval']['mean_iou']*100:.4f}%, 平均相対低減: {res_20_A['common_eval']['mean_rel_reduction']*100:+.2f}%)")
     print(f"    -> 規則詳細: {res_20_A['common_summary']} | 可視パターン: {res_20_A['common_details']}")
+    print("    -> 【固定20候補 上位5位ランキング (平均IoU順)】")
+    for cand in res_20_A['top5']:
+        print(f"       第{cand['rank']}位: {cand['rule_desc']:<25} | 平均IoU: {cand['mean_iou']*100:.4f}% | 相対低減: {cand['mean_rel_reduction']*100:+.2f}% | 可視: {int(np.sum(cand['z'])):>3}/256 | 最悪低下: {cand['worst_iou_drop']*100:+.2f}%pt")
     
     # 2.2 36クラスLUT (MILP A)
     fallback_z_256_A = res_20_A['common_z']
@@ -1143,12 +1201,18 @@ def run_pattern_rules_optimization(dataset_root=None, output_dir=None):
     
     # 3.1 固定8候補 B
     res_8_B = optimize_fixed_8(dataset, lut, base_ious=base_ious, weights=weights_rel)
-    print(f"  [8候補 B] 最良: {res_8_B['common_rule_desc']} (平均相対低減: {res_8_B['common_eval']['mean_rel_reduction']*100:+.2f}%, 平均IoU: {res_8_B['common_eval']['mean_iou']*100:.4f}%)")
+    print(f"  [8候補 B] 最良 (第1位): {res_8_B['common_rule_desc']} (平均相対低減: {res_8_B['common_eval']['mean_rel_reduction']*100:+.2f}%, 平均IoU: {res_8_B['common_eval']['mean_iou']*100:.4f}%)")
+    print("    -> 【固定8候補 上位5位ランキング (相対低減率順)】")
+    for cand in res_8_B['top5']:
+        print(f"       第{cand['rank']}位: {cand['rule_desc']:<25} | 相対低減: {cand['mean_rel_reduction']*100:+.2f}% | 平均IoU: {cand['mean_iou']*100:.4f}% | 可視: {int(np.sum(cand['z'])):>3}/256 | 最悪低下: {cand['worst_iou_drop']*100:+.2f}%pt")
     
     # 3.2 固定20候補 B
     res_20_B = optimize_fixed_20(dataset, lut, base_ious=base_ious, weights=weights_rel)
-    print(f"  [20候補 B] 最良: {res_20_B['common_rule_desc']} (平均相対低減: {res_20_B['common_eval']['mean_rel_reduction']*100:+.2f}%, 平均IoU: {res_20_B['common_eval']['mean_iou']*100:.4f}%)")
+    print(f"  [20候補 B] 最良 (第1位): {res_20_B['common_rule_desc']} (平均相対低減: {res_20_B['common_eval']['mean_rel_reduction']*100:+.2f}%, 平均IoU: {res_20_B['common_eval']['mean_iou']*100:.4f}%)")
     print(f"    -> 規則詳細: {res_20_B['common_summary']} | 可視パターン: {res_20_B['common_details']}")
+    print("    -> 【固定20候補 上位5位ランキング (相対低減率順)】")
+    for cand in res_20_B['top5']:
+        print(f"       第{cand['rank']}位: {cand['rule_desc']:<25} | 相対低減: {cand['mean_rel_reduction']*100:+.2f}% | 平均IoU: {cand['mean_iou']*100:.4f}% | 可視: {int(np.sum(cand['z'])):>3}/256 | 最悪低下: {cand['worst_iou_drop']*100:+.2f}%pt")
     
     # 3.3 36クラスLUT (MILP B)
     fallback_z_256_B = res_20_B['common_z']
@@ -1330,6 +1394,82 @@ def run_pattern_rules_optimization(dataset_root=None, output_dir=None):
     csv_summary = os.path.join(output_dir, "common_rules_summary.csv")
     safe_write_csv(csv_summary, summary_rows, list(summary_rows[0].keys()))
     print(f"[+] 共通規則サマリー (common_rules_summary.csv) を保存しました: {csv_summary}")
+    
+    # 5.1.5 上位5候補ランキング詳細比較表 (top5_candidate_rules.csv) [新規]
+    top5_rows = []
+    # 目的関数A (平均IoU最大化)
+    for cand in res_8_base['top5']:
+        top5_rows.append({
+            'objective': 'Mean_IoU_Maximized (Obj A)',
+            'method': 'Fixed_8_Candidates',
+            'rank': cand['rank'],
+            'rule_name': cand['rule_desc'],
+            'rule_summary': cand['summary'],
+            'mean_iou': f"{cand['mean_iou']:.6f}",
+            'mean_iou_pct': f"{cand['mean_iou']*100:.4f}%",
+            'mean_rel_reduction': f"{cand['mean_rel_reduction']*100:+.2f}%",
+            'mean_net_error_reduc': f"{cand['mean_net_err_reduction']*100:+.2f}%",
+            'worst_iou_drop': f"{cand['worst_iou_drop']*100:+.2f}%pt",
+            'worst_rel_drop': f"{cand['worst_rel_drop']*100:+.2f}%",
+            'visible_patterns': f"{int(np.sum(cand['z']))} / 256",
+            'selected_details': cand['details'],
+            'hex_mask': cand['hex_mask']
+        })
+    for cand in res_20_A['top5']:
+        top5_rows.append({
+            'objective': 'Mean_IoU_Maximized (Obj A)',
+            'method': 'Fixed_20_Candidates',
+            'rank': cand['rank'],
+            'rule_name': cand['rule_desc'],
+            'rule_summary': cand['summary'],
+            'mean_iou': f"{cand['mean_iou']:.6f}",
+            'mean_iou_pct': f"{cand['mean_iou']*100:.4f}%",
+            'mean_rel_reduction': f"{cand['mean_rel_reduction']*100:+.2f}%",
+            'mean_net_error_reduc': f"{cand['mean_net_err_reduction']*100:+.2f}%",
+            'worst_iou_drop': f"{cand['worst_iou_drop']*100:+.2f}%pt",
+            'worst_rel_drop': f"{cand['worst_rel_drop']*100:+.2f}%",
+            'visible_patterns': f"{int(np.sum(cand['z']))} / 256",
+            'selected_details': cand['details'],
+            'hex_mask': cand['hex_mask']
+        })
+    # 目的関数B (相対低減率最大化)
+    for cand in res_8_B['top5']:
+        top5_rows.append({
+            'objective': 'Relative_Reduction_Maximized (Obj B)',
+            'method': 'Fixed_8_Candidates',
+            'rank': cand['rank'],
+            'rule_name': cand['rule_desc'],
+            'rule_summary': cand['summary'],
+            'mean_iou': f"{cand['mean_iou']:.6f}",
+            'mean_iou_pct': f"{cand['mean_iou']*100:.4f}%",
+            'mean_rel_reduction': f"{cand['mean_rel_reduction']*100:+.2f}%",
+            'mean_net_error_reduc': f"{cand['mean_net_err_reduction']*100:+.2f}%",
+            'worst_iou_drop': f"{cand['worst_iou_drop']*100:+.2f}%pt",
+            'worst_rel_drop': f"{cand['worst_rel_drop']*100:+.2f}%",
+            'visible_patterns': f"{int(np.sum(cand['z']))} / 256",
+            'selected_details': cand['details'],
+            'hex_mask': cand['hex_mask']
+        })
+    for cand in res_20_B['top5']:
+        top5_rows.append({
+            'objective': 'Relative_Reduction_Maximized (Obj B)',
+            'method': 'Fixed_20_Candidates',
+            'rank': cand['rank'],
+            'rule_name': cand['rule_desc'],
+            'rule_summary': cand['summary'],
+            'mean_iou': f"{cand['mean_iou']:.6f}",
+            'mean_iou_pct': f"{cand['mean_iou']*100:.4f}%",
+            'mean_rel_reduction': f"{cand['mean_rel_reduction']*100:+.2f}%",
+            'mean_net_error_reduc': f"{cand['mean_net_err_reduction']*100:+.2f}%",
+            'worst_iou_drop': f"{cand['worst_iou_drop']*100:+.2f}%pt",
+            'worst_rel_drop': f"{cand['worst_rel_drop']*100:+.2f}%",
+            'visible_patterns': f"{int(np.sum(cand['z']))} / 256",
+            'selected_details': cand['details'],
+            'hex_mask': cand['hex_mask']
+        })
+    csv_top5 = os.path.join(output_dir, "top5_candidate_rules.csv")
+    safe_write_csv(csv_top5, top5_rows, list(top5_rows[0].keys()))
+    print(f"[+] 上位5候補ランキング詳細 (top5_candidate_rules.csv) を保存しました: {csv_top5}")
     
     # 5.2 目的関数A vs B 直接比較表 (objective_comparison.csv) [新規]
     comp_rows = []

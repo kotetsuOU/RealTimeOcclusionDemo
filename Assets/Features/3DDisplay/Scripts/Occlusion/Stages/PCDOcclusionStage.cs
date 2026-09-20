@@ -67,6 +67,7 @@ internal class PCDOcclusionStage : IPCDPipelineStage
             cmd.SetComputeIntParam(cs, PCDShaderConstants.RecordOcclusionDebug, shouldRecordDebug);
 
             cmd.SetComputeTextureParam(cs, k.ComputeOcclusion, PCDShaderConstants.NeighborCountMap_RW, r.NeighborCountMap);
+            cmd.SetComputeTextureParam(cs, k.ComputeOcclusion, PCDShaderConstants.AverageScoreMap_RW, r.AverageScoreMap);
             cmd.SetComputeTextureParam(cs, k.ComputeOcclusion, PCDShaderConstants.OcclusionValueMap_RW, r.OcclusionValueMap);
             cmd.SetComputeTextureParam(cs, k.ComputeOcclusion, PCDShaderConstants.OriginMap_RW, r.DebugDisplayMap);
             cmd.DispatchCompute(cs, k.ComputeOcclusion, ctx.ThreadGroupsX, ctx.ThreadGroupsY, 1);

@@ -182,6 +182,7 @@ internal static class PCDShaderConstants
     public static readonly int DebugPatternId = Shader.PropertyToID("_DebugPatternId");
     public static readonly int DebugSectorId = Shader.PropertyToID("_DebugSectorId");
     public static readonly int OcclusionValueMap_RW = Shader.PropertyToID("_OcclusionValueMap_RW");
+    public static readonly int AverageScoreMap_RW = Shader.PropertyToID("_AverageScoreMap_RW");
     public static readonly int RecordOcclusionDebug = Shader.PropertyToID("_RecordOcclusionDebug");
 
     // =====================================================================

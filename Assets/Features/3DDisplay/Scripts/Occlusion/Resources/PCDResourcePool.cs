@@ -46,6 +46,7 @@ internal class PCDResourcePool : System.IDisposable
     public RTHandle OcclusionValueMap { get; private set; }
     public RTHandle DebugDisplayMap { get; private set; }
     public RTHandle NeighborCountMap { get; private set; }
+    public RTHandle AverageScoreMap { get; private set; }
     public RTHandle IntegratedDepthMap { get; private set; }
     public RTHandle NeighborhoodMap { get; private set; }
     public RTHandle FinalImage { get; private set; }
@@ -130,6 +131,7 @@ internal class PCDResourcePool : System.IDisposable
         OcclusionValueMap = RTHandles.Alloc(screenWidth, screenHeight, colorFormat: GraphicsFormatUtility.GetGraphicsFormat(RenderTextureFormat.RGFloat, false), enableRandomWrite: true, name: "PCD_OcclusionValue");
         DebugDisplayMap = RTHandles.Alloc(screenWidth, screenHeight, colorFormat: colorFormatARGB, enableRandomWrite: true, name: "PCD_DebugDisplay");
         NeighborCountMap = RTHandles.Alloc(screenWidth, screenHeight, colorFormat: fmtUInt, enableRandomWrite: true, name: "PCD_NeighborCountMapDebug");
+        AverageScoreMap = RTHandles.Alloc(screenWidth, screenHeight, colorFormat: colorFormatRFloat, enableRandomWrite: true, name: "PCD_AverageScoreMap");
         IntegratedDepthMap = RTHandles.Alloc(screenWidth, screenHeight, colorFormat: fmtUInt, enableRandomWrite: true, name: "PCD_IntegratedDepthMap");
         NeighborhoodMap = RTHandles.Alloc(screenWidth, screenHeight, colorFormat: fmtSInt, enableRandomWrite: true, name: "PCD_NeighborhoodMapDebug");
         FinalImage = RTHandles.Alloc(screenWidth, screenHeight, colorFormat: colorFormatARGB, enableRandomWrite: true, name: "PCD_FinalImage");
@@ -195,6 +197,7 @@ internal class PCDResourcePool : System.IDisposable
         OcclusionValueMap?.Release(); OcclusionValueMap = null;
         DebugDisplayMap?.Release(); DebugDisplayMap = null;
         NeighborCountMap?.Release(); NeighborCountMap = null;
+        AverageScoreMap?.Release(); AverageScoreMap = null;
         IntegratedDepthMap?.Release(); IntegratedDepthMap = null;
         NeighborhoodMap?.Release(); NeighborhoodMap = null;
         FinalImage?.Release(); FinalImage = null;

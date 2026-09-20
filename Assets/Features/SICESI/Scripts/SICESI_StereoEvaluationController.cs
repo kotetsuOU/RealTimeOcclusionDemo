@@ -22,6 +22,16 @@ namespace SICESI
         [Tooltip("右目用カメラ (SRDisplay RightEyeCamera または単体カメラ)")]
         public Camera rightEyeCamera;
 
+        [Header("Scene Capture Settings (新実験仕様: 手メッシュ肌色化シーン画像保存)")]
+        [Tooltip("配置説明画像を保存する撮影用Camera (インスペクターで指定)")]
+        public Camera sceneCaptureCamera;
+
+        [Tooltip("配置説明画像の横解像度")]
+        public int sceneCaptureWidth = 1920;
+
+        [Tooltip("配置説明画像の縦解像度")]
+        public int sceneCaptureHeight = 1080;
+
         [Header("Objects To Toggle")]
         [Tooltip("Ground Truth (正解) として表示する手メッシュなどのオブジェクト")]
         public GameObject groundTruthObject;
@@ -238,6 +248,40 @@ namespace SICESI
             statusMessage = "Ground Truth Capture Completed!";
             Debug.Log($"[SICESI] GT撮影完了: {gtDir} (共通: {commonGtDir})");
             isCapturing = false;
+        }
+
+        /// <summary>
+        /// 撮影用Camera (sceneCaptureCamera) を使用し、手メッシュを一時的に肌色Materialへ変更した
+        /// 配置説明画像 (scene.png) とメタデータJSONを保存します。
+        /// 撮影完了後は元のマテリアル・レイヤー・カメラ状態が確実に復元されます。
+        /// </summary>
+        public void CaptureSceneImage(Action<bool, string> onComplete = null)
+        {
+            if (sceneCaptureCamera == null)
+            {
+                string warnMsg = "[SICESI] sceneCaptureCamera が未設定です。インスペクターで撮影用Cameraを設定してください。";
+                Debug.LogWarning(warnMsg);
+                onComplete?.Invoke(false, warnMsg);
+                return;
+            }
+
+            var capturer = GetComponent<SICESI_SceneCapturer>();
+            if (capturer == null)
+            {
+                capturer = gameObject.AddComponent<SICESI_SceneCapturer>();
+            }
+
+            capturer.sceneCaptureCamera = sceneCaptureCamera;
+            capturer.sceneCaptureWidth = sceneCaptureWidth;
+            capturer.sceneCaptureHeight = sceneCaptureHeight;
+
+            string sceneDir = Path.Combine(ConditionRootDir, "Scene");
+            StartCoroutine(capturer.CaptureSceneRoutine(
+                sceneDir,
+                conditionName,
+                groundTruthObject,
+                virtualObject,
+                onComplete));
         }
 
         /// <summary>
@@ -1067,6 +1111,14 @@ namespace SICESI
         /// 左右のカメラから画像を取得して保存します。
         /// </summary>
         public void CaptureStereoViews(string baseDirectory, string filePrefix, bool bypassSRGBConversion = false)
+        {
+            CaptureBothEyeImages(baseDirectory, filePrefix, bypassSRGBConversion);
+        }
+
+        /// <summary>
+        /// 左右のカメラから画像を取得して保存します (CaptureStereoViews と同一)。
+        /// </summary>
+        public void CaptureBothEyeImages(string baseDirectory, string filePrefix, bool bypassSRGBConversion = false)
         {
             if (leftEyeCamera != null)
             {

@@ -37,8 +37,53 @@ namespace SICESI.Editor
             EditorGUILayout.Space(8);
 
             var collector = controller.GetComponent<SICESI_SectorMaskCollector>();
+            var sceneCapturer = controller.GetComponent<SICESI_SceneCapturer>();
+            if (sceneCapturer == null)
+            {
+                sceneCapturer = controller.gameObject.AddComponent<SICESI_SceneCapturer>();
+            }
+
             bool isBusy = controller.isCapturing || (collector != null && collector.isCollecting);
             GUI.enabled = Application.isPlaying && !isBusy;
+
+            // =========================================================================
+            // 【配置説明シーン画像保存 (Scene Capture)】
+            // =========================================================================
+            EditorGUILayout.Space(8);
+            GUI.backgroundColor = new Color(0.3f, 0.85f, 0.95f);
+            EditorGUILayout.LabelField("【配置説明シーン画像保存 (Scene Capture)】", EditorStyles.boldLabel);
+
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField("現在のシーン/Case名:", GUILayout.Width(140));
+            controller.conditionName = EditorGUILayout.TextField(controller.conditionName);
+            EditorGUILayout.EndHorizontal();
+
+            string sceneDir = Path.Combine(controller.ConditionRootDir, "Scene");
+            EditorGUILayout.LabelField($"📁 保存先: {sceneDir}", EditorStyles.miniLabel);
+
+            if (controller.sceneCaptureCamera == null)
+            {
+                EditorGUILayout.HelpBox("⚠️ sceneCaptureCamera が未設定です。インスペクターで撮影用Cameraを指定してください。", MessageType.Warning);
+            }
+
+            GUI.backgroundColor = new Color(0.95f, 0.85f, 0.55f);
+            if (GUILayout.Button("📸 手メッシュ一時肌色化でシーン画像を撮影 (scene.png + metadata)", GUILayout.Height(36)))
+            {
+                controller.CaptureSceneImage((success, path) =>
+                {
+                    if (success)
+                    {
+                        EditorUtility.DisplayDialog("撮影完了", $"配置説明画像とメタデータを正常に保存しました:\n{path}", "OK");
+                    }
+                    else
+                    {
+                        EditorUtility.DisplayDialog("撮影失敗", $"撮影に失敗しました:\n{path}", "OK");
+                    }
+                });
+            }
+            GUI.backgroundColor = Color.white;
+            EditorGUILayout.Space(10);
+            EditorGUILayout.LabelField("---------------- 評価データ収集 / デバッグ撮影 ----------------", EditorStyles.miniLabel);
 
             // GT撮影ボタン
             GUI.backgroundColor = new Color(0.6f, 0.9f, 0.6f);

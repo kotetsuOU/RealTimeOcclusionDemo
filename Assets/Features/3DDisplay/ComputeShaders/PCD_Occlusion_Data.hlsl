@@ -31,6 +31,7 @@ RWTexture2D<int> _CorrectedNeighborhoodSizeMap_RW;
 RWTexture2D<uint> _OriginTypeMap_RW;
 RWTexture2D<float4> _OcclusionResultMap_RW;
 RWTexture2D<float2> _OcclusionValueMap_RW;
+RWTexture2D<float> _AverageScoreMap_RW; // クランプなしの生平均オクルージョンスコア (0.0〜2.0) を記録するテクスチャ
 RWTexture2D<float4> _FinalImage_RW;
 RWTexture2D<float4> _OriginMap_RW;
 RWTexture2D<uint> _NeighborCountMap_RW; // neighborCountを記録するテクスチャ

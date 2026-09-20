@@ -26,6 +26,7 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
         {
             _OcclusionValueMap_RW[fullResUV] = (originType == 0u) ? float2(-3.0, 0.0) : float2(-1.0, 0.0);
             _NeighborCountMap_RW[fullResUV] = 0u;
+            _AverageScoreMap_RW[fullResUV] = 2.0; // 物理点群・背景は空セクタ相当 (2.0)
         }
 
         _OcclusionResultMap_RW[fullResUV] = _ColorMap[fullResUV];
@@ -280,6 +281,7 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
         float debugAvgOcclusion = min(avgOcclusion, 1.0);
 
         _OcclusionValueMap_RW[fullResUV] = float2(debugLabel, debugAvgOcclusion);
+        _AverageScoreMap_RW[fullResUV] = avgOcclusion; // クランプなしの生平均オクルージョンスコア [0.0, 2.0] を記録
 
         // 占有マスクとセクタ詳細のパッキング記録 (R32_UInt)
         // bit 0..7   (8bit): 実測占有ビットマスク occupiedSectorMask (0〜255)
