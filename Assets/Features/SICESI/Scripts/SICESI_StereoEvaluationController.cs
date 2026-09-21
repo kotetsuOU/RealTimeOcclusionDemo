@@ -210,19 +210,31 @@ namespace SICESI
             }
         }
 
+        [Header("Ground Truth Method Settings")]
+        [Tooltip("真のGround Truth生成 (Mesh Depth GT) を使用するか。trueの場合、カラー描画ボケによる0.5%誤差を完全解消したGPU生深度直接比較マスクを生成します。")]
+        public bool useMeshDepthGT = true;
+
         /// <summary>
         /// Ground Truth (手メッシュのみ有効) の左右眼画像を撮影・保存します。
+        /// useMeshDepthGT が true の場合は、GPU生深度直接比較による高精度真GTマスクを自動生成します。
         /// </summary>
         public void CaptureGroundTruth()
         {
             if (isCapturing) return;
-            StartCoroutine(CaptureGroundTruthRoutine());
+            if (useMeshDepthGT)
+            {
+                CaptureMeshDepthGT();
+            }
+            else
+            {
+                StartCoroutine(CaptureGroundTruthRoutine());
+            }
         }
 
         private IEnumerator CaptureGroundTruthRoutine()
         {
             isCapturing = true;
-            statusMessage = "Capturing Ground Truth...";
+            statusMessage = "Capturing Ground Truth (Color Rasterized)...";
 
             var backup = SetGroundTruthState(true);
             if (pointCloudObject != null) pointCloudObject.SetActive(false);
@@ -248,6 +260,84 @@ namespace SICESI
             statusMessage = "Ground Truth Capture Completed!";
             Debug.Log($"[SICESI] GT撮影完了: {gtDir} (共通: {commonGtDir})");
             isCapturing = false;
+        }
+
+        /// <summary>
+        /// GPUの生深度マップ (ViewPositionMap) を直接比較し、カラー描画境界ボケによる
+        /// 0.5%誤差を完全解消した「真のGround Truthマスク (Mesh Depth GT)」を左右眼で生成・保存します。
+        /// </summary>
+        public void CaptureMeshDepthGT(Action<bool, string> onComplete = null)
+        {
+            if (isCapturing) return;
+            StartCoroutine(CaptureMeshDepthGTRoutine(onComplete));
+        }
+
+        private IEnumerator CaptureMeshDepthGTRoutine(Action<bool, string> onComplete = null)
+        {
+            isCapturing = true;
+            statusMessage = "Capturing True Mesh Depth Ground Truth...";
+
+            var manager = GetComponent<SICESI_MeshDepthGTManager>();
+            if (manager == null)
+            {
+                manager = gameObject.AddComponent<SICESI_MeshDepthGTManager>();
+            }
+
+            string conditionRootDir = ConditionRootDir;
+            SaveSceneTransformsJson(conditionRootDir);
+            string gtDir = Path.Combine(conditionRootDir, "GT");
+            Directory.CreateDirectory(gtDir);
+
+            // PCDRendererFeature に最新の描画行列 (View/Projection) を確実にキャプチャさせるため待機
+            for (int i = 0; i < 3; i++) yield return null;
+            yield return new WaitForEndOfFrame();
+
+            // Left眼の真のGT生成
+            if (leftEyeCamera != null)
+            {
+                statusMessage = "Capturing Mesh Depth GT (Left Eye)...";
+                yield return StartCoroutine(manager.GenerateMeshDepthGTRoutine(
+                    leftEyeCamera,
+                    "Left",
+                    gtDir,
+                    virtualObject,
+                    groundTruthObject,
+                    pointCloudObject,
+                    null,
+                    groundTruthCaptureLayer));
+            }
+
+            // Right眼の真のGT生成
+            if (rightEyeCamera != null)
+            {
+                statusMessage = "Capturing Mesh Depth GT (Right Eye)...";
+                yield return StartCoroutine(manager.GenerateMeshDepthGTRoutine(
+                    rightEyeCamera,
+                    "Right",
+                    gtDir,
+                    virtualObject,
+                    groundTruthObject,
+                    pointCloudObject,
+                    null,
+                    groundTruthCaptureLayer));
+            }
+
+            // 共通フォールバック用として outputDirectory/GT にもコピー保存
+            string commonGtDir = Path.Combine(outputDirectory, "GT");
+            if (commonGtDir != gtDir)
+            {
+                Directory.CreateDirectory(commonGtDir);
+                foreach (var file in Directory.GetFiles(gtDir, "*.png"))
+                {
+                    string dst = Path.Combine(commonGtDir, Path.GetFileName(file));
+                    File.Copy(file, dst, true);
+                }
+            }
+
+            statusMessage = "Mesh Depth GT Generation Completed!";
+            Debug.Log($"[SICESI] 真のMesh Depth GT生成完了 (0.5%境界誤差ゼロ): {gtDir}");
+            isCapturing = false;
+            onComplete?.Invoke(true, gtDir);
         }
 
         /// <summary>

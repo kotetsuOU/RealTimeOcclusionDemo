@@ -33,6 +33,33 @@ public class PCDRendererFeature : ScriptableRendererFeature
         }
     }
 
+    // =========================================================================
+    // カメラ行列同期用 (SICESI_MeshDepthGT 等の評価モジュール向け)
+    // =========================================================================
+    private static readonly Dictionary<Camera, (Matrix4x4 view, Matrix4x4 proj)> _latestCameraMatrices 
+        = new Dictionary<Camera, (Matrix4x4, Matrix4x4)>();
+
+    public static void SetLatestCameraMatrices(Camera cam, Matrix4x4 viewMatrix, Matrix4x4 projMatrix)
+    {
+        if (cam != null)
+        {
+            _latestCameraMatrices[cam] = (viewMatrix, projMatrix);
+        }
+    }
+
+    public static bool TryGetCameraMatrices(Camera cam, out Matrix4x4 viewMatrix, out Matrix4x4 projMatrix)
+    {
+        if (cam != null && _latestCameraMatrices.TryGetValue(cam, out var m))
+        {
+            viewMatrix = m.view;
+            projMatrix = m.proj;
+            return true;
+        }
+        viewMatrix = Matrix4x4.identity;
+        projMatrix = Matrix4x4.identity;
+        return false;
+    }
+
     public enum PCD_OcclusionKernel
     {
         Bouchiba = 0,

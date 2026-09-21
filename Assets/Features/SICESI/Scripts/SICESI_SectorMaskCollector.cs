@@ -162,45 +162,11 @@ namespace SICESI
             try
             {
                 // -------------------------------------------------------------
-                // Step 0: 仮想物体単独シルエット撮影 (手なし・点群なし: VO_Silhouette)
+                // Step 0 & 1: Ground Truth 撮影 (GPU生深度直接比較 MeshDepthGT または従来カラー)
                 // -------------------------------------------------------------
-                statusMessage = "Capturing Virtual Object Silhouette (手なし・点群なし)...";
-                if (_controller.pointCloudObject != null) _controller.pointCloudObject.SetActive(false);
-                bool prevGtActive = _controller.groundTruthObject != null && _controller.groundTruthObject.activeSelf;
-                if (_controller.groundTruthObject != null) _controller.groundTruthObject.SetActive(false);
-
-                for (int i = 0; i < 3; i++) yield return null;
-                yield return new WaitForEndOfFrame();
-
                 string gtDir = Path.Combine(sweepRootDir, "GT");
-                CaptureCameraImages(gtDir, "vo_silhouette");
-
-                string commonGtDir = Path.Combine(_controller.outputDirectory, "GT");
-                if (commonGtDir != gtDir)
-                {
-                    CaptureCameraImages(commonGtDir, "vo_silhouette");
-                }
-
-                if (_controller.groundTruthObject != null) _controller.groundTruthObject.SetActive(prevGtActive);
-                AppLogger.Log("SICESI", $"[0/2] 仮想物体単独シルエット撮影完了: {gtDir}");
-
-                // -------------------------------------------------------------
-                // Step 1: Ground Truth 撮影 (手メッシュ遮蔽あり・点群なし: GT)
-                // -------------------------------------------------------------
                 statusMessage = "Capturing Ground Truth for 256-Pattern Sweep...";
-                var backup = _controller.SetGroundTruthState(true);
-                if (_controller.pointCloudObject != null) _controller.pointCloudObject.SetActive(false);
-
-                for (int i = 0; i < 3; i++) yield return null;
-                yield return new WaitForEndOfFrame();
-
-                CaptureCameraImages(gtDir, "gt");
-                if (commonGtDir != gtDir)
-                {
-                    CaptureCameraImages(commonGtDir, "gt");
-                }
-
-                _controller.RestoreGroundTruthState(backup);
+                yield return StartCoroutine(CaptureGroundTruthUnified(gtDir));
                 AppLogger.Log("SICESI", $"[1/2] Ground Truth 撮影完了: {gtDir}");
 
                 // -------------------------------------------------------------
@@ -406,48 +372,39 @@ namespace SICESI
                 PCDRendererFeature.Instance.settings.holeFillingMethod = PCDRendererFeature.PCD_HoleFillingMethod.None;
             }
 
+            // スイープ全体の開始時にカメラ姿勢・投影行列をキャプチャし、GT撮影と全密度スイープを通じて完全固定
+            CameraPoseSnapshot leftSnapshot = CameraPoseSnapshot.Capture(_controller.leftEyeCamera);
+            CameraPoseSnapshot rightSnapshot = CameraPoseSnapshot.Capture(_controller.rightEyeCamera);
+            bool lockCameraPose = true;
+
+            void OnBeginCameraRendering(ScriptableRenderContext context, Camera cam)
+            {
+                if (!lockCameraPose) return;
+                if (_controller.leftEyeCamera != null && cam == _controller.leftEyeCamera)
+                {
+                    leftSnapshot.Apply(cam);
+                }
+                else if (_controller.rightEyeCamera != null && cam == _controller.rightEyeCamera)
+                {
+                    rightSnapshot.Apply(cam);
+                }
+            }
+
+            RenderPipelineManager.beginCameraRendering += OnBeginCameraRendering;
+
             try
             {
                 // -------------------------------------------------------------
-                // Step 0: 仮想物体単独シルエット撮影 (手なし・点群なし: VO_Silhouette)
+                // Step 0 & 1: Ground Truth 撮影 (GPU生深度直接比較 MeshDepthGT または従来カラー)
                 // -------------------------------------------------------------
-                statusMessage = "Capturing Virtual Object Silhouette (手なし・点群なし)...";
-                if (_controller.pointCloudObject != null) _controller.pointCloudObject.SetActive(false);
-                bool prevGtActive = _controller.groundTruthObject != null && _controller.groundTruthObject.activeSelf;
-                if (_controller.groundTruthObject != null) _controller.groundTruthObject.SetActive(false);
-
-                for (int i = 0; i < 3; i++) yield return null;
-                yield return new WaitForEndOfFrame();
-
                 string gtDir = Path.Combine(sweepRootDir, "GT");
-                CaptureCameraImages(gtDir, "vo_silhouette");
-
-                string commonGtDir = Path.Combine(_controller.outputDirectory, "GT");
-                if (commonGtDir != gtDir)
-                {
-                    CaptureCameraImages(commonGtDir, "vo_silhouette");
-                }
-
-                if (_controller.groundTruthObject != null) _controller.groundTruthObject.SetActive(prevGtActive);
-                AppLogger.Log("SICESI", $"[0/2] 仮想物体単独シルエット撮影完了: {gtDir}");
-
-                // -------------------------------------------------------------
-                // Step 1: Ground Truth 撮影 (手メッシュ遮蔽あり・点群なし: GT)
-                // -------------------------------------------------------------
                 statusMessage = "Capturing Ground Truth for 8-Sector Sweep...";
-                var backup = _controller.SetGroundTruthState(true);
-                if (_controller.pointCloudObject != null) _controller.pointCloudObject.SetActive(false);
 
+                // PCDRendererFeature に最新の描画行列 (View/Projection) を確実にキャプチャさせるため待機
                 for (int i = 0; i < 3; i++) yield return null;
                 yield return new WaitForEndOfFrame();
 
-                CaptureCameraImages(gtDir, "gt");
-                if (commonGtDir != gtDir)
-                {
-                    CaptureCameraImages(commonGtDir, "gt");
-                }
-
-                _controller.RestoreGroundTruthState(backup);
+                yield return StartCoroutine(CaptureGroundTruthUnified(gtDir));
                 AppLogger.Log("SICESI", $"[1/2] Ground Truth 撮影完了: {gtDir}");
 
                 // -------------------------------------------------------------
@@ -502,65 +459,37 @@ namespace SICESI
                     for (int f = 0; f < _controller.waitFramesAfterDensityChange; f++) yield return null;
                     yield return new WaitForEndOfFrame();
 
-                    // テスト画像および続くセクター撮影の間、カメラ姿勢とプロジェクション行列をURP描画直前に強制適用して100%完全一致させる
-                    CameraPoseSnapshot leftSnapshot = CameraPoseSnapshot.Capture(_controller.leftEyeCamera);
-                    CameraPoseSnapshot rightSnapshot = CameraPoseSnapshot.Capture(_controller.rightEyeCamera);
-                    bool lockCameraPose = true;
+                    // 1. 通常テスト画像のキャプチャ (Left / Right)
+                    SetDebugSectorId(-1);
+                    SetDebugPatternId(-1);
+                    yield return null;
+                    yield return new WaitForEndOfFrame();
 
-                    void OnBeginCameraRendering(ScriptableRenderContext context, Camera cam)
+                    CaptureCameraImages(targetDir, $"test_{densityStr}");
+
+                    // 2. 8セクター二値マスクのキャプチャ (SectorId = 0..7: 0 or 255 の二値画像のためガンマ歪みを100%排除し、完全一致99.998%を保証)
+                    for (int s = 0; s < 8; s++)
                     {
-                        if (!lockCameraPose) return;
-                        if (_controller.leftEyeCamera != null && cam == _controller.leftEyeCamera)
-                        {
-                            leftSnapshot.Apply(cam);
-                        }
-                        else if (_controller.rightEyeCamera != null && cam == _controller.rightEyeCamera)
-                        {
-                            rightSnapshot.Apply(cam);
-                        }
-                    }
-
-                    RenderPipelineManager.beginCameraRendering += OnBeginCameraRendering;
-
-                    try
-                    {
-                        // 1. 通常テスト画像のキャプチャ (Left / Right)
-                        SetDebugSectorId(-1);
-                        SetDebugPatternId(-1);
+                        statusMessage = $"Density {densityStr} | Sector {s}/7 Binary Mask";
+                        SetDebugSectorId(s);
                         yield return null;
                         yield return new WaitForEndOfFrame();
-
-                        CaptureCameraImages(targetDir, $"test_{densityStr}");
-
-                        // 2. 8セクター二値マスクのキャプチャ (SectorId = 0..7: 0 or 255 の二値画像のためガンマ歪みを100%排除し、完全一致99.998%を保証)
-                        for (int s = 0; s < 8; s++)
-                        {
-                            statusMessage = $"Density {densityStr} | Sector {s}/7 Binary Mask";
-                            SetDebugSectorId(s);
-                            yield return null;
-                            yield return new WaitForEndOfFrame();
-                            CaptureCameraImages(targetDir, $"sector_{s}_mask");
-                        }
-
-                        // 3. 全8セクター統合 8-bit 占有パターンマスクのキャプチャ (SectorId = 8: 参考・統合プレビュー用)
-                        statusMessage = $"Density {densityStr} | Unified 8-bit Pattern Mask";
-                        SetDebugSectorId(8);
-                        yield return null;
-                        yield return new WaitForEndOfFrame();
-                        CaptureCameraImages(targetDir, "sector_mask", bypassSRGBConversion: true);
-
-                        // 4. GPU 実遮蔽判定マスクのキャプチャ (SectorId = 9: bit 13 の真値, 二値画像)
-                        statusMessage = $"Density {densityStr} | GPU Occluded Truth Mask";
-                        SetDebugSectorId(9);
-                        yield return null;
-                        yield return new WaitForEndOfFrame();
-                        CaptureCameraImages(targetDir, "gpu_occluded_mask");
+                        CaptureCameraImages(targetDir, $"sector_{s}_mask");
                     }
-                    finally
-                    {
-                        lockCameraPose = false;
-                        RenderPipelineManager.beginCameraRendering -= OnBeginCameraRendering;
-                    }
+
+                    // 3. 全8セクター統合 8-bit 占有パターンマスクのキャプチャ (SectorId = 8: 参考・統合プレビュー用)
+                    statusMessage = $"Density {densityStr} | Unified 8-bit Pattern Mask";
+                    SetDebugSectorId(8);
+                    yield return null;
+                    yield return new WaitForEndOfFrame();
+                    CaptureCameraImages(targetDir, "sector_mask", bypassSRGBConversion: true);
+
+                    // 4. GPU 実遮蔽判定マスクのキャプチャ (SectorId = 9: bit 13 の真値, 二値画像)
+                    statusMessage = $"Density {densityStr} | GPU Occluded Truth Mask";
+                    SetDebugSectorId(9);
+                    yield return null;
+                    yield return new WaitForEndOfFrame();
+                    CaptureCameraImages(targetDir, "gpu_occluded_mask");
 
                     // デバッグ表示をリセット
                     SetDebugSectorId(-1);
@@ -577,6 +506,9 @@ namespace SICESI
             }
             finally
             {
+                lockCameraPose = false;
+                RenderPipelineManager.beginCameraRendering -= OnBeginCameraRendering;
+
                 Time.timeScale = prevTimeScale;
                 SetDebugSectorId(prevDebugSectorId);
                 SetDebugPatternId(prevDebugPatternId);
@@ -632,46 +564,11 @@ namespace SICESI
             try
             {
                 // -------------------------------------------------------------
-                // Step 0: 仮想物体単独シルエット撮影 (手なし・点群なし: VO_Silhouette)
+                // Step 0 & 1: Ground Truth 撮影 (GPU生深度直接比較 MeshDepthGT または従来カラー)
                 // -------------------------------------------------------------
-                statusMessage = "Capturing Virtual Object Silhouette (手なし・点群なし)...";
-                if (_controller.pointCloudObject != null) _controller.pointCloudObject.SetActive(false);
-                bool prevGtActive = _controller.groundTruthObject != null && _controller.groundTruthObject.activeSelf;
-                if (_controller.groundTruthObject != null) _controller.groundTruthObject.SetActive(false);
-
-                for (int i = 0; i < 3; i++) yield return null;
-                yield return new WaitForEndOfFrame();
-
                 string gtDir = Path.Combine(sweepRootDir, "GT");
-                CaptureCameraImages(gtDir, "vo_silhouette");
-
-                // 共通 GT ディレクトリにも保存
-                string commonGtDir = Path.Combine(_controller.outputDirectory, "GT");
-                if (commonGtDir != gtDir)
-                {
-                    CaptureCameraImages(commonGtDir, "vo_silhouette");
-                }
-
-                if (_controller.groundTruthObject != null) _controller.groundTruthObject.SetActive(prevGtActive);
-                AppLogger.Log("SICESI", $"[0/2] 仮想物体単独シルエット撮影完了: {gtDir}");
-
-                // -------------------------------------------------------------
-                // Step 1: Ground Truth 撮影 (手メッシュ遮蔽あり・点群なし: GT)
-                // -------------------------------------------------------------
                 statusMessage = "Capturing Ground Truth for SectorMask Sweep...";
-                var backup = _controller.SetGroundTruthState(true);
-                if (_controller.pointCloudObject != null) _controller.pointCloudObject.SetActive(false);
-
-                for (int i = 0; i < 3; i++) yield return null;
-                yield return new WaitForEndOfFrame();
-
-                CaptureCameraImages(gtDir, "gt");
-                if (commonGtDir != gtDir)
-                {
-                    CaptureCameraImages(commonGtDir, "gt");
-                }
-
-                _controller.RestoreGroundTruthState(backup);
+                yield return StartCoroutine(CaptureGroundTruthUnified(gtDir));
                 AppLogger.Log("SICESI", $"[1/2] Ground Truth 撮影完了: {gtDir}");
 
                 // -------------------------------------------------------------
@@ -762,6 +659,72 @@ namespace SICESI
             if (_controller != null)
             {
                 _controller.CaptureStereoViews(baseDir, filePrefix, bypassSRGBConversion);
+            }
+        }
+
+        /// <summary>
+        /// 仮想物体シルエットおよび Ground Truth マスクを撮影・生成します。
+        /// _controller.useMeshDepthGT が true の場合は、GPU生深度マップ直接比較 (MeshDepthGT) を行い、
+        /// カラー描画時の境界ブレ・アンチエイリアシング誤差のない真のGTマスクを生成します。
+        /// </summary>
+        private IEnumerator CaptureGroundTruthUnified(string gtDir)
+        {
+            Directory.CreateDirectory(gtDir);
+            string commonGtDir = Path.Combine(_controller.outputDirectory, "GT");
+
+            if (_controller != null && _controller.useMeshDepthGT)
+            {
+                var manager = _controller.GetComponent<SICESI_MeshDepthGTManager>();
+                if (manager == null) manager = _controller.gameObject.AddComponent<SICESI_MeshDepthGTManager>();
+
+                if (_controller.leftEyeCamera != null)
+                {
+                    yield return StartCoroutine(manager.GenerateMeshDepthGTRoutine(
+                        _controller.leftEyeCamera, "Left", gtDir,
+                        _controller.virtualObject, _controller.groundTruthObject, _controller.pointCloudObject,
+                        null, _controller.groundTruthCaptureLayer));
+                }
+                if (_controller.rightEyeCamera != null)
+                {
+                    yield return StartCoroutine(manager.GenerateMeshDepthGTRoutine(
+                        _controller.rightEyeCamera, "Right", gtDir,
+                        _controller.virtualObject, _controller.groundTruthObject, _controller.pointCloudObject,
+                        null, _controller.groundTruthCaptureLayer));
+                }
+
+                if (commonGtDir != gtDir)
+                {
+                    Directory.CreateDirectory(commonGtDir);
+                    foreach (var file in Directory.GetFiles(gtDir, "*.png"))
+                    {
+                        string dst = Path.Combine(commonGtDir, Path.GetFileName(file));
+                        File.Copy(file, dst, true);
+                    }
+                }
+            }
+            else
+            {
+                // 従来のカラーラスタライズフォールバック
+                if (_controller.pointCloudObject != null) _controller.pointCloudObject.SetActive(false);
+                bool prevGtActive = _controller.groundTruthObject != null && _controller.groundTruthObject.activeSelf;
+                if (_controller.groundTruthObject != null) _controller.groundTruthObject.SetActive(false);
+
+                for (int i = 0; i < 3; i++) yield return null;
+                yield return new WaitForEndOfFrame();
+
+                CaptureCameraImages(gtDir, "vo_silhouette");
+                if (commonGtDir != gtDir) CaptureCameraImages(commonGtDir, "vo_silhouette");
+
+                if (_controller.groundTruthObject != null) _controller.groundTruthObject.SetActive(prevGtActive);
+
+                var backup = _controller.SetGroundTruthState(true);
+                for (int i = 0; i < 3; i++) yield return null;
+                yield return new WaitForEndOfFrame();
+
+                CaptureCameraImages(gtDir, "gt");
+                if (commonGtDir != gtDir) CaptureCameraImages(commonGtDir, "gt");
+
+                _controller.RestoreGroundTruthState(backup);
             }
         }
 

@@ -1,0 +1,57 @@
+#pragma kernel CompareMeshDepth
+
+// =============================================================================
+// SICESI_MeshDepthGT.compute
+// -----------------------------------------------------------------------------
+// 仮想オブジェクトと手メッシュの生深度マップ (0.0=近, 1.0=遠, 1.0=背景) を
+// GPU上で直接数値比較し、0.5%のエッジ誤差やカラーアンチエイリアシングの曖昧さが
+// 一切存在しない「真のGround Truthマスク」を生成するコンピュートシェーダー。
+// =============================================================================
+
+Texture2D<float4> _VO_DepthMap;
+Texture2D<float4> _Hand_DepthMap;
+
+RWTexture2D<float4> _GTVisibleMask_RW;
+RWTexture2D<float4> _GTOccludedMask_RW;
+RWTexture2D<float4> _VOSilhouette_RW;
+RWTexture2D<float4> _HandSilhouette_RW;
+
+float4 _ScreenParams; // x: width, y: height
+int _FlipX;           // 水平反転 (1: SRDisplayハーフミラー整合反転, 0: 通常)
+int _FlipY;           // 垂直反転 (1: 反転, 0: 通常)
+
+[numthreads(8, 8, 1)]
+void CompareMeshDepth(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)_ScreenParams.x || id.y >= (uint)_ScreenParams.y)
+        return;
+
+    uint2 inUV = id.xy;
+
+    // 出力先座標 (SRDisplay のハーフミラー鏡像およびRT座標系に整合させる)
+    uint outX = (_FlipX > 0) ? ((uint)_ScreenParams.x - 1 - id.x) : id.x;
+    uint outY = (_FlipY > 0) ? ((uint)_ScreenParams.y - 1 - id.y) : id.y;
+    uint2 outUV = uint2(outX, outY);
+
+    float vo_depth = _VO_DepthMap[inUV].r;
+    float hand_depth = _Hand_DepthMap[inUV].r;
+
+    // オブジェクトの存在判定 (1.0=近, 0.0=遠/背景)
+    bool is_vo = (vo_depth > 0.0001);
+    bool is_hand = (hand_depth > 0.0001);
+
+    // 遮蔽判定:
+    // 手メッシュと仮想オブジェクトが共に存在し、かつ手が仮想オブジェクトより手前にあるか？
+    // 1.0=近, 0.0=遠 のため、手が手前なら hand_depth > (vo_depth + 1e-5)
+    bool is_occluded = is_vo && is_hand && (hand_depth > (vo_depth + 1e-5));
+
+    // 可視判定:
+    // 仮想オブジェクトが存在し、かつ手メッシュによって遮蔽されていない画素
+    bool is_visible = is_vo && !is_occluded;
+
+    // 出力 (完全二値 0.0 または 1.0)
+    _GTVisibleMask_RW[outUV]  = is_visible  ? float4(1, 1, 1, 1) : float4(0, 0, 0, 1);
+    _GTOccludedMask_RW[outUV] = is_occluded ? float4(1, 1, 1, 1) : float4(0, 0, 0, 1);
+    _VOSilhouette_RW[outUV]   = is_vo       ? float4(1, 1, 1, 1) : float4(0, 0, 0, 1);
+    _HandSilhouette_RW[outUV] = is_hand     ? float4(1, 1, 1, 1) : float4(0, 0, 0, 1);
+}

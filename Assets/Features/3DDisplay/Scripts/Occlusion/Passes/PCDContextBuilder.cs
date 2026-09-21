@@ -245,6 +245,9 @@ internal class PCDContextBuilder
         data.ProjectionMatrix = GL.GetGPUProjectionMatrix(origProj, false);
         data.InverseProjectionMatrix = data.ProjectionMatrix.inverse;
 
+        // 評価モジュール (SICESI_MeshDepthGT 等) 向けに最新行列を同期保存
+        PCDRendererFeature.SetLatestCameraMatrices(data.Camera, data.ViewMatrix, data.ProjectionMatrix);
+
         data.ShouldSkip = false;
 
         // URP入力・事前計算コンテキスト状態のログ出力

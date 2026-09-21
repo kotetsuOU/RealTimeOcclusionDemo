@@ -85,9 +85,20 @@ namespace SICESI.Editor
             EditorGUILayout.Space(10);
             EditorGUILayout.LabelField("---------------- 評価データ収集 / デバッグ撮影 ----------------", EditorStyles.miniLabel);
 
+            // Mesh Depth GT 設定
+            controller.useMeshDepthGT = EditorGUILayout.ToggleLeft("🎯 真のGround Truth生成 (Mesh Depth GT: GPU生深度直接比較 / 0.5%誤差ゼロ)", controller.useMeshDepthGT, EditorStyles.boldLabel);
+            if (controller.useMeshDepthGT)
+            {
+                EditorGUILayout.HelpBox("カラー描画や黒マテリアル差し替えを行わず、パイプラインと同一のGPU生深度マップ (ViewPositionMap) を直接比較して完全二値の真GTを生成します。", MessageType.Info);
+            }
+
             // GT撮影ボタン
-            GUI.backgroundColor = new Color(0.6f, 0.9f, 0.6f);
-            if (GUILayout.Button("📸 Ground Truth (手メッシュ遮蔽) の左右画像を撮影", GUILayout.Height(32)))
+            GUI.backgroundColor = controller.useMeshDepthGT ? new Color(0.4f, 0.95f, 0.7f) : new Color(0.6f, 0.9f, 0.6f);
+            string gtBtnText = controller.useMeshDepthGT 
+                ? "🎯 真のGround Truth (Mesh Depth GT) の左右画像を生成・保存" 
+                : "📸 Ground Truth (カラーラスタライズ) の左右画像を撮影";
+
+            if (GUILayout.Button(gtBtnText, GUILayout.Height(34)))
             {
                 controller.CaptureGroundTruth();
             }
