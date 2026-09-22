@@ -231,31 +231,44 @@ namespace SICESI.Editor
                 collector = controller.gameObject.AddComponent<SICESI_SectorMaskCollector>();
             }
 
-            // 【主推奨】8セクター二値マスク 画面保存スイープボタン (ガンマ歪み完全排除・完全一致99.998%保証)
+            // 【主推奨】Point A 生データ直接保存スイープボタン (表示補正完全排除・完全同期 AsyncGPUReadback 方式)
             GUI.backgroundColor = new Color(0.2f, 0.9f, 0.5f);
-            int totalSectorMasks = densityCount * 8;
-            string unifiedSectorMaskBtnLabel = $"🪐 【推奨】8セクター二値マスク画面保存スイープ (全{densityCount}密度 × 8枚二値マスク+真値)";
+            string unifiedSectorMaskBtnLabel = $"🪐 【推奨】表示補正前(Point A) 生データ直接保存スイープ (全{densityCount}密度 × 生バッファ+完全同期マスク群)";
 
             if (GUILayout.Button(unifiedSectorMaskBtnLabel, GUILayout.Height(46)))
             {
                 string sweepRootDir = Path.Combine(controller.ConditionRootDir, "Sector8MaskSweep");
                 if (EditorUtility.DisplayDialog(
-                    "8セクター二値マスク画面保存スイープの開始",
+                    "Point A 生データ直接保存スイープの開始",
                     $"条件名: [{controller.conditionName}]\n" +
                     $"密度数: {densityCount} 段階 ({controller.densityUnit})\n" +
-                    $"撮影枚数: 1密度あたり二値マスク8枚＋GPU真値マスク1枚 (計 {totalSectorMasks} 枚 / 左右で {totalSectorMasks * 2} 枚)\n" +
                     $"出力先: {sweepRootDir}\n\n" +
-                    $"【特長】\n" +
-                    $"・0 or 255 の二値画像として各セクターマスクを個別に直接画面保存\n" +
-                    $"・sRGB ガンマ変換による中間階調潰れを 100% 排除し、99.998% の完全一致を保証\n" +
-                    $"・GPU実遮蔽真値マスク (gpu_occluded_mask) も同一フレームで直接保存\n" +
-                    $"・256枚保存に比べ撮影時間を 97% 短縮・容量わずか 7.5MB\n\n" +
-                    $"一括自動撮影を開始しますか？",
+                    $"【特長 (Point A 生データ直接保存方式)】\n" +
+                    $"・SRDisplay 表示補正 (幾何歪み・ガンマ歪み) を完全排除\n" +
+                    $"・AsyncGPUReadback により NeighborCountMap + OriginTypeMap を完全同期取得\n" +
+                    $"・1回のリードバックで以下をすべて一括保存:\n" +
+                    $"  A_raw_uint32.bin / origin_type_raw_uint32.bin (生バイナリ)\n" +
+                    $"  evaluated_mask_pre_correction.png (bit 12: 評価領域 E)\n" +
+                    $"  sector_occlusion_mask_direct.png (bit 13: セクター遮蔽)\n" +
+                    $"  final_occlusion_mask_direct.png (bit 13 | D: 最終遮蔽)\n" +
+                    $"  origin_type_map_direct.png (最前面タグ)\n" +
+                    $"  sector_mask.png / sector_0..7_mask.png (8セクター)\n" +
+                    $"・画面切り替え不要で高速・左右両目対応\n\n" +
+                    $"一括自動保存を開始しますか？",
                     "開始", "キャンセル"))
                 {
                     collector.RunSector8MaskSweep();
                 }
             }
+
+            EditorGUILayout.Space(6);
+            GUI.backgroundColor = new Color(1.0f, 0.75f, 0.2f);
+            EditorGUILayout.LabelField("【パイプライン詳細診断 (Stage Diagnosis: Point A / Blit転送 / 無損失Load)】", EditorStyles.boldLabel);
+            if (GUILayout.Button("🔬 左目単独 厳密ステージ診断実行 (Point A生判定 + 通常/無損失転送 + 白一色VO)", GUILayout.Height(40)))
+            {
+                controller.RunLeftEyeStageDiagnosis();
+            }
+            GUI.backgroundColor = Color.white;
 
             EditorGUILayout.Space(4);
 

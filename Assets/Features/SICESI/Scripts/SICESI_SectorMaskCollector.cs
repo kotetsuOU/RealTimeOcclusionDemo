@@ -66,10 +66,17 @@ namespace SICESI
         }
 
         /// <summary>
-        /// 8セクター・ビットプレーン方式の二値マスク画面保存スイープ。
-        /// RAWバッファの座標変換誤差を完全排除するため、URPカメラ直接画面保存により、
-        /// 各セクター 0〜7 の二値マスク画像 (計8枚) と GT・通常テスト画像を一括撮影します。
-        /// Python側で各画素の8ビットを復元することで、256枚PNG保存に比べ容量1/32・高速撮影を実現します。
+        /// 8セクター二値マスク＋生データ直接保存スイープ。
+        /// SRDisplay 表示補正前（Point A: NeighborCountMap / OriginTypeMap）を AsyncGPUReadback で同期取得し、
+        /// 1フレームのリードバックから以下をすべて一括生成・保存します。
+        ///   - A_raw_uint32.bin / origin_type_raw_uint32.bin (生バイナリ)
+        ///   - evaluated_mask_pre_correction.png (bit 12: 評価領域 E)
+        ///   - sector_occlusion_mask_direct.png (bit 13: セクター遮蔽)
+        ///   - final_occlusion_mask_direct.png (bit 13 | D)
+        ///   - origin_type_map_direct.png (最前面タグ)
+        ///   - sector_mask.png (統合 8-bit パターン)
+        ///   - sector_0_mask.png 〜 sector_7_mask.png (各セクター二値)
+        /// 画面切り替え不要で1密度あたり1回のリードバックで完結します。
         /// </summary>
         public void RunSector8MaskSweep()
         {
@@ -330,7 +337,7 @@ namespace SICESI
         {
             isCollecting = true;
             IsCollectingActive = true;
-            statusMessage = "Starting 8-Sector Binary Mask Sweep...";
+            statusMessage = "Starting Point A Raw Data Sweep...";
 
             string conditionRootDir = _controller.ConditionRootDir;
             string sweepRootDir = Path.Combine(conditionRootDir, "Sector8MaskSweep");
@@ -338,7 +345,7 @@ namespace SICESI
             _controller.SaveSceneTransformsJson(sweepRootDir);
             _controller.SaveSceneTransformsJson(conditionRootDir);
 
-            AppLogger.Log("SICESI", $"=== 8セクター二値マスク画面保存 密度スイープ開始: {sweepRootDir} ===");
+            AppLogger.Log("SICESI", $"=== Point A 生データ直接保存 密度スイープ開始: {sweepRootDir} ===");
 
             float prevTimeScale = Time.timeScale;
             Time.timeScale = 0f; // スイープ中はオブジェクトアニメーションや時間依存更新を完全静止してジッターを排除
@@ -398,7 +405,7 @@ namespace SICESI
                 // Step 0 & 1: Ground Truth 撮影 (GPU生深度直接比較 MeshDepthGT または従来カラー)
                 // -------------------------------------------------------------
                 string gtDir = Path.Combine(sweepRootDir, "GT");
-                statusMessage = "Capturing Ground Truth for 8-Sector Sweep...";
+                statusMessage = "Capturing Ground Truth for Point A Raw Data Sweep...";
 
                 // PCDRendererFeature に最新の描画行列 (View/Projection) を確実にキャプチャさせるため待機
                 for (int i = 0; i < 3; i++) yield return null;
@@ -417,6 +424,8 @@ namespace SICESI
                 {
                     densities = new float[] { _controller.dummyPointCloudProvider != null ? _controller.dummyPointCloudProvider.densityValue : 4.0f };
                 }
+
+                int minOccSectors = _controller.fixedMinOccludedSectors > 0 ? _controller.fixedMinOccludedSectors : 6;
 
                 for (int d = 0; d < densities.Length; d++)
                 {
@@ -459,50 +468,32 @@ namespace SICESI
                     for (int f = 0; f < _controller.waitFramesAfterDensityChange; f++) yield return null;
                     yield return new WaitForEndOfFrame();
 
-                    // 1. 通常テスト画像のキャプチャ (Left / Right)
+                    // 確認用テスト画像は従来通り画面保存 (見た目確認用のみ)
                     SetDebugSectorId(-1);
                     SetDebugPatternId(-1);
                     yield return null;
                     yield return new WaitForEndOfFrame();
 
-                    CaptureCameraImages(targetDir, $"test_{densityStr}");
+                    // Point A 生データ直接リードバック: 左目・右目をそれぞれ同期取得して保存
+                    string leftDir = Path.Combine(targetDir, "Left");
+                    string rightDir = Path.Combine(targetDir, "Right");
+                    Directory.CreateDirectory(leftDir);
+                    Directory.CreateDirectory(rightDir);
 
-                    // 2. 8セクター二値マスクのキャプチャ (SectorId = 0..7: 0 or 255 の二値画像のためガンマ歪みを100%排除し、完全一致99.998%を保証)
-                    for (int s = 0; s < 8; s++)
-                    {
-                        statusMessage = $"Density {densityStr} | Sector {s}/7 Binary Mask";
-                        SetDebugSectorId(s);
-                        yield return null;
-                        yield return new WaitForEndOfFrame();
-                        CaptureCameraImages(targetDir, $"sector_{s}_mask");
-                    }
+                    statusMessage = $"Density {densityStr} | Readback Left Eye Point A...";
+                    yield return StartCoroutine(ReadbackAndSavePointA(leftDir, minOccSectors, "Left"));
 
-                    // 3. 全8セクター統合 8-bit 占有パターンマスクのキャプチャ (SectorId = 8: 参考・統合プレビュー用)
-                    statusMessage = $"Density {densityStr} | Unified 8-bit Pattern Mask";
-                    SetDebugSectorId(8);
-                    yield return null;
-                    yield return new WaitForEndOfFrame();
-                    CaptureCameraImages(targetDir, "sector_mask", bypassSRGBConversion: true);
-
-                    // 4. GPU 実遮蔽判定マスクのキャプチャ (SectorId = 9: bit 13 の真値, 二値画像)
-                    statusMessage = $"Density {densityStr} | GPU Occluded Truth Mask";
-                    SetDebugSectorId(9);
-                    yield return null;
-                    yield return new WaitForEndOfFrame();
-                    CaptureCameraImages(targetDir, "gpu_occluded_mask");
-
-                    // デバッグ表示をリセット
-                    SetDebugSectorId(-1);
-                    yield return null;
+                    statusMessage = $"Density {densityStr} | Readback Right Eye Point A...";
+                    yield return StartCoroutine(ReadbackAndSavePointA(rightDir, minOccSectors, "Right"));
 
                     // JSON メタデータ保存
                     SaveParamsJson(targetDir, density, _controller.occlusionPipelineController != null ? _controller.occlusionPipelineController.occlusionThreshold : 0.1f);
 
-                    AppLogger.Log("SICESI", $"[{d + 1}/{densities.Length}] 密度 {densityStr} の統合セクターマスク収集完了: {targetDir}");
+                    AppLogger.Log("SICESI", $"[{d + 1}/{densities.Length}] 密度 {densityStr} の Point A 直接保存完了: {targetDir}");
                 }
 
-                statusMessage = "All Unified Sector Mask Sweeps Completed!";
-                AppLogger.Log("SICESI", $"=== 全密度の統合セクターマスク収集が完了しました! 保存先: {sweepRootDir} ===");
+                statusMessage = "All Point A Raw Data Sweeps Completed!";
+                AppLogger.Log("SICESI", $"=== 全密度の Point A 生データ直接保存が完了しました! 保存先: {sweepRootDir} ===");
             }
             finally
             {
@@ -527,6 +518,147 @@ namespace SICESI
                 IsCollectingActive = false;
                 isCollecting = false;
             }
+        }
+
+        /// <summary>
+        /// NeighborCountMap (uint32) と OriginTypeMap (uint32) を AsyncGPUReadback で同期取得し、
+        /// 評価マスク・遮蔽マスク・8セクター二値マスク・生バイナリをすべて直接生成・保存します。
+        /// </summary>
+        private IEnumerator ReadbackAndSavePointA(string saveDir, int minOccSectors, string eyeLabel)
+        {
+            if (PCDRendererFeature.Instance == null || PCDRendererFeature.Instance.CurrentResources == null)
+            {
+                AppLogger.LogError("SICESI", $"[{eyeLabel}] PCDRendererFeature.CurrentResources が利用できません。");
+                yield break;
+            }
+
+            var resources = PCDRendererFeature.Instance.CurrentResources;
+            RenderTexture rtA = resources.NeighborCountMap != null ? resources.NeighborCountMap.rt : null;
+            RenderTexture rtOrigin = resources.OriginTypeMap != null ? resources.OriginTypeMap.rt : null;
+
+            if (rtA == null)
+            {
+                AppLogger.LogError("SICESI", $"[{eyeLabel}] NeighborCountMap (rtA) が null です。");
+                yield break;
+            }
+
+            int width = rtA.width;
+            int height = rtA.height;
+            int totalPixels = width * height;
+
+            bool doneA = false;
+            bool doneOrigin = (rtOrigin == null); // rtOrigin が null なら即完了扱い
+            uint[] dataA = null;
+            uint[] dataOrigin = null;
+
+            // NeighborCountMap を非同期リードバック
+            AsyncGPUReadback.Request(rtA, 0, req =>
+            {
+                if (!req.hasError) dataA = req.GetData<uint>().ToArray();
+                doneA = true;
+            });
+
+            // OriginTypeMap を非同期リードバック
+            if (rtOrigin != null)
+            {
+                AsyncGPUReadback.Request(rtOrigin, 0, req =>
+                {
+                    if (!req.hasError) dataOrigin = req.GetData<uint>().ToArray();
+                    doneOrigin = true;
+                });
+            }
+
+            float timeout = Time.realtimeSinceStartup + 5.0f;
+            while ((!doneA || !doneOrigin) && Time.realtimeSinceStartup < timeout)
+            {
+                yield return null;
+            }
+
+            if (dataA == null)
+            {
+                AppLogger.LogError("SICESI", $"[{eyeLabel}] AsyncGPUReadback タイムアウトまたはエラー (dataA={dataA != null})。");
+                yield break;
+            }
+
+            // --- バッファ解析 ---
+            byte[] occDirectBytes  = new byte[totalPixels]; // bit 13: セクター遮蔽
+            byte[] evaluatedBytes  = new byte[totalPixels]; // bit 12: 評価領域 E
+            byte[] originTypeBytes = new byte[totalPixels]; // 最前面タグ
+            byte[] finalOccBytes   = new byte[totalPixels]; // 最終遮蔽 = bit13 | D
+            byte[] patternBytes    = new byte[totalPixels]; // 統合 8-bit 占有パターン (bit 0-7)
+            byte[][] sectorBytes   = new byte[8][];         // 各セクター二値
+            for (int s = 0; s < 8; s++) sectorBytes[s] = new byte[totalPixels];
+
+            for (int y = 0; y < height; y++)
+            {
+                int rowOffset = y * width;
+                for (int x = 0; x < width; x++)
+                {
+                    int idx = rowOffset + x;
+                    uint val = dataA[idx];
+
+                    uint isEvaluated = (val >> 12) & 1u;
+                    uint pattern     = val & 0xFFu;
+                    uint bit13Occ    = (val >> 13) & 1u;
+                    uint origin      = (dataOrigin != null && idx < dataOrigin.Length) ? dataOrigin[idx] : 1u;
+
+                    occDirectBytes[idx]  = bit13Occ != 0u ? (byte)255 : (byte)0;
+                    evaluatedBytes[idx]  = isEvaluated != 0u ? (byte)255 : (byte)0;
+                    originTypeBytes[idx] = (byte)(origin == 0u ? 0 : (origin == 1u ? 128 : 255));
+                    patternBytes[idx]    = (byte)pattern;
+
+                    // 最終遮蔽: セクター判定遮蔽 (bit13) OR 手前の物理点群による直接遮蔽 (origin==0 && isEvaluated==0)
+                    bool isDirectPointOcc = (origin == 0u && isEvaluated == 0u);
+                    finalOccBytes[idx] = (bit13Occ != 0u || isDirectPointOcc) ? (byte)255 : (byte)0;
+
+                    // 各セクター二値マスク (bit s が立っているかどうか)
+                    for (int s = 0; s < 8; s++)
+                    {
+                        sectorBytes[s][idx] = ((pattern >> s) & 1u) != 0u ? (byte)255 : (byte)0;
+                    }
+                }
+            }
+
+            // --- PNG 保存 ---
+            Directory.CreateDirectory(saveDir);
+            SaveGrayscalePNG(occDirectBytes,  width, height, Path.Combine(saveDir, "sector_occlusion_mask_direct.png"));
+            SaveGrayscalePNG(occDirectBytes,  width, height, Path.Combine(saveDir, "A_raw_gpu_mask_direct.png"));
+            SaveGrayscalePNG(finalOccBytes,   width, height, Path.Combine(saveDir, "final_occlusion_mask_direct.png"));
+            SaveGrayscalePNG(evaluatedBytes,  width, height, Path.Combine(saveDir, "evaluated_mask_pre_correction.png"));
+            SaveGrayscalePNG(originTypeBytes, width, height, Path.Combine(saveDir, "origin_type_map_direct.png"));
+            SaveGrayscalePNG(patternBytes,    width, height, Path.Combine(saveDir, "sector_mask.png"));
+
+            for (int s = 0; s < 8; s++)
+            {
+                SaveGrayscalePNG(sectorBytes[s], width, height, Path.Combine(saveDir, $"sector_{s}_mask.png"));
+            }
+
+            // --- 生バイナリ保存 ---
+            byte[] rawBytes = new byte[totalPixels * 4];
+            Buffer.BlockCopy(dataA, 0, rawBytes, 0, rawBytes.Length);
+            File.WriteAllBytes(Path.Combine(saveDir, "A_raw_uint32.bin"), rawBytes);
+
+            if (dataOrigin != null)
+            {
+                byte[] rawOriginBytes = new byte[totalPixels * 4];
+                Buffer.BlockCopy(dataOrigin, 0, rawOriginBytes, 0, rawOriginBytes.Length);
+                File.WriteAllBytes(Path.Combine(saveDir, "origin_type_raw_uint32.bin"), rawOriginBytes);
+            }
+
+            AppLogger.Log("SICESI", $"[{eyeLabel}] Point A 直接保存完了 (w:{width}, h:{height}): {saveDir}");
+        }
+
+        /// <summary>
+        /// グレースケール PNG を生成して保存します。入力バイト配列は R8 フォーマットで 1 画素 1 バイトです。
+        /// </summary>
+        private static void SaveGrayscalePNG(byte[] bytes, int width, int height, string path)
+        {
+            Texture2D tex = new Texture2D(width, height, TextureFormat.R8, false);
+            tex.SetPixelData(bytes, 0);
+            tex.Apply();
+            Directory.CreateDirectory(Path.GetDirectoryName(path));
+            File.WriteAllBytes(path, tex.EncodeToPNG());
+            Destroy(tex);
         }
 
         private IEnumerator SectorMaskDensitySweepRoutine()

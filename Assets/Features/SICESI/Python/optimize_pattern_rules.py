@@ -49,6 +49,9 @@ import numpy as np
 from PIL import Image
 from scipy.optimize import milp, LinearConstraint, Bounds
 
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+
 # ==============================================================================
 # 0. パターンのコンパクト表現・補助関数
 # ==============================================================================
@@ -208,21 +211,57 @@ RULES_20_CANDIDATES = [
     (8, 8)
 ]
 
-
 EXCLUDED_DIR_PATTERNS = ["Bouchiba_", "RuleOptimizationResults", "DiffMaps"]
+
+def load_mono_image(path):
+    img = np.array(Image.open(path))
+    if img.ndim == 3:
+        return img[:, :, 0]
+    return img
+
+def find_file_in_ancestors(start_dir, target_rel_paths, max_levels=10):
+    """祖先ディレクトリを遡って最初に存在するファイルパスを返す"""
+    cur = os.path.abspath(start_dir)
+    for _ in range(max_levels):
+        for rel in target_rel_paths:
+            candidate = os.path.join(cur, rel)
+            if os.path.exists(candidate):
+                return candidate
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            break
+        cur = parent
+    return None
+
+def score_visibility_rule(z, d, empty_iou=1.0):
+    """
+    統一可視IoUスコア計算関数
+    z: 256次元の可視判定ベクトル (1:可視, 0:遮蔽)
+    d: データセット要素 (V, O, direct_gt_visible, direct_gt_occluded)
+    """
+    tp = int(np.dot(d['V'], z))
+    fp = int(np.dot(d['O'], z))
+    fn = int(np.dot(d['V'], 1 - z)) + int(d.get('direct_gt_visible', 0))
+    denom = tp + fp + fn
+    if denom == 0:
+        iou = float(empty_iou)
+    else:
+        iou = float(tp / denom)
+    return tp, fp, fn, denom, iou
 
 # ==============================================================================
 # 2. 未集計撮影データの高速自動集計 (auto_generate_missing_pattern_counts)
 # ==============================================================================
 def auto_generate_missing_pattern_counts(root_dir, lut):
     """
-    root_dir 配下の全撮影ディレクトリ (Pattern256MaskSweep / SectorMaskSweep) を走査し、
-    pattern_counts_256.csv が未生成の場合に SectorMask_*.raw / GT から超高速自動集計する。
+    root_dir 配下の全撮影ディレクトリを走査し、
+    pattern_counts_256.csv が未生成の場合に生バッファ・GTから領域 R, E, D を厳密分離して自動集計する。
     """
     sweep_dirs = sorted(glob.glob(os.path.join(root_dir, "**", "Sector8MaskSweep"), recursive=True))
     sweep_dirs += sorted(glob.glob(os.path.join(root_dir, "**", "Pattern256MaskSweep"), recursive=True))
     sweep_dirs += sorted(glob.glob(os.path.join(root_dir, "**", "SectorMaskSweep"), recursive=True))
-    if os.path.basename(root_dir) in ["Sector8MaskSweep", "Pattern256MaskSweep", "SectorMaskSweep"]:
+    sweep_dirs += sorted(glob.glob(os.path.join(root_dir, "**", "StageDiagnosis"), recursive=True))
+    if os.path.basename(root_dir) in ["Sector8MaskSweep", "Pattern256MaskSweep", "SectorMaskSweep", "StageDiagnosis"]:
         sweep_dirs.append(root_dir)
     sweep_dirs = sorted(list(set(sweep_dirs)))
     
@@ -234,6 +273,13 @@ def auto_generate_missing_pattern_counts(root_dir, lut):
         
     missing_targets = []
     for s_dir in sweep_dirs:
+        if os.path.basename(s_dir) == "StageDiagnosis":
+            p1 = os.path.join(s_dir, "Oracle256Analysis", "pattern_counts_256.csv")
+            p2 = os.path.join(s_dir, "pattern_counts_256.csv")
+            if not (os.path.exists(p1) or os.path.exists(p2)):
+                missing_targets.append((s_dir, s_dir, "Left", s_dir))
+            continue
+
         density_dirs = sorted(glob.glob(os.path.join(s_dir, "density_*pts_mm2")))
         for d_dir in density_dirs:
             for eye in ["Left", "Right"]:
@@ -248,51 +294,74 @@ def auto_generate_missing_pattern_counts(root_dir, lut):
     if not missing_targets:
         return
         
-    print(f"[*] 未集計の撮影データ ({len(missing_targets)} 件) を検出しました。超高速自動集計中...")
+    print(f"[*] 未集計の撮影データ ({len(missing_targets)} 件) を検出しました。厳密集計中...")
     generated_count = 0
     t0 = time.time()
     
     for s_dir, d_dir, eye, eye_dir in missing_targets:
-        gt_candidates = [
-            os.path.join(s_dir, "GT", eye, f"gt_{eye.lower()}.png"),
-            os.path.join(s_dir, "GT", f"gt_{eye.lower()}.png"),
-            os.path.join(s_dir, "..", "GT", eye, f"gt_{eye.lower()}.png"),
-            os.path.join(s_dir, "..", "GT", f"gt_{eye.lower()}.png"),
+        vo_rel_candidates = [
+            "vo_silhouette_pre_correction.png",
+            f"vo_silhouette_{eye.lower()}.png",
+            os.path.join("GT", eye, f"vo_silhouette_{eye.lower()}.png"),
+            os.path.join("GT", f"vo_silhouette_{eye.lower()}.png"),
         ]
-        gt_path = next((c for c in gt_candidates if os.path.exists(c)), None)
-        if not gt_path:
+        vo_path = find_file_in_ancestors(eye_dir, vo_rel_candidates)
+        if not vo_path:
             continue
             
-        vo_candidates = [
-            os.path.join(s_dir, "GT", eye, f"vo_silhouette_{eye.lower()}.png"),
-            os.path.join(s_dir, "GT", f"vo_silhouette_{eye.lower()}.png"),
-            os.path.join(s_dir, "..", "GT", eye, f"vo_silhouette_{eye.lower()}.png"),
-            os.path.join(s_dir, "..", "GT", f"vo_silhouette_{eye.lower()}.png"),
-        ]
-        vo_path = next((c for c in vo_candidates if os.path.exists(c)), None)
-        if not vo_path:
-            # VOシルエットがないデータは背景黒が誤算入するため集計対象から除外
+        vo_img = load_mono_image(vo_path)
+        R = (vo_img > 128)
+        H, W = R.shape
+        total_vo = int(np.count_nonzero(R))
+        if total_vo == 0:
             continue
+
+        # Ground Truth (Mesh Depth GT のみを受け入れ、陰影付きカラーGTフォールバックは排除)
+        gt_rel_candidates = [
+            f"gt_depth_occluded_mask_{eye.lower()}.png",
+            os.path.join("GT", eye, f"gt_depth_occluded_mask_{eye.lower()}.png"),
+            os.path.join("GT", f"gt_depth_occluded_mask_{eye.lower()}.png"),
+        ]
+        gt_path = find_file_in_ancestors(eye_dir, gt_rel_candidates)
+        if not gt_path:
+            print(f"[!] 警告: {eye_dir} の Mesh Depth GT が見つからないため集計をスキップします。")
+            continue
+
+        gt_occ = (load_mono_image(gt_path) > 128) & R
+        gt_vis = R & (~gt_occ)
         
-        gt_img = np.array(Image.open(gt_path))[:, :, 0]
-        H, W = gt_img.shape
-        gt_mask = (gt_img > 128)
-        if vo_path and os.path.exists(vo_path):
-            vo_mask = (np.array(Image.open(vo_path))[:, :, 0] > 128)
-        else:
-            # VOシルエットがない場合、全画面背景が遮蔽(O)に化けてIoUが暴落するのを防ぐ
-            print(f"[!] 警告: {eye_dir} に vo_silhouette が存在しません。GT画像描画領域で代用します。")
-            vo_mask = (gt_img > 10)
-        
-        sector_pngs = sorted(glob.glob(os.path.join(eye_dir, "sector_*_mask_*.png")))
-        raw_files = sorted(glob.glob(os.path.join(eye_dir, "SectorMask_*.raw")))
-        pattern_pngs = sorted(glob.glob(os.path.join(eye_dir, "pattern_*_mask_*.png")))
-        
+        # マスク・生バッファ探索
+        raw_files = sorted(glob.glob(os.path.join(eye_dir, "A_raw_uint32.bin")) + glob.glob(os.path.join(eye_dir, "SectorMask_*.raw")))
+        origin_bin_path = os.path.join(eye_dir, "origin_type_raw_uint32.bin")
+        eval_png_path = os.path.join(eye_dir, "evaluated_mask_pre_correction.png")
+        origin_png_path = os.path.join(eye_dir, "origin_type_map_direct.png")
+
         occupied_mask = None
         is_evaluated = None
-        
-        # 0. 個別8セクター二値マスク画面保存 (過去データ互換: 8枚揃っている場合)
-        if len(sector_pngs) >= 8:
+        origin_type_map = None
+
+        if raw_files:
+            latest_raw = raw_files[-1]
+            raw_data = np.fromfile(latest_raw, dtype=np.uint32)
+            if raw_data.size == H * W:
+                raw_2d = np.flipud(raw_data.reshape((H, W)))
+                occupied_mask = (raw_2d & 0xFF).astype(np.uint8)
+                is_evaluated = ((raw_2d >> 12) & 0x01) == 1
+
+        if os.path.exists(origin_bin_path):
+            orig_raw = np.fromfile(origin_bin_path, dtype=np.uint32)
+            if orig_raw.size == H * W:
+                origin_type_map = np.flipud(orig_raw.reshape((H, W)))
+
+        # PNG からの補完
+        if is_evaluated is None and os.path.exists(eval_png_path):
+            is_evaluated = (load_mono_image(eval_png_path) > 128)
+        if origin_type_map is None and os.path.exists(origin_png_path):
+            origin_type_map = load_mono_image(origin_png_path)
+
+        if occupied_mask is None:
+            # 個別8セクターマスク探索
+            sector_pngs = sorted(glob.glob(os.path.join(eye_dir, f"sector_*_mask_{eye.lower()}.png")) + glob.glob(os.path.join(eye_dir, "sector_*_mask.png")))
             sector_map = {}
             for p in sector_pngs:
                 fname = os.path.basename(p)
@@ -301,73 +370,53 @@ def auto_generate_missing_pattern_counts(root_dir, lut):
                     sec_id = int(m_match.group(1))
                     if 0 <= sec_id < 8:
                         sector_map[sec_id] = p
-                        
             if len(sector_map) == 8:
                 occupied_mask = np.zeros((H, W), dtype=np.uint8)
                 for sec_id in range(8):
-                    sec_img = np.array(Image.open(sector_map[sec_id]))[:, :, 0]
-                    sec_bit = (sec_img > 128)
+                    sec_bit = (load_mono_image(sector_map[sec_id]) > 128)
                     occupied_mask |= (sec_bit.astype(np.uint8) << sec_id)
-                is_evaluated = vo_mask
 
-        # 1. 全8セクター統合 8-bit 占有パターンマスク (最新仕様: 1枚保存・超高速)
         if occupied_mask is None:
             unified_candidates = [
                 os.path.join(eye_dir, f"sector_mask_{eye.lower()}.png"),
                 os.path.join(eye_dir, "sector_mask.png")
             ]
-            unified_path = next((c for c in unified_candidates if os.path.exists(c)), None)
-            if unified_path:
-                occupied_mask = np.array(Image.open(unified_path))[:, :, 0]
-                is_evaluated = vo_mask
+            u_p = next((c for c in unified_candidates if os.path.exists(c)), None)
+            if u_p:
+                occupied_mask = load_mono_image(u_p)
 
-        # 2. 256パターン個別マスク画面保存
-        if occupied_mask is None and len(pattern_pngs) == 256:
-            class_imgs = np.zeros((256, H, W), dtype=np.uint8)
-            for i, p_path in enumerate(pattern_pngs):
-                class_imgs[i] = np.array(Image.open(p_path))[:, :, 0]
-            max_v = class_imgs.max(axis=0)
-            occupied_mask = class_imgs.argmax(axis=0).astype(np.uint8)
-            is_evaluated = (max_v > 0)
-
-        # 3. 旧RAWバッファ吸い出し (レガシー互換)
-        if occupied_mask is None and raw_files:
-            latest_raw = raw_files[-1]
-            raw_data = np.fromfile(latest_raw, dtype=np.uint32).reshape((H, W))
-            occupied_mask = (raw_data & 0xFF).astype(np.uint8)
-            is_evaluated = ((raw_data >> 12) & 0x01) == 1
-            
-            # 向き自動補正 (GTとの重なり最大化)
-            best_overlap = -1
-            best_orientation = (False, False)
-            for fy in [False, True]:
-                for fx in [False, True]:
-                    test_eval = is_evaluated
-                    if fy: test_eval = test_eval[::-1, :]
-                    if fx: test_eval = test_eval[:, ::-1]
-                    overlap = np.count_nonzero(test_eval & gt_mask)
-                    if overlap > best_overlap:
-                        best_overlap = overlap
-                        best_orientation = (fy, fx)
-            fy, fx = best_orientation
-            if fy:
-                occupied_mask = occupied_mask[::-1, :]
-                is_evaluated = is_evaluated[::-1, :]
-            if fx:
-                occupied_mask = occupied_mask[:, ::-1]
-                is_evaluated = is_evaluated[:, ::-1]
-
-        if occupied_mask is None:
+        if occupied_mask is None or is_evaluated is None:
+            print(f"[!] 警告: {eye_dir} のマスクまたは評価フラグが取得できないためスキップします。")
             continue
-            
-        eval_mask = vo_mask & is_evaluated
-        
-        eval_occ = occupied_mask[eval_mask]
-        eval_gt = gt_mask[eval_mask]
-        
-        V_256 = np.bincount(eval_occ[eval_gt], minlength=256)
-        O_256 = np.bincount(eval_occ[~eval_gt], minlength=256)
-        
+
+        # 領域の厳密分離: R, E, D, D_ghost
+        E = R & is_evaluated
+
+        if origin_type_map is not None:
+            # D: R かつ 未評価 かつ 最前面が物理点群 (origin == 0) → 直接遮蔽
+            D = R & (~E) & (origin_type_map == 0)
+            # D_ghost: R かつ 未評価 かつ 非点群 (origin != 0)
+            # → VO 内に残留した初期統合ゴースト画素。遮蔽判定には含めない
+            D_ghost = R & (~E) & (origin_type_map != 0)
+            d_ghost_count = int(np.count_nonzero(D_ghost))
+            if d_ghost_count > 0:
+                print(f"  [info] D_ghost (未評価非点群): {d_ghost_count:,} px ← VO内ゴースト(黒、遮蔽判定外)")
+        else:
+            D = R & (~E)
+            D_ghost = np.zeros_like(R)
+
+        # E 内でのパターン別集計
+        eval_occ = occupied_mask[E]
+        eval_gt_vis = gt_vis[E]
+        V_256 = np.bincount(eval_occ[eval_gt_vis], minlength=256)
+        O_256 = np.bincount(eval_occ[~eval_gt_vis], minlength=256)
+
+        # D 内での固定項集計 (物理点群直接遮蔽のみ。D_ghost は含まない)
+        direct_gt_vis = gt_vis[D]
+        direct_gt_visible = int(np.count_nonzero(direct_gt_vis))
+        direct_gt_occluded = int(np.count_nonzero(~direct_gt_vis))
+
+
         out_dir = os.path.join(eye_dir, "Oracle256Analysis")
         os.makedirs(out_dir, exist_ok=True)
         csv_path = os.path.join(out_dir, "pattern_counts_256.csv")
@@ -401,7 +450,17 @@ def auto_generate_missing_pattern_counts(root_dir, lut):
                 'status': status
             })
             
+        meta_comment = (
+            f"# schema_version=2,"
+            f"direct_gt_visible={direct_gt_visible},"
+            f"direct_gt_occluded={direct_gt_occluded},"
+            f"total_eval_pixels={int(np.count_nonzero(E))},"
+            f"direct_occluded_pixels={int(np.count_nonzero(D))},"
+            f"total_vo_pixels={total_vo}\n"
+        )
+        
         with open(csv_path, 'w', newline='', encoding='utf-8') as f:
+            f.write(meta_comment)
             writer = csv.DictWriter(f, fieldnames=list(pattern_rows[0].keys()))
             writer.writeheader()
             writer.writerows(pattern_rows)
@@ -410,7 +469,7 @@ def auto_generate_missing_pattern_counts(root_dir, lut):
         
     elapsed = time.time() - t0
     if generated_count > 0:
-        print(f"[+] {generated_count} 件の pattern_counts_256.csv を自動集計・保存しました ({elapsed:.2f}秒)。\n")
+        print(f"[+] {generated_count} 件の pattern_counts_256.csv を厳密自動集計・保存しました ({elapsed:.2f}秒)。\n")
 
 
 # ==============================================================================
@@ -441,7 +500,7 @@ def load_dataset(root_dir, lut):
         eye = "UnknownEye"
         
         for idx, p in enumerate(parts):
-            if p in ["Sector8MaskSweep", "Pattern256MaskSweep", "SectorMaskSweep"] and idx > 0:
+            if p in ["Sector8MaskSweep", "Pattern256MaskSweep", "SectorMaskSweep", "StageDiagnosis"] and idx > 0:
                 parent = parts[idx - 1]
                 if idx > 1 and "RawTest" in parts[idx - 2]:
                     case_name = f"{parts[idx - 2]}_case{parent}" if parent.isdigit() else f"{parts[idx - 2]}_{parent}"
@@ -456,10 +515,24 @@ def load_dataset(root_dir, lut):
                 
         data_id = f"{case_name}_{density_str}_{eye}"
         
+        meta = {}
         rows = []
+        data_lines = []
         with open(path, 'r', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            rows = list(reader)
+            lines = f.readlines()
+            
+        for line in lines:
+            if line.startswith('#'):
+                parts_comment = line.lstrip('#').strip().split(',')
+                for c_item in parts_comment:
+                    if '=' in c_item:
+                        k, v = c_item.split('=', 1)
+                        meta[k.strip()] = v.strip()
+            else:
+                data_lines.append(line)
+                
+        reader = csv.DictReader(data_lines)
+        rows = list(reader)
             
         if len(rows) != 256:
             continue
@@ -480,20 +553,20 @@ def load_dataset(root_dir, lut):
         if not valid:
             continue
             
-        G = int(np.sum(V))
+        direct_gt_visible = int(meta.get('direct_gt_visible', 0))
+        direct_gt_occluded = int(meta.get('direct_gt_occluded', 0))
+        schema_version = int(meta.get('schema_version', 1))
+
+        G_sector = int(np.sum(V))
+        G = G_sector + direct_gt_visible
         if G == 0:
             continue
             
         total_eval_pixels = int(np.sum(V) + np.sum(O))
-        # 追加遮蔽なし (No extra occlusion: 全ビット可視) の基準IoU
-        no_occ_iou = G / total_eval_pixels if total_eval_pixels > 0 else 0.0
-        
-        # 画面全体の黒背景が混入した古い壊れたデータ（O[0]が異常に多く、no_occ_iou < 0.4 など）を検出して除外
-        if no_occ_iou < 0.4 and O[0] > G:
-            print(f"[!] 警告: {path} はVOシルエット未適用による背景黒混入データと判定されたためスキップします (no_occ_iou: {no_occ_iou*100:.1f}%, O[0]: {O[0]:,})")
-            continue
-        
-        dataset.append({
+        direct_occluded_pixels = direct_gt_visible + direct_gt_occluded
+        vo_pixels = total_eval_pixels + direct_occluded_pixels
+
+        item_d = {
             'data_id': data_id,
             'case': case_name,
             'density': float(density_str) if density_str != "UnknownDensity" else 0.0,
@@ -502,10 +575,27 @@ def load_dataset(root_dir, lut):
             'file_path': path,
             'V': V,
             'O': O,
+            'direct_gt_visible': direct_gt_visible,
+            'direct_gt_occluded': direct_gt_occluded,
+            'G_sector': G_sector,
             'G': G,
             'total_eval_pixels': total_eval_pixels,
-            'no_occ_iou': no_occ_iou
-        })
+            'direct_occluded_pixels': direct_occluded_pixels,
+            'vo_pixels': vo_pixels,
+            'schema_version': schema_version
+        }
+
+        # 追加遮蔽なし基準 (全パターン可視 z = 1)
+        z_all_vis = np.ones(256, dtype=np.int32)
+        _, _, _, _, no_occ_iou = score_visibility_rule(z_all_vis, item_d)
+        item_d['no_occ_iou'] = no_occ_iou
+        
+        # 旧版で画面全体の黒背景が混入した古い壊れたデータを検出して除外
+        if schema_version < 2 and no_occ_iou < 0.4 and O[0] > G:
+            print(f"[!] 警告: {path} はVOシルエット未適用による背景黒混入データと判定されたためスキップします (no_occ_iou: {no_occ_iou*100:.1f}%, O[0]: {O[0]:,})")
+            continue
+        
+        dataset.append(item_d)
         
     print(f"[+] {len(dataset)} 件の有効なデータセットを読み込み・検証しました。\n")
     return dataset
@@ -529,11 +619,7 @@ def evaluate_lut_extended(z, dataset, base_ious=None):
     total_M = 0
     
     for i, d in enumerate(dataset):
-        tp = int(np.dot(d['V'], z))
-        fp = int(np.dot(d['O'], z))
-        fn = d['G'] - tp
-        denom = d['G'] + fp
-        iou = tp / denom if denom > 0 else 0.0
+        tp, fp, fn, denom, iou = score_visibility_rule(z, d)
         
         M = d['total_eval_pixels']
         O_total = int(np.sum(d['O']))
@@ -622,11 +708,7 @@ def optimize_fixed_8(dataset, lut, base_ious=None, weights=None):
         best_res = None
         best_z = None
         for R, z in cands_z:
-            tp = int(np.dot(d['V'], z))
-            fp = int(np.dot(d['O'], z))
-            fn = d['G'] - tp
-            denom = d['G'] + fp
-            iou = tp / denom if denom > 0 else 0.0
+            tp, fp, fn, denom, iou = score_visibility_rule(z, d)
             
             # 個別最適は常にそのデータの IoU 最大化
             if iou > best_score:
@@ -718,11 +800,7 @@ def optimize_fixed_20(dataset, lut, base_ious=None, weights=None):
         best_res = None
         best_z = None
         for R_th, L_th, z in cands_z:
-            tp = int(np.dot(d['V'], z))
-            fp = int(np.dot(d['O'], z))
-            fn = d['G'] - tp
-            denom = d['G'] + fp
-            iou = tp / denom if denom > 0 else 0.0
+            tp, fp, fn, denom, iou = score_visibility_rule(z, d)
             if iou > best_score:
                 best_score = iou
                 best_r_th = R_th
@@ -851,9 +929,7 @@ def get_individual_optima_36_and_256(dataset, lut, base_ious=None):
         iou_36, z_36 = optimize_single_iou_lut(V_36, O_36, d['G'])
         
         z_256_from_36 = np.array([z_36[lut['rot_cid'][m]] for m in range(256)], dtype=np.int32)
-        tp_36 = int(np.dot(d['V'], z_256_from_36))
-        fp_36 = int(np.dot(d['O'], z_256_from_36))
-        fn_36 = d['G'] - tp_36
+        tp_36, fp_36, fn_36, denom_36, iou_36 = score_visibility_rule(z_256_from_36, d)
         net_err_36 = (O_tot - fp_36 - fn_36) / M if M > 0 else 0.0
         rel_red_36 = (iou_36 - b_iou) / max(1.0 - b_iou, 1e-6) if base_ious is not None else 0.0
         
@@ -877,9 +953,7 @@ def get_individual_optima_36_and_256(dataset, lut, base_ious=None):
         
         # 256パターン
         iou_256, z_256 = optimize_single_iou_lut(d['V'], d['O'], d['G'])
-        tp_256 = int(np.dot(d['V'], z_256))
-        fp_256 = int(np.dot(d['O'], z_256))
-        fn_256 = d['G'] - tp_256
+        tp_256, fp_256, fn_256, denom_256, iou_256 = score_visibility_rule(z_256, d)
         net_err_256 = (O_tot - fp_256 - fn_256) / M if M > 0 else 0.0
         rel_red_256 = (iou_256 - b_iou) / max(1.0 - b_iou, 1e-6) if base_ious is not None else 0.0
         

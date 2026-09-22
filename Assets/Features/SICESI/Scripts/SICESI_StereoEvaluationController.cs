@@ -272,6 +272,30 @@ namespace SICESI
             StartCoroutine(CaptureMeshDepthGTRoutine(onComplete));
         }
 
+        /// <summary>
+        /// 左目単独 厳密ステージ診断を一括実行します。
+        /// InspectorのコンテキストメニューまたはEditorボタンから呼び出し可能です。
+        /// </summary>
+        [ContextMenu("左目単独 厳密ステージ診断実行")]
+        public void RunLeftEyeStageDiagnosis()
+        {
+            var debugger = GetComponent<SICESI_PipelineStageDebugger>();
+            if (debugger == null) debugger = gameObject.AddComponent<SICESI_PipelineStageDebugger>();
+            debugger.controller = this;
+            debugger.occlusionPipelineController = occlusionPipelineController;
+            debugger.RunFullDiagnosis((success, dir) =>
+            {
+                if (success)
+                {
+                    Debug.Log($"[SICESI] ステージ診断データを正常に保存しました: {dir}\nPython analyze_pipeline_stages.py を実行して解析してください。");
+                }
+                else
+                {
+                    Debug.LogError($"[SICESI] ステージ診断に失敗しました: {dir}");
+                }
+            });
+        }
+
         private IEnumerator CaptureMeshDepthGTRoutine(Action<bool, string> onComplete = null)
         {
             isCapturing = true;

@@ -33,6 +33,10 @@ namespace SRD.Core
             public Vector3 debugTargetWorldPos = Vector3.zero;
         }
 
+        public static bool RequestStageDebugCapture = false;
+        public static string StageDebugCaptureDir = "";
+        public static bool LosslessMirrorMode = false;
+
         public MirrorSettings settings = new MirrorSettings();
         private MirrorRenderPass _mirrorPass;
 
@@ -99,6 +103,10 @@ namespace SRD.Core
             renderPassEvent = settings.renderPassEvent;
         }
 
+        private RTHandle _debugM0Handle;
+        private RTHandle _debugM1Handle;
+        private RTHandle _debugM2Handle;
+
 #if UNITY_6000_0_OR_NEWER
         public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData)
         {
@@ -108,6 +116,8 @@ namespace SRD.Core
             if (_settings.mirrorMaterial == null || !resourceData.activeColorTexture.IsValid())
                 return;
 
+            _settings.mirrorMaterial.SetFloat("_LosslessMirrorMode", MirrorRendererFeature.LosslessMirrorMode ? 1.0f : 0.0f);
+
             TextureHandle activeColor = resourceData.activeColorTexture;
 
             TextureDesc desc = renderGraph.GetTextureDesc(activeColor);
@@ -116,12 +126,45 @@ namespace SRD.Core
             desc.depthBufferBits = DepthBits.None;
             TextureHandle tempTex = renderGraph.CreateTexture(desc);
 
+            bool isCapture = MirrorRendererFeature.RequestStageDebugCapture && !string.IsNullOrEmpty(MirrorRendererFeature.StageDebugCaptureDir);
+            string captureDir = MirrorRendererFeature.StageDebugCaptureDir;
+
+            if (isCapture)
+            {
+                RenderTextureDescriptor captureDesc = cameraData.cameraTargetDescriptor;
+                captureDesc.depthBufferBits = 0;
+                RenderingUtils.ReAllocateHandleIfNeeded(ref _debugM0Handle, captureDesc, name: "PCD_M0_Debug");
+                RenderingUtils.ReAllocateHandleIfNeeded(ref _debugM1Handle, captureDesc, name: "PCD_M1_Debug");
+                RenderingUtils.ReAllocateHandleIfNeeded(ref _debugM2Handle, captureDesc, name: "PCD_M2_Debug");
+
+                TextureHandle m0Target = renderGraph.ImportTexture(_debugM0Handle);
+                RenderGraphUtils.AddCopyPass(renderGraph, activeColor, m0Target, "MirrorPass_CaptureM0");
+            }
+
             // 1. activeColor -> tempTex (Mirror Shader)
             var blitParams = new RenderGraphUtils.BlitMaterialParameters(activeColor, tempTex, _settings.mirrorMaterial, 0);
             RenderGraphUtils.AddBlitPass(renderGraph, blitParams, "MirrorPass_Shader");
 
+            if (isCapture)
+            {
+                TextureHandle m1Target = renderGraph.ImportTexture(_debugM1Handle);
+                RenderGraphUtils.AddCopyPass(renderGraph, tempTex, m1Target, "MirrorPass_CaptureM1");
+            }
+
             // 2. tempTex -> activeColor (Copy Back)
             RenderGraphUtils.AddCopyPass(renderGraph, tempTex, activeColor, "MirrorPass_CopyBack");
+
+            if (isCapture)
+            {
+                TextureHandle m2Target = renderGraph.ImportTexture(_debugM2Handle);
+                RenderGraphUtils.AddCopyPass(renderGraph, activeColor, m2Target, "MirrorPass_CaptureM2");
+
+                string camName = cameraData.camera != null ? cameraData.camera.name : "Camera";
+                SaveDebugHandleToPNG(_debugM0Handle, System.IO.Path.Combine(captureDir, $"M0_{camName}.png"));
+                SaveDebugHandleToPNG(_debugM1Handle, System.IO.Path.Combine(captureDir, $"M1_{camName}.png"));
+                SaveDebugHandleToPNG(_debugM2Handle, System.IO.Path.Combine(captureDir, $"M2_{camName}.png"));
+                MirrorRendererFeature.RequestStageDebugCapture = false;
+            }
 
             if ((AppLogger.IsEnabled(_owner, MirrorRendererFeature.TagMirrorPassDebug) || AppLogger.IsEnabled(MirrorRendererFeature.TagMirrorPassDebug)) && Time.frameCount % 60 == 0)
             {
@@ -129,6 +172,32 @@ namespace SRD.Core
             }
         }
 #endif
+
+        private static void SaveDebugHandleToPNG(RTHandle handle, string path)
+        {
+            if (handle == null || handle.rt == null) return;
+            RenderTexture rt = handle.rt;
+            int width = rt.width;
+            int height = rt.height;
+            AsyncGPUReadback.Request(rt, 0, TextureFormat.RGBA32, request =>
+            {
+                if (request.hasError) return;
+                try
+                {
+                    Texture2D tex = new Texture2D(width, height, TextureFormat.RGBA32, false);
+                    tex.LoadRawTextureData(request.GetData<byte>());
+                    tex.Apply();
+                    System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path));
+                    System.IO.File.WriteAllBytes(path, tex.EncodeToPNG());
+                    UnityEngine.Object.Destroy(tex);
+                    Debug.Log($"[MirrorStageDebug] 保存完了: {System.IO.Path.GetFileName(path)} ({width}x{height})");
+                }
+                catch (System.Exception e)
+                {
+                    Debug.LogError($"[MirrorStageDebug] 保存失敗 {path}: {e.Message}");
+                }
+            });
+        }
 
         public override void OnCameraSetup(CommandBuffer cmd, ref RenderingData renderingData)
         {
@@ -142,14 +211,45 @@ namespace SRD.Core
         {
             if (_settings.mirrorMaterial == null) return;
 
+            _settings.mirrorMaterial.SetFloat("_LosslessMirrorMode", MirrorRendererFeature.LosslessMirrorMode ? 1.0f : 0.0f);
+
             CommandBuffer cmd = CommandBufferPool.Get("MirrorRendererFeature");
             RTHandle cameraColorTarget = renderingData.cameraData.renderer.cameraColorTargetHandle;
+
+            bool isCapture = MirrorRendererFeature.RequestStageDebugCapture && !string.IsNullOrEmpty(MirrorRendererFeature.StageDebugCaptureDir);
+            string captureDir = MirrorRendererFeature.StageDebugCaptureDir;
+
+            if (isCapture)
+            {
+                RenderTextureDescriptor desc = cameraColorTarget.rt != null ? cameraColorTarget.rt.descriptor : renderingData.cameraData.cameraTargetDescriptor;
+                desc.depthBufferBits = 0;
+                RenderingUtils.ReAllocateHandleIfNeeded(ref _debugM0Handle, desc, name: "PCD_M0_Debug");
+                RenderingUtils.ReAllocateHandleIfNeeded(ref _debugM1Handle, desc, name: "PCD_M1_Debug");
+                RenderingUtils.ReAllocateHandleIfNeeded(ref _debugM2Handle, desc, name: "PCD_M2_Debug");
+
+                cmd.Blit(cameraColorTarget, _debugM0Handle);
+            }
 
             // 1. cameraColorTarget -> _tempTextureHandle (反転シェーダー適用)
             Blit(cmd, cameraColorTarget, _tempTextureHandle, _settings.mirrorMaterial, 0);
 
+            if (isCapture)
+            {
+                cmd.Blit(_tempTextureHandle, _debugM1Handle);
+            }
+
             // 2. _tempTextureHandle -> cameraColorTarget (画面へ書き戻し)
             Blit(cmd, _tempTextureHandle, cameraColorTarget);
+
+            if (isCapture)
+            {
+                cmd.Blit(cameraColorTarget, _debugM2Handle);
+                string camName = renderingData.cameraData.camera != null ? renderingData.cameraData.camera.name : "Camera";
+                SaveDebugHandleToPNG(_debugM0Handle, System.IO.Path.Combine(captureDir, $"M0_{camName}.png"));
+                SaveDebugHandleToPNG(_debugM1Handle, System.IO.Path.Combine(captureDir, $"M1_{camName}.png"));
+                SaveDebugHandleToPNG(_debugM2Handle, System.IO.Path.Combine(captureDir, $"M2_{camName}.png"));
+                MirrorRendererFeature.RequestStageDebugCapture = false;
+            }
 
             context.ExecuteCommandBuffer(cmd);
             CommandBufferPool.Release(cmd);
@@ -233,6 +333,9 @@ namespace SRD.Core
         public void Dispose()
         {
             _tempTextureHandle?.Release();
+            _debugM0Handle?.Release();
+            _debugM1Handle?.Release();
+            _debugM2Handle?.Release();
         }
     }
 }

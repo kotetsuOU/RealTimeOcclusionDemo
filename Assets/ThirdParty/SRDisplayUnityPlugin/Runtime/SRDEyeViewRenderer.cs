@@ -42,8 +42,105 @@ namespace SRD.Core
     }
 
 
+    public static class SRDStageDebugBridge
+    {
+        public static bool RequestStageDebugCapture = false;
+        public static string StageDebugCaptureDir = null;
+        public static string StageDebugFilePrefix = "";
+    }
+
     internal class SRDEyeViewRenderer : ISRDEyeViewRenderer
     {
+        public static bool RequestStageDebugCapture
+        {
+            get => SRDStageDebugBridge.RequestStageDebugCapture;
+            set => SRDStageDebugBridge.RequestStageDebugCapture = value;
+        }
+
+        public static string StageDebugCaptureDir
+        {
+            get => SRDStageDebugBridge.StageDebugCaptureDir;
+            set => SRDStageDebugBridge.StageDebugCaptureDir = value;
+        }
+
+        public static string StageDebugFilePrefix
+        {
+            get => SRDStageDebugBridge.StageDebugFilePrefix;
+            set => SRDStageDebugBridge.StageDebugFilePrefix = value;
+        }
+
+        private static void SaveRenderTextureToPng(RenderTexture rt, string filePath)
+        {
+            if (rt == null || string.IsNullOrEmpty(filePath)) return;
+            RenderTexture prev = RenderTexture.active;
+            Texture2D tex = new Texture2D(rt.width, rt.height, TextureFormat.RGBA32, false);
+            RenderTexture.active = rt;
+            tex.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
+            tex.Apply();
+            RenderTexture.active = prev;
+            System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(filePath));
+            System.IO.File.WriteAllBytes(filePath, tex.EncodeToPNG());
+            UnityEngine.Object.Destroy(tex);
+        }
+
+        private void ProcessHomographyAndLowPass(EyeType type)
+        {
+            bool doCapture = RequestStageDebugCapture && !string.IsNullOrEmpty(StageDebugCaptureDir) && type == EyeType.Left;
+            string prefix = !string.IsNullOrEmpty(StageDebugFilePrefix) ? StageDebugFilePrefix + "_" : "";
+
+            // Stage 0: 補正直前 (Pre-Correction: カメラ描画そのままでホモグラフィもローパスも通っていない状態)
+            if (doCapture)
+            {
+                SaveRenderTextureToPng(_eyeCamera[type].targetTexture, System.IO.Path.Combine(StageDebugCaptureDir, $"{prefix}SRD_0_PreCorrection.png"));
+            }
+
+            if (_srdManager.IsLensShiftEnabled)
+            {
+                if (!_srdManager.IsPerformancePriorityEnabled)
+                {
+                    var rt = RenderTexture.GetTemporary(_eyeCamera[type].targetTexture.descriptor);
+                    Graphics.Blit(_eyeCamera[type].targetTexture, rt, _eyeCamLowpassMaterial[type]);
+                    if (doCapture)
+                    {
+                        SaveRenderTextureToPng(rt, System.IO.Path.Combine(StageDebugCaptureDir, $"{prefix}SRD_2_PostLowPass.png"));
+                    }
+                    Graphics.Blit(rt, _eyeCamera[type].targetTexture);
+                    RenderTexture.ReleaseTemporary(rt);
+                }
+            }
+            else
+            {
+                var rt = RenderTexture.GetTemporary(_eyeCamera[type].targetTexture.descriptor);
+                Graphics.Blit(_eyeCamera[type].targetTexture, rt, _eyeCamMaterial[type]);
+                if (doCapture)
+                {
+                    SaveRenderTextureToPng(rt, System.IO.Path.Combine(StageDebugCaptureDir, $"{prefix}SRD_1_PostHomography.png"));
+                }
+
+                if (!_srdManager.IsPerformancePriorityEnabled)
+                {
+                    var rt2 = RenderTexture.GetTemporary(_eyeCamera[type].targetTexture.descriptor);
+                    Graphics.Blit(rt, rt2, _eyeCamLowpassMaterial[type]);
+                    if (doCapture)
+                    {
+                        SaveRenderTextureToPng(rt2, System.IO.Path.Combine(StageDebugCaptureDir, $"{prefix}SRD_2_PostLowPass.png"));
+                    }
+                    Graphics.Blit(rt2, _eyeCamera[type].targetTexture);
+                    RenderTexture.ReleaseTemporary(rt2);
+                }
+                else
+                {
+                    Graphics.Blit(rt, _eyeCamera[type].targetTexture);
+                }
+                RenderTexture.ReleaseTemporary(rt);
+            }
+
+            if (doCapture)
+            {
+                RequestStageDebugCapture = false;
+            }
+        }
+
         private SRDManager _srdManager;
         private ISRDFaceTracker _faceTracker;
 
@@ -270,30 +367,7 @@ namespace SRD.Core
                                 continue;
                             }
 
-                            if (_srdManager.IsLensShiftEnabled)
-                            {
-                                if (!_srdManager.IsPerformancePriorityEnabled)
-                                {
-                                    var rt = RenderTexture.GetTemporary(_eyeCamera[type].targetTexture.descriptor);
-                                    Graphics.Blit(_eyeCamera[type].targetTexture, rt, lowpassFilterMaterial);
-                                    Graphics.Blit(rt, _eyeCamera[type].targetTexture);
-                                    RenderTexture.ReleaseTemporary(rt);
-                                }
-                            }
-                            else
-                            {
-                                var rt = RenderTexture.GetTemporary(_eyeCamera[type].targetTexture.descriptor);
-                                Graphics.Blit(_eyeCamera[type].targetTexture, rt, homographyMaterial);
-                                if (!_srdManager.IsPerformancePriorityEnabled)
-                                {
-                                    Graphics.Blit(rt, _eyeCamera[type].targetTexture, lowpassFilterMaterial);
-                                }
-                                else
-                                {
-                                    Graphics.Blit(rt, _eyeCamera[type].targetTexture);
-                                }
-                                RenderTexture.ReleaseTemporary(rt);
-                            }
+                            ProcessHomographyAndLowPass(type);
                         }
                     };
                     _frameSRPPostCallback[type] = srpCallback;
@@ -312,30 +386,7 @@ namespace SRD.Core
                             return;
                         }
 
-                        if (_srdManager.IsLensShiftEnabled)
-                        {
-                            if (!_srdManager.IsPerformancePriorityEnabled)
-                            {
-                                var rt = RenderTexture.GetTemporary(_eyeCamera[type].targetTexture.descriptor);
-                                Graphics.Blit(_eyeCamera[type].targetTexture, rt, lowpassFilterMaterial);
-                                Graphics.Blit(rt, _eyeCamera[type].targetTexture);
-                                RenderTexture.ReleaseTemporary(rt);
-                            }
-                        }
-                        else
-                        {
-                            var rt = RenderTexture.GetTemporary(_eyeCamera[type].targetTexture.descriptor);
-                            Graphics.Blit(_eyeCamera[type].targetTexture, rt, homographyMaterial);
-                            if (!_srdManager.IsPerformancePriorityEnabled)
-                            {
-                                Graphics.Blit(rt, _eyeCamera[type].targetTexture, lowpassFilterMaterial);
-                            }
-                            else
-                            {
-                                Graphics.Blit(rt, _eyeCamera[type].targetTexture);
-                            }
-                            RenderTexture.ReleaseTemporary(rt);
-                        }
+                        ProcessHomographyAndLowPass(type);
                     };
                     _eyeCamSRPPostCallback[type] = srpCallback;
                     RenderPipelineManager.endCameraRendering += _eyeCamSRPPostCallback[type];
