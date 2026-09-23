@@ -30,6 +30,27 @@ from PIL import Image
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
 
+# 同一ディレクトリの export_occlusion_diff_maps から可視化モジュールをインポート
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if SCRIPT_DIR not in sys.path:
+    sys.path.append(SCRIPT_DIR)
+
+from export_occlusion_diff_maps import save_mask_diff_and_montage
+
+def flip_sector_mask_bits(m):
+    """8セクター占有マスクの各ビットを水平鏡像反転 (0->0, 1<->7, 2<->6, 3<->5, 4->4)"""
+    b0 = (m >> 0) & 1
+    b1 = (m >> 1) & 1
+    b2 = (m >> 2) & 1
+    b3 = (m >> 3) & 1
+    b4 = (m >> 4) & 1
+    b5 = (m >> 5) & 1
+    b6 = (m >> 6) & 1
+    b7 = (m >> 7) & 1
+    return (b0 << 0) | (b7 << 1) | (b6 << 2) | (b5 << 3) | (b4 << 4) | (b3 << 5) | (b2 << 6) | (b1 << 7)
+
+FLIP_SECTOR_LUT = np.array([flip_sector_mask_bits(i) for i in range(256)], dtype=np.uint8)
+
 def load_mono_image(path):
     img = np.array(Image.open(path))
     if img.ndim == 3:
@@ -50,7 +71,7 @@ def find_file_in_ancestors(start_dir, target_rel_paths, max_levels=10):
         cur = parent
     return None
 
-def verify_dataset(root_dir, test_th=128):
+def verify_dataset(root_dir, test_th=128, export_diff=True):
     # StageDiagnosis フォルダまたは親ディレクトリを探索
     target_dirs = []
     if os.path.exists(os.path.join(root_dir, "vo_silhouette_pre_correction.png")) or \
@@ -87,16 +108,58 @@ def verify_dataset(root_dir, test_th=128):
     total_checked = 0
 
     for cur_dir in target_dirs:
+        # パスから眼 (Left / Right) を厳密に判定
+        norm_parts = os.path.normpath(cur_dir).split(os.sep)
+        eye_detected = None
+        for p in reversed(norm_parts):
+            if p in ["Left", "Right"]:
+                eye_detected = p
+                break
+
         # 1. VO シルエットの探索 (表示補正前 R)
-        vo_rel_candidates = [
-            "vo_silhouette_pre_correction.png",
-            "vo_silhouette_left.png",
-            "vo_silhouette_right.png",
-            os.path.join("GT", "Left", "vo_silhouette_left.png"),
-            os.path.join("GT", "vo_silhouette_left.png"),
-            os.path.join("GT", "Right", "vo_silhouette_right.png"),
-            os.path.join("GT", "vo_silhouette_right.png"),
-        ]
+        if eye_detected == "Right":
+            vo_rel_candidates = [
+                "vo_silhouette_right.png",
+                "vo_silhouette_pre_correction.png",
+                os.path.join("GT", "Right", "vo_silhouette_right.png"),
+                os.path.join("GT", "vo_silhouette_right.png"),
+            ]
+            gt_rel_candidates = [
+                "gt_depth_occluded_mask_right.png",
+                os.path.join("GT", "Right", "gt_depth_occluded_mask_right.png"),
+                os.path.join("GT", "gt_depth_occluded_mask_right.png"),
+            ]
+        elif eye_detected == "Left":
+            vo_rel_candidates = [
+                "vo_silhouette_left.png",
+                "vo_silhouette_pre_correction.png",
+                os.path.join("GT", "Left", "vo_silhouette_left.png"),
+                os.path.join("GT", "vo_silhouette_left.png"),
+            ]
+            gt_rel_candidates = [
+                "gt_depth_occluded_mask_left.png",
+                os.path.join("GT", "Left", "gt_depth_occluded_mask_left.png"),
+                os.path.join("GT", "gt_depth_occluded_mask_left.png"),
+            ]
+        else:
+            vo_rel_candidates = [
+                "vo_silhouette_pre_correction.png",
+                "vo_silhouette_left.png",
+                "vo_silhouette_right.png",
+                os.path.join("GT", "Left", "vo_silhouette_left.png"),
+                os.path.join("GT", "Right", "vo_silhouette_right.png"),
+                os.path.join("GT", "vo_silhouette_left.png"),
+                os.path.join("GT", "vo_silhouette_right.png"),
+            ]
+            gt_rel_candidates = [
+                "gt_depth_occluded_mask_left.png",
+                "gt_depth_occluded_mask_right.png",
+                os.path.join("GT", "Left", "gt_depth_occluded_mask_left.png"),
+                os.path.join("GT", "Right", "gt_depth_occluded_mask_right.png"),
+                os.path.join("GT", "gt_depth_occluded_mask_left.png"),
+                os.path.join("GT", "gt_depth_occluded_mask_right.png"),
+            ]
+
         vo_path = find_file_in_ancestors(cur_dir, vo_rel_candidates)
         if not vo_path:
             continue
@@ -108,14 +171,6 @@ def verify_dataset(root_dir, test_th=128):
             continue
 
         # 2. Ground Truth (Mesh Depth GT のみを受け入れ、陰影付きカラーGTフォールバックは排除)
-        gt_rel_candidates = [
-            "gt_depth_occluded_mask_left.png",
-            "gt_depth_occluded_mask_right.png",
-            os.path.join("GT", "Left", "gt_depth_occluded_mask_left.png"),
-            os.path.join("GT", "gt_depth_occluded_mask_left.png"),
-            os.path.join("GT", "Right", "gt_depth_occluded_mask_right.png"),
-            os.path.join("GT", "gt_depth_occluded_mask_right.png"),
-        ]
         gt_path = find_file_in_ancestors(cur_dir, gt_rel_candidates)
         gt_occ = None
         gt_vis = None
@@ -146,52 +201,76 @@ def verify_dataset(root_dir, test_th=128):
         if os.path.exists(a_bin_path):
             a_raw = np.fromfile(a_bin_path, dtype=np.uint32)
             if a_raw.size == H * W:
-                a_2d = np.flipud(a_raw.reshape((H, W)))
-                occupied_mask = (a_2d & 0xFF).astype(np.uint8)
+                # v反転 (flipud) と u反転 (fliplr) を適用して表示座標系 (GT座標系) に整合
+                a_2d = np.fliplr(np.flipud(a_raw.reshape((H, W))))
+                occupied_mask = FLIP_SECTOR_LUT[(a_2d & 0xFF).astype(np.uint8)]
                 evaluated_mask = ((a_2d >> 12) & 1) != 0
                 sector_occ_mask = ((a_2d >> 13) & 1) != 0
         
         if os.path.exists(origin_bin_path):
             orig_raw = np.fromfile(origin_bin_path, dtype=np.uint32)
             if orig_raw.size == H * W:
-                origin_type_map = np.flipud(orig_raw.reshape((H, W)))
+                origin_type_map = np.fliplr(np.flipud(orig_raw.reshape((H, W))))
 
-        # PNG からの補完 (バイナリがない場合)
+        # PNG からの補完 (Point A 直接座標系画像なので fliplr で表示座標系に整合)
         if evaluated_mask is None and os.path.exists(eval_png_path):
-            evaluated_mask = (load_mono_image(eval_png_path) > 128)
+            evaluated_mask = np.fliplr(load_mono_image(eval_png_path) > 128)
         if sector_occ_mask is None and os.path.exists(sector_occ_png_path):
-            sector_occ_mask = (load_mono_image(sector_occ_png_path) > 128)
+            sector_occ_mask = np.fliplr(load_mono_image(sector_occ_png_path) > 128)
         if origin_type_map is None and os.path.exists(origin_png_path):
-            origin_type_map = load_mono_image(origin_png_path)
+            origin_type_map = np.fliplr(load_mono_image(origin_png_path))
 
-        # 個別8枚マスクからの占有パターン復元
+        # 個別8枚マスクからの占有パターン復元 (fliplr + セクタービット鏡像整合)
         if occupied_mask is None:
             sector_png_map = {}
             for k in range(8):
-                p_cands = [
-                    os.path.join(cur_dir, f"sector_{k}_mask_left.png"),
-                    os.path.join(cur_dir, f"sector_{k}_mask_right.png"),
-                    os.path.join(cur_dir, f"sector_{k}_mask.png")
-                ]
+                if eye_detected == "Right":
+                    p_cands = [
+                        os.path.join(cur_dir, f"sector_{k}_mask_right.png"),
+                        os.path.join(cur_dir, f"sector_{k}_mask.png")
+                    ]
+                elif eye_detected == "Left":
+                    p_cands = [
+                        os.path.join(cur_dir, f"sector_{k}_mask_left.png"),
+                        os.path.join(cur_dir, f"sector_{k}_mask.png")
+                    ]
+                else:
+                    p_cands = [
+                        os.path.join(cur_dir, f"sector_{k}_mask_left.png"),
+                        os.path.join(cur_dir, f"sector_{k}_mask_right.png"),
+                        os.path.join(cur_dir, f"sector_{k}_mask.png")
+                    ]
                 p = next((c for c in p_cands if os.path.exists(c)), None)
                 if p:
                     sector_png_map[k] = p
             if len(sector_png_map) == 8:
                 occupied_mask = np.zeros((H, W), dtype=np.uint8)
                 for k in range(8):
-                    sec_m = (load_mono_image(sector_png_map[k]) > 128)
-                    occupied_mask |= (sec_m.astype(np.uint8) << k)
+                    sec_m = np.fliplr(load_mono_image(sector_png_map[k]) > 128)
+                    k_flip = (8 - k) % 8
+                    occupied_mask |= (sec_m.astype(np.uint8) << k_flip)
 
         # 統合1枚マスク
         if occupied_mask is None:
-            unified_cands = [
-                os.path.join(cur_dir, "sector_mask_left.png"),
-                os.path.join(cur_dir, "sector_mask_right.png"),
-                os.path.join(cur_dir, "sector_mask.png")
-            ]
+            if eye_detected == "Right":
+                unified_cands = [
+                    os.path.join(cur_dir, "sector_mask_right.png"),
+                    os.path.join(cur_dir, "sector_mask.png")
+                ]
+            elif eye_detected == "Left":
+                unified_cands = [
+                    os.path.join(cur_dir, "sector_mask_left.png"),
+                    os.path.join(cur_dir, "sector_mask.png")
+                ]
+            else:
+                unified_cands = [
+                    os.path.join(cur_dir, "sector_mask_left.png"),
+                    os.path.join(cur_dir, "sector_mask_right.png"),
+                    os.path.join(cur_dir, "sector_mask.png")
+                ]
             u_p = next((c for c in unified_cands if os.path.exists(c)), None)
             if u_p:
-                occupied_mask = load_mono_image(u_p)
+                occupied_mask = FLIP_SECTOR_LUT[np.fliplr(load_mono_image(u_p))]
 
         if evaluated_mask is None:
             # 評価フラグ情報が得られない場合はスキップ
@@ -222,7 +301,11 @@ def verify_dataset(root_dir, test_th=128):
                     f"Invalid sector occlusion bit: bit 13 is set inside R but outside E ({invalid_bit_count} px)."
                 )
 
-        print(f"\n--- [{os.path.relpath(cur_dir, root_dir)}] ---")
+        eye_label = f" [{eye_detected}]" if eye_detected else ""
+        print(f"\n--- [{os.path.relpath(cur_dir, root_dir)}]{eye_label} ---")
+        print(f"  VOシルエット参照: {os.path.relpath(vo_path, root_dir)}")
+        if gt_path:
+            print(f"  Mesh Depth GT参照: {os.path.relpath(gt_path, root_dir)}")
         print(f"  VO領域 R: {total_vo:,} px")
         print(f"  セクター評価領域 E: {int(np.count_nonzero(E)):,} px ({100.0 * np.count_nonzero(E) / total_vo:.2f}%)")
         print(f"  点群直接遮蔽領域 D: {int(np.count_nonzero(D)):,} px ({100.0 * np.count_nonzero(D) / total_vo:.2f}%)")
@@ -262,29 +345,48 @@ def verify_dataset(root_dir, test_th=128):
                 saved_final_img = np.array(Image.open(final_occ_png_path))
                 if saved_final_img.ndim == 3:
                     saved_final_img = saved_final_img[:, :, 0]
-                # final_pred_occ = (E_occ | D) のみ。D_ghost は最終遮蔽に含まない
-                saved_final_occ = (saved_final_img > 128) & R
+                # 保存ファイル (Point A 直接座標系) を表示座標系に水平鏡像反転して照合
+                saved_final_occ = np.fliplr(saved_final_img > 128) & R
                 final_mismatch = int(np.count_nonzero(final_pred_occ != saved_final_occ))
-                print(f"  【最終遮蔽マスク合成検証】 (E_occ | D) vs 保存済final_mask:")
+                print(f"  【最終遮蔽マスク合成検証】 (E_occ | D) vs 保存済final_mask (fliplr整合):")
                 print(f"    不一致画素数: {final_mismatch} px")
                 if final_mismatch > 0:
                     raise ValueError(f"Final mask mismatch: {final_mismatch} px differ from saved direct final mask!")
 
-
             if gt_occ is not None and gt_vis is not None:
+                # 可視領域 (Visible) IoU
                 tp = int(np.count_nonzero(pred_vis & gt_vis))
                 fp = int(np.count_nonzero(pred_vis & (~gt_vis)))
                 fn = int(np.count_nonzero((~pred_vis) & gt_vis))
                 denom = tp + fp + fn
                 iou = (tp / denom * 100.0) if denom > 0 else 0.0
 
+                # 遮蔽領域 (Occluded) IoU
+                tp_occ = int(np.count_nonzero(final_pred_occ & gt_occ))
+                fp_occ = int(np.count_nonzero(final_pred_occ & (~gt_occ)))
+                fn_occ = int(np.count_nonzero((~final_pred_occ) & gt_occ))
+                denom_occ = tp_occ + fp_occ + fn_occ
+                iou_occ = (tp_occ / denom_occ * 100.0) if denom_occ > 0 else 0.0
+
                 diff_gt = int(np.count_nonzero(final_pred_occ != gt_occ))
                 match_gt = 100.0 * (1.0 - diff_gt / total_vo)
 
-                print(f"  【検証2: Mesh Depth GT評価 (R全域)】")
+                print(f"  【検証2: Mesh Depth GT評価 (R全域, u/v反転整合)】")
                 print(f"    遮蔽一致率: {match_gt:.4f}% (不一致: {diff_gt:,} px)")
-                print(f"    可視領域 IoU: {iou:.4f}%")
-                print(f"    混同行列: TP={tp:,}, FP={fp:,}, FN={fn:,}, 分母(TP+FP+FN)={denom:,}")
+                print(f"    可視領域 IoU: {iou:.4f}% (TP={tp:,}, FP={fp:,}, FN={fn:,})")
+                print(f"    遮蔽領域 IoU: {iou_occ:.4f}% (TP={tp_occ:,}, FP={fp_occ:,}, FN={fn_occ:,})")
+
+                # 差分可視化マップ & モンタージュ生成 (export_occlusion_diff_maps と統一)
+                if export_diff:
+                    rel_dir_label = os.path.relpath(cur_dir, root_dir).replace("\\", "/")
+                    title_str = f"{rel_dir_label}"
+                    if eye_detected and eye_detected not in title_str:
+                        title_str += f" [{eye_detected}]"
+                    diff_mask_p, montage_p = save_mask_diff_and_montage(
+                        cur_dir, R, gt_vis, pred_vis, title=title_str
+                    )
+                    print(f"    差分マスク保存    : {os.path.relpath(diff_mask_p, root_dir)}")
+                    print(f"    モンタージュ保存  : {os.path.relpath(montage_p, root_dir)}")
 
         total_checked += 1
 
@@ -297,6 +399,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="セクター占有マスク・直接遮蔽・最終遮蔽マスク 厳密自動検証ツール")
     parser.add_argument("target_dir", nargs="?", default=r"C:\Users\hongo\Documents\tsutsumi\Estimation\SICESI_Dataset", help="データセットルート")
     parser.add_argument("--test-th", type=int, default=128, help="実測Test画像の二値化閾値 (0..255, デフォルト 128)")
+    parser.add_argument("--no-diff-export", action="store_true", help="差分マスクおよびモンタージュ画像の保存をスキップする")
     args = parser.parse_args()
 
-    verify_dataset(args.target_dir, test_th=args.test_th)
+    verify_dataset(args.target_dir, test_th=args.test_th, export_diff=(not args.no_diff_export))

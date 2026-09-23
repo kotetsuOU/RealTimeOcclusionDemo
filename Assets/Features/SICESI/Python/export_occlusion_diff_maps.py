@@ -45,6 +45,7 @@ if hasattr(sys.stdout, 'reconfigure'):
 
 import cv2
 import numpy as np
+from PIL import Image
 
 # 配色定義 (RGB)
 COLOR_CORRECT   = np.array([200, 200, 200], dtype=np.uint8)  # 正しく表示（薄いグレー）
@@ -186,6 +187,149 @@ class OcclusionDiffVisualizer:
         return canvas
 
 
+class MaskDiffVisualizer:
+    """
+    仮想オブジェクト領域 R における GT可視 vs 予測可視の二値マスクから
+    カラー差分マスクおよび3ペイン横連結モンタージュ画像を生成する可視化クラス
+    """
+    def __init__(self, R: np.ndarray, gt_vis: np.ndarray, pred_vis: np.ndarray):
+        self.R = R.astype(bool)
+        self.gt_vis = gt_vis.astype(bool) & self.R
+        self.pred_vis = pred_vis.astype(bool) & self.R
+        self.h, self.w = self.R.shape[:2]
+
+        # 4分割の論理判定 (R の内部のみ)
+        self.tp_mask = self.gt_vis & self.pred_vis                  # 正しく可視 (白/薄グレー)
+        self.fn_mask = self.gt_vis & (~self.pred_vis)               # 誤って遮蔽 (赤: 過剰遮蔽)
+        self.fp_mask = (~self.gt_vis) & self.pred_vis               # 誤って透過 (青: 遮蔽漏れ)
+        self.tn_mask = (~self.gt_vis) & (~self.pred_vis) & self.R   # 正しく遮蔽 (暗グレー)
+        self.bg_mask = ~self.R                                     # 背景 (完全な黒)
+
+    def get_statistics(self) -> Dict[str, float]:
+        total_r = int(np.sum(self.R))
+        tp_px = int(np.sum(self.tp_mask))
+        fn_px = int(np.sum(self.fn_mask))
+        fp_px = int(np.sum(self.fp_mask))
+        tn_px = int(np.sum(self.tn_mask))
+        denom_vis = tp_px + fp_px + fn_px
+        iou_vis = (tp_px / denom_vis) if denom_vis > 0 else 0.0
+
+        # 遮蔽 (Occlusion) の IoU
+        denom_occ = tn_px + fp_px + fn_px
+        iou_occ = (tn_px / denom_occ) if denom_occ > 0 else 0.0
+
+        match_rate = ((tp_px + tn_px) / total_r) if total_r > 0 else 1.0
+
+        return {
+            "Total_R": total_r,
+            "TP_pixels": tp_px,
+            "FN_pixels": fn_px,
+            "FP_pixels": fp_px,
+            "TN_pixels": tn_px,
+            "IoU_Visible": iou_vis,
+            "IoU_Occluded": iou_occ,
+            "MatchRate": match_rate,
+            "OverOccRate": (fn_px / total_r) if total_r > 0 else 0.0,
+            "UnderOccRate": (fp_px / total_r) if total_r > 0 else 0.0,
+        }
+
+    def generate_diff_mask(self) -> np.ndarray:
+        """4色差分マスクを生成 (RGB)"""
+        diff_img = np.zeros((self.h, self.w, 3), dtype=np.uint8) # 背景: 黒 [0, 0, 0]
+        diff_img[self.tn_mask] = np.array([30, 30, 30], dtype=np.uint8) # 正しく遮蔽 (暗グレー)
+        diff_img[self.tp_mask] = COLOR_CORRECT                          # 正しく可視 (薄グレー [200, 200, 200])
+        diff_img[self.fn_mask] = COLOR_OVER_OCC                         # 誤遮蔽 (赤 [255, 45, 45])
+        diff_img[self.fp_mask] = COLOR_UNDER_OCC                        # 誤透過 (青 [30, 144, 255])
+        return diff_img
+
+    def generate_montage(self, title: str = "", panel_w: int = 1280, panel_h: int = 720) -> np.ndarray:
+        """[GT Mesh Depth | Prediction | Error Map] の3ペイン横連結モンタージュを生成 (RGB)"""
+        # GT パネル (可視: 白, 遮蔽: 暗グレー, 背景: 黒)
+        gt_panel = np.zeros((self.h, self.w, 3), dtype=np.uint8)
+        gt_panel[self.tn_mask | self.fp_mask] = np.array([40, 40, 40], dtype=np.uint8)
+        gt_panel[self.tp_mask | self.fn_mask] = np.array([240, 240, 240], dtype=np.uint8)
+
+        # Prediction パネル (予測可視: 白, 予測遮蔽: 暗グレー, 背景: 黒)
+        pred_panel = np.zeros((self.h, self.w, 3), dtype=np.uint8)
+        pred_panel[self.tn_mask | self.fn_mask] = np.array([40, 40, 40], dtype=np.uint8)
+        pred_panel[self.tp_mask | self.fp_mask] = np.array([240, 240, 240], dtype=np.uint8)
+
+        # 差分マスク
+        diff_mask = self.generate_diff_mask()
+
+        stats = self.get_statistics()
+
+        # 指定サイズにリサイズ
+        p1 = cv2.resize(gt_panel, (panel_w, panel_h), interpolation=cv2.INTER_NEAREST)
+        p2 = cv2.resize(pred_panel, (panel_w, panel_h), interpolation=cv2.INTER_NEAREST)
+        p3 = cv2.resize(diff_mask, (panel_w, panel_h), interpolation=cv2.INTER_NEAREST)
+
+        header_h, footer_h = 45, 60
+        total_w = panel_w * 3
+        total_h = panel_h + header_h + footer_h
+
+        canvas = np.zeros((total_h, total_w, 3), dtype=np.uint8)
+        panels = [p1, p2, p3]
+        labels = ["1. GT Mesh Depth (Reference)", "2. Prediction (Point A, u/v flipped)", "3. Error Map (Over:Red, Under:Blue)"]
+
+        for i, (p, label) in enumerate(zip(panels, labels)):
+            xs = i * panel_w
+            canvas[header_h:header_h + panel_h, xs:xs + panel_w] = p
+            cv2.putText(canvas, label, (xs + 20, 32), cv2.FONT_HERSHEY_SIMPLEX, 0.85, (230, 230, 230), 2, cv2.LINE_AA)
+            if i > 0:
+                cv2.line(canvas, (xs, 0), (xs, total_h), (70, 70, 70), 1)
+
+        if title:
+            cv2.putText(canvas, f"[{title}]", (total_w - 650, 32), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (180, 180, 180), 2, cv2.LINE_AA)
+
+        footer_y = header_h + panel_h + 38
+        chip_y = header_h + panel_h + 18
+        chip_h, chip_w = 22, 22
+
+        # 赤チップ: 誤遮蔽
+        cv2.rectangle(canvas, (30, chip_y), (30 + chip_w, chip_y + chip_h), [int(c) for c in COLOR_OVER_OCC], -1)
+        cv2.putText(canvas, f"Over-occlusion (FN): {stats['FN_pixels']:,} px ({stats['OverOccRate']*100:.2f}%)",
+                    (60, footer_y - 2), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 120, 120), 2, cv2.LINE_AA)
+
+        # 青チップ: 誤透過
+        x2 = int(total_w * 0.35)
+        cv2.rectangle(canvas, (x2, chip_y), (x2 + chip_w, chip_y + chip_h), [int(c) for c in COLOR_UNDER_OCC], -1)
+        cv2.putText(canvas, f"Under-occlusion (FP): {stats['FP_pixels']:,} px ({stats['UnderOccRate']*100:.2f}%)",
+                    (x2 + 32, footer_y - 2), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (100, 190, 255), 2, cv2.LINE_AA)
+
+        # メトリクス: 一致率 & IoU
+        x3 = int(total_w * 0.70)
+        cv2.putText(canvas, f"Vis-IoU: {stats['IoU_Visible']*100:.2f}% | Occ-Match: {stats['MatchRate']*100:.2f}%",
+                    (x3, footer_y - 2), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 255, 180), 2, cv2.LINE_AA)
+
+        return canvas
+
+
+def save_mask_diff_and_montage(
+    save_dir: str,
+    R: np.ndarray,
+    gt_vis: np.ndarray,
+    pred_vis: np.ndarray,
+    title: str = "",
+    prefix: str = "eval_gt_diff_"
+) -> Tuple[str, str]:
+    """二値マスクから差分マスクおよびモンタージュ画像を生成し、save_dir に保存する"""
+    os.makedirs(save_dir, exist_ok=True)
+    vis = MaskDiffVisualizer(R, gt_vis, pred_vis)
+
+    # 1. 差分マスク (原寸大 3840x2160)
+    diff_mask = vis.generate_diff_mask()
+    mask_path = os.path.join(save_dir, f"{prefix}mask.png")
+    cv2.imwrite(mask_path, cv2.cvtColor(diff_mask, cv2.COLOR_RGB2BGR))
+
+    # 2. 3ペインモンタージュ (幅 3840x825)
+    montage = vis.generate_montage(title=title)
+    montage_path = os.path.join(save_dir, f"{prefix}montage.png")
+    cv2.imwrite(montage_path, cv2.cvtColor(montage, cv2.COLOR_RGB2BGR))
+
+    return mask_path, montage_path
+
+
 def natural_sort_key(s: str):
     return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', s)]
 
@@ -195,6 +339,21 @@ def find_first_image(folder_path: str) -> Optional[str]:
         files = glob.glob(os.path.join(folder_path, ext))
         if files:
             return sorted(files)[0]
+    return None
+
+
+def find_file_in_ancestors(start_dir: str, target_rel_paths: List[str], max_levels: int = 10) -> Optional[str]:
+    """祖先ディレクトリを遡って最初に存在するファイルパスを返す"""
+    cur = os.path.abspath(start_dir)
+    for _ in range(max_levels):
+        for rel in target_rel_paths:
+            candidate = os.path.join(cur, rel)
+            if os.path.exists(candidate):
+                return candidate
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            break
+        cur = parent
     return None
 
 
@@ -343,6 +502,119 @@ def main():
             gt_eye_dir = os.path.join(target_gt_dir, eye)
             test_eye_dir = os.path.join(test_dir, eye)
 
+            # 保存先ディレクトリの決定:
+            # --in-place の場合は各眼のフォルダ (test_dir/Left, test_dir/Right) の直下に保存
+            # それ以外は base_output_dir/cond 配下に保存
+            if args.in_place:
+                save_dir = test_eye_dir
+                prefix = "diff_"
+            else:
+                save_dir = cond_out_dir
+                prefix = f"diff_{eye.lower()}_"
+
+            title = f"{cond} [{eye}]"
+
+            # --- Point A / 生マスク評価モードの判定 ---
+            is_point_a = (
+                os.path.exists(os.path.join(test_eye_dir, "A_raw_uint32.bin")) or
+                os.path.exists(os.path.join(test_eye_dir, "final_occlusion_mask_direct.png")) or
+                os.path.exists(os.path.join(test_eye_dir, "evaluated_mask_pre_correction.png"))
+            )
+
+            if is_point_a:
+                # 1. VO シルエットの探索
+                vo_rel_cands = [
+                    f"vo_silhouette_{eye.lower()}.png",
+                    "vo_silhouette_pre_correction.png",
+                    os.path.join("GT", eye, f"vo_silhouette_{eye.lower()}.png"),
+                    os.path.join("GT", f"vo_silhouette_{eye.lower()}.png"),
+                ]
+                vo_path = find_file_in_ancestors(test_eye_dir, vo_rel_cands)
+                if not vo_path and os.path.exists(os.path.join(target_gt_dir, eye, f"vo_silhouette_{eye.lower()}.png")):
+                    vo_path = os.path.join(target_gt_dir, eye, f"vo_silhouette_{eye.lower()}.png")
+
+                # 2. GT 遮蔽マスクの探索 (Mesh Depth GT を最優先)
+                gt_cands = [
+                    f"gt_depth_occluded_mask_{eye.lower()}.png",
+                    os.path.join("GT", eye, f"gt_depth_occluded_mask_{eye.lower()}.png"),
+                    os.path.join("GT", f"gt_depth_occluded_mask_{eye.lower()}.png"),
+                ]
+                gt_mask_path = find_file_in_ancestors(test_eye_dir, gt_cands)
+                if not gt_mask_path and os.path.exists(os.path.join(target_gt_dir, eye, f"gt_depth_occluded_mask_{eye.lower()}.png")):
+                    gt_mask_path = os.path.join(target_gt_dir, eye, f"gt_depth_occluded_mask_{eye.lower()}.png")
+                if not gt_mask_path:
+                    c_img = find_first_image(gt_eye_dir)
+                    if c_img:
+                        gt_mask_path = c_img
+
+                if not (vo_path and gt_mask_path):
+                    print(f"  - {eye}: VOまたはGTマスクが見つかりません (VO: {vo_path}, GT: {gt_mask_path})", flush=True)
+                    continue
+
+                vo_img = np.array(Image.open(vo_path))
+                if vo_img.ndim == 3:
+                    vo_img = vo_img[:, :, 0]
+                R = vo_img > 128
+
+                gt_img = np.array(Image.open(gt_mask_path))
+                if gt_img.ndim == 3:
+                    gt_img = gt_img[:, :, 0]
+                gt_occ = (gt_img > 128) & R
+                gt_vis = R & (~gt_occ)
+
+                # 3. 予測遮蔽マスクの復元 (Point A 直接座標系 → 表示座標系 fliplr)
+                H, W = R.shape[:2]
+                a_bin_path = os.path.join(test_eye_dir, "A_raw_uint32.bin")
+                orig_bin_path = os.path.join(test_eye_dir, "origin_type_raw_uint32.bin")
+                final_png_path = os.path.join(test_eye_dir, "final_occlusion_mask_direct.png")
+
+                final_pred_occ = None
+                if os.path.exists(a_bin_path):
+                    a_raw = np.fromfile(a_bin_path, dtype=np.uint32)
+                    if a_raw.size == H * W:
+                        a_2d = np.fliplr(np.flipud(a_raw.reshape((H, W))))
+                        e_mask = ((a_2d >> 12) & 1) != 0
+                        sec_occ = ((a_2d >> 13) & 1) != 0
+                        if os.path.exists(orig_bin_path):
+                            o_raw = np.fromfile(orig_bin_path, dtype=np.uint32)
+                            if o_raw.size == H * W:
+                                o_2d = np.fliplr(np.flipud(o_raw.reshape((H, W))))
+                                d_mask = R & (~e_mask) & (o_2d == 0)
+                            else:
+                                d_mask = R & (~e_mask)
+                        else:
+                            d_mask = R & (~e_mask)
+                        final_pred_occ = (sec_occ & e_mask) | d_mask
+
+                if final_pred_occ is None and os.path.exists(final_png_path):
+                    f_img = np.array(Image.open(final_png_path))
+                    if f_img.ndim == 3:
+                        f_img = f_img[:, :, 0]
+                    final_pred_occ = np.fliplr(f_img > 128) & R
+
+                if final_pred_occ is None:
+                    print(f"  - {eye}: 予測遮蔽マスクを復元できませんでした。", flush=True)
+                    continue
+
+                pred_vis = R & (~final_pred_occ)
+
+                # MaskDiffVisualizer で評価 & 出力
+                vis_mask = MaskDiffVisualizer(R, gt_vis, pred_vis)
+                stats = vis_mask.get_statistics()
+
+                os.makedirs(save_dir, exist_ok=True)
+                if args.mode in ("all", "mask"):
+                    diff_m = vis_mask.generate_diff_mask()
+                    out_path = os.path.join(save_dir, f"{prefix}mask.png") if args.in_place else os.path.join(save_dir, f"diff_mask_{eye.lower()}.png")
+                    cv2.imwrite(out_path, cv2.cvtColor(diff_m, cv2.COLOR_RGB2BGR))
+                if args.mode in ("all", "montage"):
+                    mont = vis_mask.generate_montage(title=title)
+                    out_path = os.path.join(save_dir, f"{prefix}montage.png") if args.in_place else os.path.join(save_dir, f"diff_montage_{eye.lower()}.png")
+                    cv2.imwrite(out_path, cv2.cvtColor(mont, cv2.COLOR_RGB2BGR))
+
+                print(f"  - {eye:<5} (Point A 生マスク): 可視IoU={stats['IoU_Visible']*100:.2f}% | 遮蔽IoU={stats['IoU_Occluded']*100:.2f}% | 一致率={stats['MatchRate']*100:.2f}% | 誤遮蔽(赤)={stats['FN_pixels']:,}px ({stats['OverOccRate']*100:.2f}%) | 誤透過(青)={stats['FP_pixels']:,}px ({stats['UnderOccRate']*100:.2f}%)", flush=True)
+                continue
+
             gt_img_path = find_first_image(gt_eye_dir)
             test_img_path = find_first_image(test_eye_dir)
 
@@ -362,18 +634,6 @@ def main():
 
             vis = OcclusionDiffVisualizer(gt_rgb, test_rgb)
             stats = vis.get_statistics()
-
-            title = f"{cond} [{eye}]"
-
-            # 保存先ディレクトリの決定:
-            # --in-place の場合は各眼のフォルダ (test_dir/Left, test_dir/Right) の直下に保存
-            # それ以外は base_output_dir/cond 配下に保存
-            if args.in_place:
-                save_dir = test_eye_dir
-                prefix = "diff_"
-            else:
-                save_dir = cond_out_dir
-                prefix = f"diff_{eye.lower()}_"
 
             # 1) 差分マスク
             if args.mode in ("all", "mask"):

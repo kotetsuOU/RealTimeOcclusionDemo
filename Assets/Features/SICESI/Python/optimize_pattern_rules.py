@@ -213,6 +213,20 @@ RULES_20_CANDIDATES = [
 
 EXCLUDED_DIR_PATTERNS = ["Bouchiba_", "RuleOptimizationResults", "DiffMaps"]
 
+def flip_sector_mask_bits(m):
+    """8セクター占有マスクの各ビットを水平鏡像反転 (0->0, 1<->7, 2<->6, 3<->5, 4->4)"""
+    b0 = (m >> 0) & 1
+    b1 = (m >> 1) & 1
+    b2 = (m >> 2) & 1
+    b3 = (m >> 3) & 1
+    b4 = (m >> 4) & 1
+    b5 = (m >> 5) & 1
+    b6 = (m >> 6) & 1
+    b7 = (m >> 7) & 1
+    return (b0 << 0) | (b7 << 1) | (b6 << 2) | (b5 << 3) | (b4 << 4) | (b3 << 5) | (b2 << 6) | (b1 << 7)
+
+FLIP_SECTOR_LUT = np.array([flip_sector_mask_bits(i) for i in range(256)], dtype=np.uint8)
+
 def load_mono_image(path):
     img = np.array(Image.open(path))
     if img.ndim == 3:
@@ -344,23 +358,24 @@ def auto_generate_missing_pattern_counts(root_dir, lut):
             latest_raw = raw_files[-1]
             raw_data = np.fromfile(latest_raw, dtype=np.uint32)
             if raw_data.size == H * W:
-                raw_2d = np.flipud(raw_data.reshape((H, W)))
-                occupied_mask = (raw_2d & 0xFF).astype(np.uint8)
+                # v反転 (flipud) と u反転 (fliplr) を適用して表示座標系 (GT座標系) に整合
+                raw_2d = np.fliplr(np.flipud(raw_data.reshape((H, W))))
+                occupied_mask = FLIP_SECTOR_LUT[(raw_2d & 0xFF).astype(np.uint8)]
                 is_evaluated = ((raw_2d >> 12) & 0x01) == 1
 
         if os.path.exists(origin_bin_path):
             orig_raw = np.fromfile(origin_bin_path, dtype=np.uint32)
             if orig_raw.size == H * W:
-                origin_type_map = np.flipud(orig_raw.reshape((H, W)))
+                origin_type_map = np.fliplr(np.flipud(orig_raw.reshape((H, W))))
 
-        # PNG からの補完
+        # PNG からの補完 (Point A 直接座標系画像なので fliplr で表示座標系に整合)
         if is_evaluated is None and os.path.exists(eval_png_path):
-            is_evaluated = (load_mono_image(eval_png_path) > 128)
+            is_evaluated = np.fliplr(load_mono_image(eval_png_path) > 128)
         if origin_type_map is None and os.path.exists(origin_png_path):
-            origin_type_map = load_mono_image(origin_png_path)
+            origin_type_map = np.fliplr(load_mono_image(origin_png_path))
 
         if occupied_mask is None:
-            # 個別8セクターマスク探索
+            # 個別8セクターマスク探索 (fliplr + セクタービット鏡像整合)
             sector_pngs = sorted(glob.glob(os.path.join(eye_dir, f"sector_*_mask_{eye.lower()}.png")) + glob.glob(os.path.join(eye_dir, "sector_*_mask.png")))
             sector_map = {}
             for p in sector_pngs:
@@ -373,8 +388,9 @@ def auto_generate_missing_pattern_counts(root_dir, lut):
             if len(sector_map) == 8:
                 occupied_mask = np.zeros((H, W), dtype=np.uint8)
                 for sec_id in range(8):
-                    sec_bit = (load_mono_image(sector_map[sec_id]) > 128)
-                    occupied_mask |= (sec_bit.astype(np.uint8) << sec_id)
+                    sec_bit = np.fliplr(load_mono_image(sector_map[sec_id]) > 128)
+                    sec_flip = (8 - sec_id) % 8
+                    occupied_mask |= (sec_bit.astype(np.uint8) << sec_flip)
 
         if occupied_mask is None:
             unified_candidates = [
@@ -383,7 +399,7 @@ def auto_generate_missing_pattern_counts(root_dir, lut):
             ]
             u_p = next((c for c in unified_candidates if os.path.exists(c)), None)
             if u_p:
-                occupied_mask = load_mono_image(u_p)
+                occupied_mask = FLIP_SECTOR_LUT[np.fliplr(load_mono_image(u_p))]
 
         if occupied_mask is None or is_evaluated is None:
             print(f"[!] 警告: {eye_dir} のマスクまたは評価フラグが取得できないためスキップします。")
