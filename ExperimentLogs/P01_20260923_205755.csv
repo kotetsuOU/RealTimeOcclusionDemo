@@ -1,0 +1,33 @@
+participant,orderIndex,condition,event,unityTime,systemTime,note
+1,0,,order,0.000,2026-09-23T20:57:55.142,EllipseVisuoHaptic>EllipseHapticOnly>EllipseHighIntensity>LinearXVisuoHaptic>EllipsePhaseShifted>Blink
+1,0,,masking_noise,0.000,2026-09-23T20:57:55.175,center=250.0Hz bandwidth=100.0Hz volume=1.00
+1,0,,familiarization_start,16.377,2026-09-23T20:58:13.003,palmY=0.2686 target=(0.3578 0.2386 0.2248) intensity=190
+1,0,,familiarization_end,31.377,2026-09-23T20:58:27.993,
+1,1,EllipseVisuoHaptic,prepare,33.075,2026-09-23T20:58:29.682,
+1,1,EllipseVisuoHaptic,capture_rejected,34.403,2026-09-23T20:58:31.014,palmY=0.1059 first=0.2686
+1,1,EllipseVisuoHaptic,capture_rejected,36.268,2026-09-23T20:58:32.876,palmY=0.1057 first=0.2686
+1,1,EllipseVisuoHaptic,capture_rejected,37.916,2026-09-23T20:58:34.527,palmY=0.1056 first=0.2686
+1,1,EllipseVisuoHaptic,start,39.230,2026-09-23T20:58:35.841,palmY=0.2727
+1,1,EllipseVisuoHaptic,skipped,52.994,2026-09-23T20:58:49.609,
+1,1,EllipseVisuoHaptic,end,52.994,2026-09-23T20:58:49.619,
+1,2,EllipseHapticOnly,prepare,53.992,2026-09-23T20:58:50.597,
+1,2,EllipseHapticOnly,start,56.439,2026-09-23T20:58:53.047,palmY=0.2703
+1,2,EllipseHapticOnly,skipped,61.145,2026-09-23T20:58:57.759,
+1,2,EllipseHapticOnly,end,61.145,2026-09-23T20:58:57.769,
+1,3,EllipseHighIntensity,prepare,62.995,2026-09-23T20:58:59.601,
+1,3,EllipseHighIntensity,start,63.533,2026-09-23T20:59:00.142,palmY=0.2704
+1,3,EllipseHighIntensity,skipped,67.977,2026-09-23T20:59:04.591,
+1,3,EllipseHighIntensity,end,67.977,2026-09-23T20:59:04.601,
+1,4,LinearXVisuoHaptic,prepare,68.616,2026-09-23T20:59:05.221,
+1,4,LinearXVisuoHaptic,start,69.147,2026-09-23T20:59:05.758,palmY=0.2702
+1,4,LinearXVisuoHaptic,skipped,80.381,2026-09-23T20:59:16.999,
+1,4,LinearXVisuoHaptic,end,80.381,2026-09-23T20:59:17.009,
+1,5,EllipsePhaseShifted,prepare,81.598,2026-09-23T20:59:18.204,
+1,5,EllipsePhaseShifted,capture_rejected,82.446,2026-09-23T20:59:19.054,palmY=0.1059 first=0.2686
+1,5,EllipsePhaseShifted,capture_rejected,83.073,2026-09-23T20:59:19.683,palmY=0.1064 first=0.2686
+1,5,EllipsePhaseShifted,capture_rejected,83.708,2026-09-23T20:59:20.317,palmY=0.1061 first=0.2686
+1,5,EllipsePhaseShifted,start,84.763,2026-09-23T20:59:21.372,palmY=0.2664
+1,5,EllipsePhaseShifted,skipped,91.205,2026-09-23T20:59:27.824,
+1,5,EllipsePhaseShifted,end,91.205,2026-09-23T20:59:27.833,
+1,6,Blink,prepare,91.706,2026-09-23T20:59:28.311,
+1,6,Blink,start,92.947,2026-09-23T20:59:29.558,palmY=0.2702

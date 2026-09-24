@@ -90,12 +90,30 @@ public class PointCloudDepthSampler : MonoBehaviour
             latestPoints[i] = data[i];
 
         latestCount = data.Length;
+        FrameCount++;
     }
 
+    /// <summary>点群フレームを受け取るたびに増える通し番号</summary>
+    public int FrameCount { get; private set; }
+
+    /// <summary>点が足りないときは前回の値で代用して返す</summary>
     public bool TryGetMedianY(float centerX, float centerZ, out float y)
     {
+        if (TryGetFrameMedianY(centerX, centerZ, out float fresh))
+        {
+            lastValidY = fresh;
+            hasValidY = true;
+        }
+
         y = lastValidY;
-        if (latestCount == 0) return hasValidY;
+        return hasValidY;
+    }
+
+    /// <summary>最新の点群フレームだけで中央値を求める。点が足りなければfalse(前回値で代用しない)</summary>
+    public bool TryGetFrameMedianY(float centerX, float centerZ, out float y)
+    {
+        y = 0f;
+        if (latestCount == 0) return false;
 
         var ys = new List<float>();
         for (int i = 0; i < latestCount; i++)
@@ -106,12 +124,10 @@ public class PointCloudDepthSampler : MonoBehaviour
                 ys.Add(p.y);
         }
 
-        if (ys.Count < minPoints) return hasValidY;
+        if (ys.Count < minPoints) return false;
 
         ys.Sort();
-        lastValidY = ys[ys.Count / 2];
-        hasValidY = true;
-        y = lastValidY;
+        y = ys[ys.Count / 2];
         return true;
     }
 
