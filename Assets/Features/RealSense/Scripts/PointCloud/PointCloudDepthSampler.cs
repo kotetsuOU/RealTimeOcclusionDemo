@@ -16,6 +16,9 @@ public class PointCloudDepthSampler : MonoBehaviour
     [Tooltip("これ未満の点数なら前回値を使う")]
     [SerializeField] private int minPoints = 5;
 
+    [Tooltip("このY座標より低い点は無視する(手の下の机を拾わないため)。使わないときは十分小さい値にする")]
+    [SerializeField] private float minValidY = float.NegativeInfinity;
+
     [Header("Debug")]
     [SerializeField] private Transform debugCompareTarget;
 
@@ -120,7 +123,8 @@ public class PointCloudDepthSampler : MonoBehaviour
         {
             Vector3 p = latestPoints[i];
             if (Mathf.Abs(p.x - centerX) < sampleRange &&
-                Mathf.Abs(p.z - centerZ) < sampleRange)
+                Mathf.Abs(p.z - centerZ) < sampleRange &&
+                p.y >= minValidY)
                 ys.Add(p.y);
         }
 

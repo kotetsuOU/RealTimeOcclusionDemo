@@ -1,0 +1,5 @@
+participant,orderIndex,condition,event,unityTime,systemTime,note
+2,0,,order,0.000,2026-09-24T19:58:17.433,EllipseHapticOnly>LinearXVisuoHaptic>EllipseVisuoHaptic>Blink>EllipseHighIntensity>EllipsePhaseShifted
+2,0,,masking_noise,0.000,2026-09-24T19:58:17.466,center=250.0Hz bandwidth=100.0Hz volume=1.00
+2,0,,familiarization_start,6.874,2026-09-24T19:58:26.142,palmY=0.2781 target=(0.3578 0.2531 0.2248) intensity=190
+2,0,,familiarization_end,21.878,2026-09-24T19:58:41.143,
