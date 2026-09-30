@@ -66,7 +66,18 @@ namespace SICESI
 
         public void RegisterLogTriggers(LogCategoryGroup group, HashSet<string> existingLabels)
         {
-            // AppLogger 管理用
+            const string label = "[SICESI] Sector Mask Collector";
+            if (!existingLabels.Contains(label))
+            {
+                group.entries.Add(new LogInstanceEntry
+                {
+                    label   = label,
+                    tag     = SICESI_StereoEvaluationController.TagMaskSweep,
+                    target  = this,
+                    enabled = true
+                });
+                existingLabels.Add(label);
+            }
         }
 
         /// <summary>
@@ -76,7 +87,7 @@ namespace SICESI
         {
             if (isCollecting)
             {
-                Debug.LogWarning("[SICESI] 既に収集処理が実行中です。");
+                AppLogger.LogWarning(this, "[SICESI] 既に収集処理が実行中です。");
                 return;
             }
 
@@ -93,7 +104,7 @@ namespace SICESI
         {
             if (isCollecting)
             {
-                Debug.LogWarning("[SICESI] 既に収集処理が実行中です。");
+                AppLogger.LogWarning(this, "[SICESI] 既に収集処理が実行中です。");
                 return;
             }
 
@@ -110,7 +121,7 @@ namespace SICESI
         {
             if (isCollecting)
             {
-                Debug.LogWarning("[SICESI] 既に収集処理が実行中です。");
+                AppLogger.LogWarning(this, "[SICESI] 既に収集処理が実行中です。");
                 return;
             }
 
@@ -137,7 +148,7 @@ namespace SICESI
 
             if (_controller == null)
             {
-                Debug.LogError("[SICESI] SICESI_StereoEvaluationController が見つかりません。");
+                AppLogger.LogError(this, "[SICESI] SICESI_StereoEvaluationController が見つかりません。");
             }
         }
     }

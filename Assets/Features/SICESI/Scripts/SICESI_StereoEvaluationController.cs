@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
 using RealSense.DummyPointCloud;
+using Core.Logging;
 
 namespace SICESI
 {
@@ -12,9 +13,37 @@ namespace SICESI
     /// 左右眼カメラ映像および Ground Truth (手メッシュ) / 各密度での点群遮蔽画像の自動キャプチャを統括します。
     /// 内部ロジックは SICESI_MaterialSwapper, SICESI_ScreenCaptureUtil, SICESI_StereoSweepRunner に責務分離されています。
     /// </summary>
+    [AppLoggable("SICESI")]
     [DisallowMultipleComponent]
-    public class SICESI_StereoEvaluationController : MonoBehaviour
+    public class SICESI_StereoEvaluationController : MonoBehaviour, IAppLoggable
     {
+        // --- ログサブタグ定数 ---
+        public const string TagCore         = "SICESI_Core";
+        public const string TagCapture      = "SICESI_Capture";
+        public const string TagStereoSweep  = "SICESI_StereoSweep";
+        public const string TagMaskSweep    = "SICESI_MaskSweep";
+
+        public void RegisterLogTriggers(LogCategoryGroup group, HashSet<string> existingLabels)
+        {
+            AddSubTrigger(group, this, "[SICESI] Core Controller", TagCore, existingLabels);
+            AddSubTrigger(group, this, "[SICESI] Capture & Camera", TagCapture, existingLabels);
+            AddSubTrigger(group, this, "[SICESI] Stereo Sweep", TagStereoSweep, existingLabels);
+            AddSubTrigger(group, this, "[SICESI] Sector Mask Sweep", TagMaskSweep, existingLabels);
+        }
+
+        private static void AddSubTrigger(LogCategoryGroup group, UnityEngine.Object target, string label, string tag, HashSet<string> existing)
+        {
+            if (existing.Contains(label)) return;
+            group.entries.Add(new LogInstanceEntry
+            {
+                label   = label,
+                tag     = tag,
+                target  = target,
+                enabled = true
+            });
+            existing.Add(label);
+        }
+
         #region 設定パラメータ
 
         [Header("Target Cameras")]
@@ -140,10 +169,12 @@ namespace SICESI
         private SICESI_MaterialSwapper _materialSwapper;
         private SICESI_SnapshotRunner _snapshotRunner;
         private SICESI_StereoSweepRunner _stereoSweepRunner;
+        private SICESI_EvaluationDispatcher _dispatcher;
 
         public SICESI_MaterialSwapper MaterialSwapper => _materialSwapper ?? (_materialSwapper = new SICESI_MaterialSwapper());
         public SICESI_SnapshotRunner SnapshotRunner => _snapshotRunner ?? (_snapshotRunner = new SICESI_SnapshotRunner(this, MaterialSwapper));
         public SICESI_StereoSweepRunner StereoSweepRunner => _stereoSweepRunner ?? (_stereoSweepRunner = new SICESI_StereoSweepRunner(this, MaterialSwapper));
+        public SICESI_EvaluationDispatcher Dispatcher => _dispatcher ?? (_dispatcher = new SICESI_EvaluationDispatcher(this));
 
         // 後方互換性エイリアス
         public SICESI_StereoSweepRunner SweepRunner => StereoSweepRunner;
@@ -167,6 +198,7 @@ namespace SICESI
             _materialSwapper = new SICESI_MaterialSwapper();
             _snapshotRunner = new SICESI_SnapshotRunner(this, _materialSwapper);
             _stereoSweepRunner = new SICESI_StereoSweepRunner(this, _materialSwapper);
+            _dispatcher = new SICESI_EvaluationDispatcher(this);
         }
 
         private void OnDestroy()
@@ -189,221 +221,79 @@ namespace SICESI
         #region コンポーネント自動検索
 
         public void FindCameras()
-        {
-            SICESI_SceneComponentLocator.LocateCameras(ref leftEyeCamera, ref rightEyeCamera, ref sceneCaptureCamera);
-        }
+            => SICESI_SceneComponentLocator.LocateCameras(ref leftEyeCamera, ref rightEyeCamera, ref sceneCaptureCamera);
 
         public void FindDummyComponents()
-        {
-            SICESI_SceneComponentLocator.LocateDummyComponents(ref dummyPointCloudProvider, ref pointCloudObject, ref occlusionPipelineController, ref virtualObject);
-        }
+            => SICESI_SceneComponentLocator.LocateDummyComponents(ref dummyPointCloudProvider, ref pointCloudObject, ref occlusionPipelineController, ref virtualObject);
 
         #endregion
 
-        #region スイープ実行 API (Facade)
+        #region スイープ実行 API (Facade -> Dispatcher 委譲)
 
-        public void CaptureGroundTruth()
-        {
-            if (isCapturing) return;
-            StartCoroutine(SnapshotRunner.CaptureGroundTruthRoutine());
-        }
-
-        public void CaptureCurrentCondition(string subFolderName = "")
-        {
-            if (isCapturing) return;
-            StartCoroutine(SnapshotRunner.CaptureCurrentRoutine(subFolderName));
-        }
-
-        public void RunDensitySweep()
-        {
-            if (isCapturing) return;
-            if (dummyPointCloudProvider == null)
-            {
-                Debug.LogError("[SICESI] RsDummyPointCloudProvider が設定されていません。");
-                return;
-            }
-            StartCoroutine(StereoSweepRunner.DensitySweepRoutine());
-        }
-
-        public void RunSectorSweep()
-        {
-            if (isCapturing) return;
-            if (occlusionPipelineController == null)
-            {
-                Debug.LogError("[SICESI] PCDOcclusionPipelineController が設定されていません。");
-                return;
-            }
-            StartCoroutine(StereoSweepRunner.SectorSweepRoutine());
-        }
-
-        public void RunConsecutiveSectorSweep()
-        {
-            if (isCapturing) return;
-            if (occlusionPipelineController == null)
-            {
-                Debug.LogError("[SICESI] PCDOcclusionPipelineController が設定されていません。");
-                return;
-            }
-            StartCoroutine(StereoSweepRunner.ConsecutiveSectorSweepRoutine());
-        }
-
-        public void RunDensityOcclusionThresholdSweep()
-        {
-            if (isCapturing) return;
-            StartCoroutine(StereoSweepRunner.DensityOcclusionThresholdSweepRoutine());
-        }
-
-        public void CaptureSceneOverview()
-        {
-            if (isCapturing) return;
-            StartCoroutine(SnapshotRunner.CaptureSceneViewRoutine());
-        }
+        public void CaptureGroundTruth() => Dispatcher.CaptureGroundTruth();
+        public void CaptureCurrentCondition(string subFolderName = "") => Dispatcher.CaptureCurrentCondition(subFolderName);
+        public void RunDensitySweep() => Dispatcher.RunDensitySweep();
+        public void RunSectorSweep() => Dispatcher.RunSectorSweep();
+        public void RunConsecutiveSectorSweep() => Dispatcher.RunConsecutiveSectorSweep();
+        public void RunDensityOcclusionThresholdSweep() => Dispatcher.RunDensityOcclusionThresholdSweep();
+        public void CaptureSceneOverview() => Dispatcher.CaptureSceneOverview();
 
         public IEnumerator CaptureSceneViewRoutine(string primaryPath, string[] duplicatePaths = null)
-        {
-            isCapturing = true;
-            statusMessage = "Capturing Scene Overview...";
-
-            var skinBackup = SetGroundTruthSkinState(true);
-            try
-            {
-                if (pointCloudObject != null) pointCloudObject.SetActive(true);
-
-                for (int i = 0; i < 3; i++) yield return null;
-                yield return new WaitForEndOfFrame();
-
-                if (sceneCaptureCamera != null)
-                {
-                    SaveCameraView(sceneCaptureCamera, primaryPath);
-                    if (duplicatePaths != null)
-                    {
-                        foreach (var dp in duplicatePaths)
-                        {
-                            SaveCameraView(sceneCaptureCamera, dp);
-                        }
-                    }
-                }
-
-                if (captureStereoEyesWithScene)
-                {
-                    string sceneDir = Path.GetDirectoryName(primaryPath);
-                    SaveEyeViewsForScene(sceneDir);
-                }
-
-                statusMessage = "Scene Overview Capture Completed!";
-            }
-            finally
-            {
-                RestoreGroundTruthSkinState(skinBackup);
-                isCapturing = false;
-            }
-        }
+            => SnapshotRunner.CaptureSceneViewToPathsRoutine(primaryPath, duplicatePaths);
 
         #endregion
 
-        #region マテリアル・レイヤー委譲メソッド
+        #region マテリアル・レイヤー委譲メソッド (MaterialSwapper 委譲)
 
-        public SICESI_MaterialSwapper.GroundTruthStateBackup SetGroundTruthState(bool enable)
-        {
-            return MaterialSwapper.SetGroundTruthState(groundTruthObject, groundTruthCaptureLayer, renderGroundTruthAsBlack);
-        }
+        public SICESI_MaterialSwapper.GroundTruthStateBackup SetGroundTruthState(bool enable = true)
+            => MaterialSwapper.SetGroundTruthState(groundTruthObject, groundTruthCaptureLayer, renderGroundTruthAsBlack);
 
         public void RestoreGroundTruthState(SICESI_MaterialSwapper.GroundTruthStateBackup backup)
-        {
-            MaterialSwapper.RestoreGroundTruthState(backup);
-        }
+            => MaterialSwapper.RestoreGroundTruthState(backup);
 
-        public SICESI_MaterialSwapper.VirtualObjectStateBackup SetVirtualObjectUnlitWhiteState(bool enable)
-        {
-            return MaterialSwapper.SetVirtualObjectUnlitWhiteState(virtualObject, renderVirtualObjectAsUnlitWhite);
-        }
+        public SICESI_MaterialSwapper.VirtualObjectStateBackup SetVirtualObjectUnlitWhiteState(bool enable = true)
+            => MaterialSwapper.SetVirtualObjectUnlitWhiteState(virtualObject, renderVirtualObjectAsUnlitWhite);
 
         public void RestoreVirtualObjectState(SICESI_MaterialSwapper.VirtualObjectStateBackup backup)
-        {
-            MaterialSwapper.RestoreVirtualObjectState(backup);
-        }
+            => MaterialSwapper.RestoreVirtualObjectState(backup);
 
-        public SICESI_MaterialSwapper.GroundTruthSkinColorBackup SetGroundTruthSkinState(bool enable)
-        {
-            return MaterialSwapper.SetGroundTruthSkinState(groundTruthObject, groundTruthCaptureLayer, groundTruthSkinColor);
-        }
+        public SICESI_MaterialSwapper.GroundTruthSkinColorBackup SetGroundTruthSkinState(bool enable = true)
+            => MaterialSwapper.SetGroundTruthSkinState(groundTruthObject, groundTruthCaptureLayer, groundTruthSkinColor);
 
         public void RestoreGroundTruthSkinState(SICESI_MaterialSwapper.GroundTruthSkinColorBackup backup)
-        {
-            MaterialSwapper.RestoreGroundTruthSkinState(groundTruthObject, backup);
-        }
+            => MaterialSwapper.RestoreGroundTruthSkinState(groundTruthObject, backup);
 
         #endregion
 
-        #region キャプチャ・JSON 委譲メソッド
+        #region キャプチャ・JSON 委譲メソッド (ScreenCaptureUtil 委譲)
 
         public void SaveCameraView(Camera cam, string destinationPath, bool bypassSRGBConversion = false)
-        {
-            SICESI_ScreenCaptureUtil.SaveCameraView(cam, destinationPath, applySRGBConversion, bypassSRGBConversion);
-        }
+            => SICESI_ScreenCaptureUtil.SaveCameraView(cam, destinationPath, applySRGBConversion, bypassSRGBConversion);
 
         public void CaptureStereoViews(string targetDir, string filePrefix, bool bypassSRGBConversion = false)
-        {
-            string leftDir = Path.Combine(targetDir, "Left");
-            string rightDir = Path.Combine(targetDir, "Right");
-            Directory.CreateDirectory(leftDir);
-            Directory.CreateDirectory(rightDir);
-
-            if (leftEyeCamera != null)
-            {
-                string leftPath = Path.Combine(leftDir, $"{filePrefix}_left.png");
-                SaveCameraView(leftEyeCamera, leftPath, bypassSRGBConversion);
-            }
-
-            if (rightEyeCamera != null)
-            {
-                string rightPath = Path.Combine(rightDir, $"{filePrefix}_right.png");
-                SaveCameraView(rightEyeCamera, rightPath, bypassSRGBConversion);
-            }
-        }
+            => SICESI_ScreenCaptureUtil.CaptureStereoViews(leftEyeCamera, rightEyeCamera, targetDir, filePrefix, applySRGBConversion, bypassSRGBConversion);
 
         public void SaveEyeViewsForScene(string sceneDir)
-        {
-            SICESI_ScreenCaptureUtil.SaveEyeViewsForScene(leftEyeCamera, rightEyeCamera, sceneDir, applySRGBConversion);
-        }
+            => SICESI_ScreenCaptureUtil.SaveEyeViewsForScene(leftEyeCamera, rightEyeCamera, sceneDir, applySRGBConversion);
 
         public void SaveSceneTransformsJson(string targetDir)
-        {
-            SICESI_ScreenCaptureUtil.SaveSceneTransformsJson(targetDir, conditionName, groundTruthObject, virtualObject, leftEyeCamera, rightEyeCamera, sceneCaptureCamera);
-        }
+            => SICESI_ScreenCaptureUtil.SaveSceneTransformsJson(targetDir, conditionName, groundTruthObject, virtualObject, leftEyeCamera, rightEyeCamera, sceneCaptureCamera);
 
         public bool LoadAndApplySceneTransformsJson(string jsonPath)
-        {
-            return SICESI_ScreenCaptureUtil.LoadAndApplySceneTransformsJson(jsonPath, groundTruthObject, virtualObject, leftEyeCamera, rightEyeCamera, sceneCaptureCamera, out conditionName);
-        }
+            => SICESI_ScreenCaptureUtil.LoadAndApplySceneTransformsJson(jsonPath, groundTruthObject, virtualObject, leftEyeCamera, rightEyeCamera, sceneCaptureCamera, out conditionName);
+
+        #endregion
+
+        #region パラメータ・ペア評価ヘルパー (Pure C# 委譲)
 
         public string GetDensityUnitSuffix()
-        {
-            switch (densityUnit)
-            {
-                case PointDensityUnit.PointSpacingMm: return "mm";
-                case PointDensityUnit.PointsPerCm2: return "pts_cm2";
-                case PointDensityUnit.PointsPerMm2: return "pts_mm2";
-                case PointDensityUnit.TotalPointCount: return "pts";
-                default: return "";
-            }
-        }
+            => SICESI_EvaluationParamsHelper.GetDensityUnitSuffix(densityUnit);
 
-        /// <summary>
-        /// 連続非占有セクター許容規則において、幾何学的に重複・等価な条件を判定します。
-        /// </summary>
         public static bool IsRedundantCombination(int rTh, int lTh, int K = 8)
-        {
-            return SICESI_ConsecutivePairEvaluator.IsRedundantCombination(rTh, lTh, K);
-        }
+            => SICESI_ConsecutivePairEvaluator.IsRedundantCombination(rTh, lTh, K);
 
-        /// <summary>
-        /// 有効な（重複スキップ設定が反映された）占有数と最大連続非占有数の組み合わせペアリストを取得します。
-        /// </summary>
         public List<(int sector, int maxZero)> GetValidConsecutivePairs()
-        {
-            return SICESI_ConsecutivePairEvaluator.GenerateValidPairs(sweepSectors, sweepMaxConsecutiveZeros, skipRedundantConditions);
-        }
+            => SICESI_ConsecutivePairEvaluator.GenerateValidPairs(sweepSectors, sweepMaxConsecutiveZeros, skipRedundantConditions);
 
         #endregion
     }

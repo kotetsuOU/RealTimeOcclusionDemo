@@ -142,8 +142,8 @@ AI は、以下の役割を持つ。
   `AppLogManager` に登録したサブトリガー (`subTag`) には、必ず対応する定期デバッグログ（例: `if (AppLogger.IsEnabled(this, Tag) && Time.frameCount % 120 == 0)`) またはイベントログを出力する処理を実装する。
 * **デフォルト有効（ON）ルール**:
   スキャン登録されたエントリーおよび未登録のタグはデフォルトで `enabled = true` (ON) とし、ユーザーが `AppLogManager` 上で必要に応じて個別ミュートできる構成にする。
-* **非アクティブコンポーネントの除外**:
-  `AppLogManager` での自動検出時、非アクティブな GameObject/コンポーネントや `AppLogger` 非対応クラスはスキャン対象外 (`FindObjectsInactive.Exclude`) とする。
+* **非アクティブ含む実在要素のスキャンと残骸パージ**:
+  `AppLogManager` での自動検出時、非アクティブな GameObject/コンポーネントを含めてシーンに実在する要素をスキャン対象 (`FindObjectsInactive.Include`) とする。スキャン時は削除済みオブジェクトや存在しない残骸エントリを完全にクリーンアップし、現存する要素のみに限定する（既存設定値は引き継ぐ）。
 
 ---
 

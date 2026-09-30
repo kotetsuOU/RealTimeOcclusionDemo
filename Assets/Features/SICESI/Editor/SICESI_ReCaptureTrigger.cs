@@ -4,6 +4,7 @@ using System.Collections;
 using UnityEditor;
 using UnityEngine;
 using SICESI;
+using Core.Logging;
 
 [InitializeOnLoad]
 public class SICESI_ReCaptureTrigger : AssetPostprocessor
@@ -20,7 +21,7 @@ public class SICESI_ReCaptureTrigger : AssetPostprocessor
     {
         if (!Application.isPlaying && !EditorApplication.isPlayingOrWillChangePlaymode && File.Exists(TriggerFile))
         {
-            Debug.Log("[SICESI_ReCapture] トリガーを検出しました。シーンを保存し、Play モードに移行します...");
+            AppLogger.Log(SICESI_StereoEvaluationController.TagCore, "[SICESI_ReCapture] トリガーを検出しました。シーンを保存し、Play モードに移行します...");
             try { File.Delete(TriggerFile); } catch { }
             if (File.Exists(DoneFile)) { try { File.Delete(DoneFile); } catch { } }
 
@@ -55,7 +56,7 @@ public class SICESI_ReCaptureTrigger : AssetPostprocessor
             var controller = Object.FindAnyObjectByType<SICESI_StereoEvaluationController>();
             if (controller == null)
             {
-                Debug.LogError("[SICESI_ReCapture] SICESI_StereoEvaluationController がシーン内に見つかりません。");
+                AppLogger.LogError(SICESI_StereoEvaluationController.TagCore, "[SICESI_ReCapture] SICESI_StereoEvaluationController がシーン内に見つかりません。");
                 EditorApplication.isPlaying = false;
                 yield break;
             }
@@ -71,7 +72,7 @@ public class SICESI_ReCaptureTrigger : AssetPostprocessor
             var collector = controller.GetComponent<SICESI_SectorMaskCollector>();
             if (collector == null) collector = controller.gameObject.AddComponent<SICESI_SectorMaskCollector>();
 
-            Debug.Log("[SICESI_ReCapture] 8セクター二値マスクスイープ (配置1, 密度0.25) を実行します...");
+            AppLogger.Log(SICESI_StereoEvaluationController.TagMaskSweep, "[SICESI_ReCapture] 8セクター二値マスクスイープ (配置1, 密度0.25) を実行します...");
             collector.RunSector8MaskSweep();
 
             while (collector.isCollecting)
@@ -80,7 +81,7 @@ public class SICESI_ReCaptureTrigger : AssetPostprocessor
             }
 
             yield return new WaitForSeconds(1.0f);
-            Debug.Log("[SICESI_ReCapture] スイープ撮影が完了しました。.capture_finished を書き込みます。");
+            AppLogger.Log(SICESI_StereoEvaluationController.TagMaskSweep, "[SICESI_ReCapture] スイープ撮影が完了しました。.capture_finished を書き込みます。");
             File.WriteAllText(DoneFile, "Done at " + System.DateTime.Now);
 
             yield return new WaitForSeconds(0.5f);

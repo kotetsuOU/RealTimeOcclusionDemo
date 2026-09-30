@@ -1,5 +1,6 @@
 using UnityEngine;
 using RealSense.DummyPointCloud;
+using Core.Logging;
 
 namespace SICESI
 {
@@ -36,7 +37,7 @@ namespace SICESI
 
             if (leftEyeCamera != null || rightEyeCamera != null || sceneCaptureCamera != null)
             {
-                Debug.Log($"[SICESI] カメラを自動検出しました: Left={leftEyeCamera?.name}, Right={rightEyeCamera?.name}, Scene={sceneCaptureCamera?.name}");
+                AppLogger.Log(SICESI_StereoEvaluationController.TagCore, $"[SICESI] カメラを自動検出しました: Left={leftEyeCamera?.name}, Right={rightEyeCamera?.name}, Scene={sceneCaptureCamera?.name}");
             }
         }
 
@@ -72,7 +73,7 @@ namespace SICESI
                 if (vo != null)
                 {
                     virtualObject = vo;
-                    Debug.Log($"[SICESI] 仮想オブジェクトを自動検出しました: {vo.name}");
+                    AppLogger.Log(SICESI_StereoEvaluationController.TagCore, $"[SICESI] 仮想オブジェクトを自動検出しました: {vo.name}");
                 }
             }
         }

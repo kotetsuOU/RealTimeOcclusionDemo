@@ -82,6 +82,7 @@ Assets/Features/SICESI/
     │   ├── SICESI_CameraPoseLock.cs          # カメラ姿勢(Pos/Rot/Proj)固定ヘルパー (IDisposable)
     │   └── SICESI_GpuMaskReadbackHandler.cs  # GPU AsyncReadback & マスクデータ保存
     ├── Sweepers/
+    │   ├── SICESI_EvaluationDispatcher.cs    # スイープ実行バリデーション・Coroutine起動ディスパッチャ
     │   ├── SICESI_SnapshotRunner.cs          # GT撮影・単発撮影・シーン俯瞰撮影
     │   ├── SICESI_StereoSweepRunner.cs       # パラメータ探索コーディネーター (Facade)
     │   ├── SICESI_DensitySweepRunner.cs      # 点群密度スイープ
@@ -94,6 +95,7 @@ Assets/Features/SICESI/
     │   └── SICESI_Pattern256SweepRunner.cs   # 256パターンLUT網羅スイープ
     ├── Utils/
     │   ├── SICESI_ConsecutivePairEvaluator.cs # 連続非占有の幾何学的重複判定・ペア生成
+    │   ├── SICESI_EvaluationParamsHelper.cs  # 密度単位サフィックス変換・ヘルパー
     │   └── SICESI_SceneComponentLocator.cs    # カメラ・オブジェクトの自動検出ロケーター
     ├── SICESI_StereoEvaluationController.cs   # メインコントローラー (Facade)
     └── SICESI_SectorMaskCollector.cs          # マスク収集コントローラー (Facade)
@@ -447,10 +449,11 @@ $$V_m = \sum_{p \in M, \mathrm{mask}(p) = m} \mathbf{1}_{\{\mathrm{GT}(p) = 0\}}
 
 SICESI 関連のすべてのログは `AppLogger.Log("SICESI", ...)` を経由して出力され、`AppLogManager` から一元制御されます。個別コンポーネントでの不要な Inspector トグル変数は存在しません。
 
-| サブトリガー名 | 対象処理 |
-| :--- | :--- |
-| `Capture` | 単発撮影、GT 撮影、カメラ姿勢ロック処理 |
-| `StereoSweep` | 密度・セクター数・連続非占有・閾値スイープの進行ログ |
-| `MaskSweep` | 8 セクター画面保存マスクスイープ、Readback 処理 |
+| サブトリガー名 (`subTag`) | 担当コンポーネント | 対象処理 |
+| :--- | :---: | :--- |
+| `SICESI_Core` | `SICESI_StereoEvaluationController` | 初期化、カメラ・仮想物体自動検出、パラメータ検証ログ |
+| `SICESI_Capture` | `SICESI_StereoEvaluationController` | 単発撮影、GT 撮影、俯瞰撮影、マテリアル・Transform 復元ログ |
+| `SICESI_StereoSweep` | `SICESI_StereoEvaluationController` | 密度・セクター数・連続非占有・閾値スイープの進行ログ |
+| `SICESI_MaskSweep` | `SICESI_SectorMaskCollector` | 8 セクター画面保存マスクスイープ、256 パターンスイープ、Readback 処理 |
 
 統制ログ仕様の詳細については [Logging.md](./Logging.md) を参照してください。

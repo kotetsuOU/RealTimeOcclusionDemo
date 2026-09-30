@@ -19,8 +19,6 @@ on:
       - "Docs/Display3D.md"
       - "Docs/Initialization.md"
       - "Docs/PhysicalResponse.md"
-      - "Docs/PhysicalResponseLiftController.md"
-      - "Docs/AnimationControls.md"
       - "Docs/AUTD3_SDK_Transition.md"
       - "Docs/FoxFootHaptics.md"
       - "Docs/FoxBodyHaptics.md"
@@ -60,8 +58,6 @@ jobs:
           cp Docs/Display3D.md temp-wiki/Display3D.md
           cp Docs/Initialization.md temp-wiki/Initialization.md
           cp Docs/PhysicalResponse.md temp-wiki/PhysicalResponse.md
-          cp Docs/PhysicalResponseLiftController.md temp-wiki/PhysicalResponseLiftController.md
-          cp Docs/AnimationControls.md temp-wiki/AnimationControls.md
           cp Docs/AUTD3_SDK_Transition.md temp-wiki/AUTD3_SDK_Transition.md
           cp Docs/FoxFootHaptics.md temp-wiki/FoxFootHaptics.md
           cp Docs/FoxBodyHaptics.md temp-wiki/FoxBodyHaptics.md
@@ -86,8 +82,6 @@ jobs:
               "Display3D.md": "Display3D",
               "Initialization.md": "Initialization",
               "PhysicalResponse.md": "PhysicalResponse",
-              "PhysicalResponseLiftController.md": "PhysicalResponseLiftController",
-              "AnimationControls.md": "AnimationControls",
               "AUTD3_SDK_Transition.md": "AUTD3_SDK_Transition",
               "FoxFootHaptics.md": "FoxFootHaptics",
               "FoxBodyHaptics.md": "FoxBodyHaptics",

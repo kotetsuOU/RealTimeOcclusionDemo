@@ -47,7 +47,7 @@ git lfs pull
 
 ## 使い方
 基本的な使い方は以下の通りです。
-詳細なキーボード操作については、[こちらのガイド](./Docs/AnimationControls.md)を確認してください。
+詳細なキーボード操作については、[こちらのガイド (PhysicalResponse.md)](./Docs/PhysicalResponse.md#41-キーボード操作対応表)を確認してください。
 
 ※ Unityで実行する際は、`Project` ウィンドウから `Scenes` フォルダ内の `RealTimeOcclusion` シーンを開いてください。
   そのシーンをアクティブにしてから再生（Play）ボタンで動作確認を行ってください。
@@ -73,7 +73,7 @@ git lfs pull
 `PCDRenderController` の `Record Occlusion Debug Map` を有効にすると、**そのフレームのみ**内積計算から得られる `occlusionAverage`（0.0～1.0）を保存できます。
 - 保存先: `Assets/HandTrackingData/OcclusionMaps`
 - CSV: `occlusionAverage`（0.0～1.0）を保存
-- 操作: `Enter` / `Return`（`KeyboardControls.md` の撮影操作。Enterで統合DepthMapなども同時撮影）
+- 操作: `Enter` / `Return`（[キーボード操作対応表](./Docs/PhysicalResponse.md#41-キーボード操作対応表)の撮影操作。Enterで統合DepthMapなども同時撮影）
 
 `PCDRenderController` の `Record Pixel Tag Map` を有効にすると、**そのフレームのみ**最終判定後の「アルファ値（遮蔽判定された0か1か）」と「クラス分類値」を保存できます。
 - 保存先: `Assets/HandTrackingData/PixelTagMaps`
@@ -82,7 +82,7 @@ git lfs pull
 `PCDRenderController` の `Record Integrated Depth Map` を有効にすると、**そのフレームのみ**統合DepthMapを保存できます。
 
 - 保存先: `Assets/HandTrackingData/DepthMaps/Integrated`
-- 操作: `Enter` / `Return`（`KeyboardControls.md` の撮影操作。EnterでOcclusion DebugMapも同時撮影）
+- 操作: `Enter` / `Return`（[キーボード操作対応表](./Docs/PhysicalResponse.md#41-キーボード操作対応表)の撮影操作。EnterでOcclusion DebugMapも同時撮影）
 
 現在の可視化ルール（`PCDOcclusionDebugExporter`）:
 
@@ -116,6 +116,7 @@ git lfs pull
 * **[システム統合ポータル (Wiki.md)](./Docs/Wiki.md)**: プロジェクト全体の構造と各ドキュメントへのナビゲーションポータルです。
 * **[被験者実験フレームワーク (Experiments.md)](./Docs/Experiments.md)**: 2AFC, ABX, 調整法などの心理物理実験システム仕様です。
 * **[統制ログ管理システム (Logging.md)](./Docs/Logging.md)**: `AppLogManager` および `AppLogger` による統一ログ管理の仕様と利用ガイドです。
+* **[物理応答・インタラクションシステム (PhysicalResponse.md)](./Docs/PhysicalResponse.md)**: モデル切り替え、ボーン自動検出・同期、リフト追従、キー操作仕様です。
 
 ---
 

@@ -1,6 +1,7 @@
 using System.IO;
 using UnityEditor;
 using UnityEngine;
+using Core.Logging;
 
 namespace SICESI.Editor
 {
@@ -604,7 +605,7 @@ namespace SICESI.Editor
                             importer.isReadable = true;
                             importer.SaveAndReimport();
                             fixedCount++;
-                            Debug.Log($"[SICESI] Read/Write を有効化しました: {path}");
+                            AppLogger.Log(SICESI_StereoEvaluationController.TagCore, $"[SICESI] Read/Write を有効化しました: {path}");
                         }
                     }
                 }

@@ -128,6 +128,43 @@ public abstract class HAP_BaseObjectHapticsController : MonoBehaviour
     public virtual HapticsTrackMode TrackMode => trackMode;
 
     /// <summary>
+    /// 接地判定（空中判定）の基準となる有効なキャラクターのルートTransformを取得します。
+    /// rootTransform が未設定、非アクティブ、または自身のTransform（コントローラー単体配置時）の場合は、
+    /// ターゲット階層（Animator / SkinnedMeshRenderer / ルート）から自動解決して同期します。
+    /// </summary>
+    public virtual Transform? GetEffectiveRootTransform(Transform? fallbackTarget = null)
+    {
+        if (rootTransform != null && rootTransform != this.transform && rootTransform.gameObject.activeInHierarchy)
+        {
+            return rootTransform;
+        }
+
+        // fallbackTarget から親方向へモデルのルート（Animator または SkinnedMeshRenderer を持つ階層）を探索
+        if (fallbackTarget != null && fallbackTarget.gameObject.activeInHierarchy)
+        {
+            var animator = fallbackTarget.GetComponentInParent<Animator>();
+            if (animator != null && animator.gameObject.activeInHierarchy)
+            {
+                rootTransform = animator.transform;
+                return rootTransform;
+            }
+            var smr = fallbackTarget.GetComponentInParent<SkinnedMeshRenderer>();
+            if (smr != null && smr.gameObject.activeInHierarchy)
+            {
+                rootTransform = smr.transform;
+                return rootTransform;
+            }
+            if (fallbackTarget.root != null && fallbackTarget.root != this.transform.root && fallbackTarget.root.gameObject.activeInHierarchy)
+            {
+                rootTransform = fallbackTarget.root;
+                return rootTransform;
+            }
+        }
+
+        return rootTransform != null ? rootTransform : this.transform;
+    }
+
+    /// <summary>
     /// 指定されたターゲットが現在ハプティクス照射可能なアクティブ状態であるかどうかを返します。
     /// </summary>
     public bool IsTargetActive(Transform? targetTransform, bool isEnabled, bool isTail)
@@ -136,10 +173,14 @@ public abstract class HAP_BaseObjectHapticsController : MonoBehaviour
         if (!isEnabled) return false;
 
         // 接地判定（空中判定。足などの非Tailパーツのみ適用）
-        if (!isTail && disableWhenInAir && rootTransform != null)
+        if (!isTail && disableWhenInAir)
         {
-            float relHeight = targetTransform.position.y - rootTransform.position.y;
-            if (relHeight > airborneHeightThreshold) return false;
+            Transform? effectiveRoot = GetEffectiveRootTransform(targetTransform);
+            if (effectiveRoot != null)
+            {
+                float relHeight = targetTransform.position.y - effectiveRoot.position.y;
+                if (relHeight > airborneHeightThreshold) return false;
+            }
         }
 
         // 手との近接接触判定
@@ -211,9 +252,11 @@ public abstract class HAP_BaseObjectHapticsController : MonoBehaviour
         bool active = IsTargetActive(info.Transform, isEnabled, info.IsTail);
         bool isGrounded = true;
 
-        if (!info.IsTail && disableWhenInAir && rootTransform != null)
+        Transform? effectiveRoot = GetEffectiveRootTransform(info.Transform);
+
+        if (!info.IsTail && disableWhenInAir && effectiveRoot != null)
         {
-            float relHeight = pos.y - rootTransform.position.y;
+            float relHeight = pos.y - effectiveRoot.position.y;
             if (relHeight > airborneHeightThreshold)
             {
                 isGrounded = false;
@@ -251,10 +294,10 @@ public abstract class HAP_BaseObjectHapticsController : MonoBehaviour
         Color baseColor = isEnabled ? activeColor : inactiveColor;
 
         // 1. 接地判定（高さ判定）の可視化線を描画 (足のみ適用)
-        if (!info.IsTail && disableWhenInAir && rootTransform != null)
+        if (!info.IsTail && disableWhenInAir && effectiveRoot != null)
         {
-            Vector3 groundPt = new Vector3(pos.x, rootTransform.position.y, pos.z);
-            Vector3 threshPt = new Vector3(pos.x, rootTransform.position.y + airborneHeightThreshold, pos.z);
+            Vector3 groundPt = new Vector3(pos.x, effectiveRoot.position.y, pos.z);
+            Vector3 threshPt = new Vector3(pos.x, effectiveRoot.position.y + airborneHeightThreshold, pos.z);
 
             // 許容高さしきい値を示す小さな十字を描画
             Gizmos.color = baseColor;

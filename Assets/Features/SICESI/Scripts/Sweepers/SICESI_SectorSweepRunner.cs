@@ -2,6 +2,7 @@ using System.Collections;
 using System.IO;
 using UnityEngine;
 using RealSense.DummyPointCloud;
+using Core.Logging;
 
 namespace SICESI
 {
@@ -25,7 +26,7 @@ namespace SICESI
             _controller.isCapturing = true;
             string conditionRootDir = _controller.ConditionRootDir;
             SICESI_ScreenCaptureUtil.SaveSceneTransformsJson(conditionRootDir, _controller.conditionName, _controller.groundTruthObject, _controller.virtualObject, _controller.leftEyeCamera, _controller.rightEyeCamera, _controller.sceneCaptureCamera);
-            Debug.Log($"[SICESI] === セクタースイープキャプチャ開始 (条件: {_controller.conditionName}) ===");
+            AppLogger.Log(_controller, $"[SICESI] === セクタースイープキャプチャ開始 (条件: {_controller.conditionName}) ===", SICESI_StereoEvaluationController.TagStereoSweep);
 
             var voBackup = _swapper.SetVirtualObjectUnlitWhiteState(_controller.virtualObject, _controller.renderVirtualObjectAsUnlitWhite);
             try
@@ -136,7 +137,7 @@ namespace SICESI
                 }
 
                 _controller.statusMessage = "Sector Sweep Completed!";
-                Debug.Log("[SICESI] === セクタースイープキャプチャ完了 ===");
+                AppLogger.Log(_controller, "[SICESI] === セクタースイープキャプチャ完了 ===", SICESI_StereoEvaluationController.TagStereoSweep);
             }
             finally
             {

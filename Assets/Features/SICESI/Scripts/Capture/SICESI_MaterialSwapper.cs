@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using Core.Logging;
 
 namespace SICESI
 {
@@ -84,11 +85,11 @@ namespace SICESI
                         backup.Layers[t.gameObject] = t.gameObject.layer;
                         t.gameObject.layer = targetLayer;
                     }
-                    Debug.Log($"[SICESI] GT撮影のため一時的に Layer を '{groundTruthCaptureLayer}' (ID: {targetLayer}) に変更しました。");
+                    AppLogger.Log(SICESI_StereoEvaluationController.TagCapture, $"[SICESI] GT撮影のため一時的に Layer を '{groundTruthCaptureLayer}' (ID: {targetLayer}) に変更しました。");
                 }
                 else
                 {
-                    Debug.LogWarning($"[SICESI] 指定レイヤー '{groundTruthCaptureLayer}' が見つかりません。ProjectSettings > Tags and Layers を確認してください。");
+                    AppLogger.LogWarning(SICESI_StereoEvaluationController.TagCapture, $"[SICESI] 指定レイヤー '{groundTruthCaptureLayer}' が見つかりません。ProjectSettings > Tags and Layers を確認してください。");
                 }
             }
 

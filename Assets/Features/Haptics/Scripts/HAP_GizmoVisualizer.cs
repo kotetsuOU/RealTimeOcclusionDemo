@@ -162,13 +162,23 @@ public static partial class HAP_GizmoVisualizer
                 }
             }
 
-            // HCD_Pipelineからターゲットが取得できなかった場合（エディタの非再生時など）、AnimationControllerから直接取得を試みる
+            // HCD_Pipelineからターゲットが取得できなかった場合（エディタの非再生時など）、PR_VirtualObjectManager / PR_AnimationController から取得を試みる
             if (activeObj == null)
             {
-                var animControllers = Object.FindObjectsByType<MonoBehaviour>(FindObjectsInactive.Include, FindObjectsSortMode.None);
-                foreach (var mc in animControllers)
+                var monoBehaviours = Object.FindObjectsByType<MonoBehaviour>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+                foreach (var mc in monoBehaviours)
                 {
-                    if (mc.GetType().Name == "AnimationController")
+                    string typeName = mc.GetType().Name;
+                    if (typeName == "PR_VirtualObjectManager")
+                    {
+                        var activeObjProp = mc.GetType().GetProperty("ActiveObject");
+                        if (activeObjProp != null)
+                        {
+                            activeObj = activeObjProp.GetValue(mc) as GameObject;
+                            if (activeObj != null) break;
+                        }
+                    }
+                    else if (typeName == "PR_AnimationController")
                     {
                         var toggleObjectsField = mc.GetType().GetField("toggleObjects");
                         var indexField = mc.GetType().GetField("currentActiveIndex", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);

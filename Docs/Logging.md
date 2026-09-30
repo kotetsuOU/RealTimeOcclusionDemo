@@ -17,7 +17,7 @@
 * **中央集中トグル管理**: モジュールカテゴリ（例: `HCD (Haptic Collision)`, `Experiment`, `PCV (PointCloudViewer)`, `PCD (Occlusion)`, `SRD Display (PCD/SRD)`, `URP / RenderPipelines`, `RealSense`）および個別サブトリガー（例: `[EXP_Manager]`, `[SRD_MirrorCamDebug]`, `[SRD_NativeLog]`, `[URP_MatrixDebug]`）単位でログ有効状態を切り替え可能です。
 * **ネイティブ C++ DLL ログの一元統合**: Sony SRDisplay プラグインの内部 C++ DLL から出力されるネイティブデバッグログ (`[oz-debug-log]`) を `SRDCorePlugin` コールバック経由で `AppLogger` に集約し、`AppLogManager` のトグル操作で即座に遮断（ミュート）できます。
 * **早期初期化保証 (`DefaultExecutionOrder(-1000)`)**: `AppLogManager` は最優先で起動されるため、`SRDManager.Awake()` などの各種マネージャーの初期化時に出力される早期ログであっても、設定した OFF トグルに従って漏れなく確実に制御されます。
-* **メモリ上全アセットの自動スキャン**: `AppLogManager.ScanSceneComponents()` は、シーン内の `MonoBehaviour` に加えて、URP RenderFeature 等の `ScriptableObject` (`Resources.FindObjectsOfTypeAll`) もメモリ上から全自動で検索し `AppLogManager` へ登録します。
+* **非アクティブ含む実在要素の全自動スキャンと残骸パージ**: `AppLogManager.ScanSceneComponents()` は、シーン内のアクティブ・非アクティブ問わず実在する `MonoBehaviour`（`FindObjectsInactive.Include`）および URP RenderFeature 等の `ScriptableObject` (`Resources.FindObjectsOfTypeAll`) を自動検索して登録します。また、削除済みオブジェクトや過去のシーンの不要な残骸エントリを完全にクリーンアップし、現存する要素のみに同期（既存トグル設定は維持）します。
 * **堅牢な引数順序自動補正 (`ResolveMessageAndSubTag`)**: `AppLogger.Log(context, message, subTag)` の呼び出し時、`message` と `subTag` の記述順序に関わらず、`AppLogManager` に登録された識別タグを自動認識して正しく評価・出力します。
 * **Inspector の非汚染化**: 個別の `MonoBehaviour` や RenderFeature に `public bool enableDebugLog` や `public bool EnableLog` などのトグル変数を定義せず、全制御を `AppLogManager` に統一します。
 
@@ -31,7 +31,11 @@
 Assets/Core/Scripts/
 ├── Logging/
 │   ├── AppLogger.cs                   # モジュール非依存の静的ログ制御 API (`UnityEngine.Debug` 完全修飾対応)
-│   └── AppLogManager.cs               # [DefaultExecutionOrder(-1000)] シーン/メモリ内の全ログトリガーを一元管理する MonoBehaviour
+│   ├── AppLogManager.cs               # [DefaultExecutionOrder(-1000)] シーン内の全ログトリガーを一元管理するファサード MonoBehaviour
+│   ├── AppLogLookupEngine.cs          # 高速ルックアップ（ターゲット別・タグ別・名前別）および有効判定エンジン (Pure C#)
+│   ├── AppLogSceneScanner.cs          # シーン・メモリ走査、実在要素検出、残骸パージ、設定復元スキャナー (Pure C#)
+│   ├── AppLogGroupModifier.cs         # 全ON/OFF、グループ別ON/OFF等の状態一括操作ユーティリティ (Pure C#)
+│   └── AppLogCategoryGroup.cs         # カテゴリグループおよびログエントリーのデータモデル (Serializable)
 └── Debug/
     ├── URP_LogTriggers.cs             # [AppLoggable("URP / RenderPipelines")] URP モジュール用一元ログトリガー
     └── URPMatrixDebugFeature.cs       # `Core.Debug` 汎用 URP 行列診断 ScriptableRendererFeature
@@ -56,26 +60,46 @@ Assets/Core/Scripts/
 
 ```mermaid
 graph TD
-    AppLogManager["AppLogManager<br/>(MonoBehaviour / Order:-1000)"] <--> AppLogger["AppLogger<br/>(Static API Class)"]
+    subgraph CoreLogging["Core.Logging モジュール"]
+        AppLogger["AppLogger<br/>(Static API Class)"]
+        AppLogManager["AppLogManager<br/>(MonoBehaviour / Order:-1000)"]
+        AppLogLookupEngine["AppLogLookupEngine<br/>(高速検索・判定エンジン)"]
+        AppLogSceneScanner["AppLogSceneScanner<br/>(スキャン・同期・残骸パージ)"]
+        AppLogGroupModifier["AppLogGroupModifier<br/>(一括操作ユーティリティ)"]
+        LogModels["LogCategoryGroup / LogInstanceEntry<br/>(データモデル)"]
+
+        AppLogManager --> AppLogLookupEngine
+        AppLogManager --> AppLogSceneScanner
+        AppLogManager --> AppLogGroupModifier
+        AppLogManager --> LogModels
+        AppLogger <--> AppLogManager
+    end
 
     LogTriggersHCD["HCD_LogTriggers<br/>[AppLoggable / IAppLoggable]"] --> |RegisterLogTriggers| AppLogManager
     LogTriggersEXP["EXP_LogTriggers<br/>[AppLoggable / IAppLoggable]"] --> |RegisterLogTriggers| AppLogManager
     LogTriggersPCD["PCD_LogTriggers<br/>[AppLoggable / IAppLoggable]"] --> |RegisterLogTriggers| AppLogManager
     LogTriggersURP["URP_LogTriggers<br/>[AppLoggable / IAppLoggable]"] --> |RegisterLogTriggers| AppLogManager
+    LogTriggersPR["PR_LogTriggers<br/>[AppLoggable / IAppLoggable]"] --> |RegisterLogTriggers| AppLogManager
+    SICESICtrl["SICESI_StereoEvaluationController<br/>[AppLoggable / IAppLoggable]"] --> |RegisterLogTriggers| AppLogManager
     SRDDbgLogger["SRDMirrorDebugLogger<br/>[AppLoggable / IAppLoggable]"] --> |RegisterLogTriggers| AppLogManager
     URPDebug["URPMatrixDebugFeature<br/>(Core.Debug)"] --> |Delegate / RegisterLogTriggers| LogTriggersURP
 
-    Processors["HCD / EXP / PCD Modules"] --> |AppLogger.Log| AppLogger
+    Processors["HCD / EXP / PCD / PR / SICESI Modules"] --> |AppLogger.Log| AppLogger
     SRDCorePlugin["SRDCorePlugin<br/>(Native C++ DLL Callback)"] --> |AppLogger.Log| AppLogger
     SRDModules["SRDMirrorDebugLogger"] --> |AppLogger.Log| AppLogger
     URPModules["URPMatrixDebugFeature / MirrorRendererFeature"] --> |AppLogger.Log| AppLogger
 
     style AppLogManager fill:#4a90d9,color:#fff
+    style AppLogLookupEngine fill:#2980b9,color:#fff
+    style AppLogSceneScanner fill:#27ae60,color:#fff
+    style AppLogGroupModifier fill:#16a085,color:#fff
     style AppLogger fill:#f5a623,color:#fff
     style SRDCorePlugin fill:#e67e22,color:#fff
     style SRDDbgLogger fill:#50e3c2,color:#000
     style URPDebug fill:#e74c3c,color:#fff
     style LogTriggersURP fill:#9b59b6,color:#fff
+    style LogTriggersPR fill:#27ae60,color:#fff
+    style SICESICtrl fill:#8e44ad,color:#fff
 ```
 
 ### 2.3 `[AppLoggable]` 属性と `IAppLoggable` の適用ルール
@@ -183,6 +207,18 @@ namespace Features.MyFeature.Debug
 | `globalEnableLogging` | `bool` | `true` | アプリケーション全体のログ出力を統括するマスター切替トグル |
 | `categoryGroups` | `List<LogCategoryGroup>` | `-` | モジュールカテゴリー別にグループ化された各ログエントリーのリスト |
 
+### 4.3 内部構成クラス仕様 (責務分離)
+
+`AppLogManager` の肥大化（神クラス化）を防止し、単一責任の原則 (SRP) を徹底するため、以下の Pure C# / ユーティリティクラスへ責務を完全分離しています：
+
+| クラス名 | 種類 | 主な責務 |
+|---|---|---|
+| `AppLogManager` | MonoBehaviour (Facade) | インスペクター公開、Unity ライフサイクル管理、外部公開 API の窓口 |
+| `AppLogLookupEngine` | Pure C# | 高速ルックアップ（ターゲット別・タグ別・名前別辞書）の構築および `IsLogEnabled` 判定 |
+| `AppLogSceneScanner` | Pure C# (Static) | 非アクティブを含む実在要素の検出、残骸エントリのパージ、既存トグル設定の自動復元 |
+| `AppLogGroupModifier` | Pure C# (Static) | `SetAllEnabled`, `SetGroupEnabled` 等の一括状態操作 |
+| `LogCategoryGroup` / `LogInstanceEntry`<br>(`AppLogCategoryGroup.cs`) | Data Model (`[Serializable]`) | モジュール別グループ階層および各ログトリガーのデータ保持 |
+
 ---
 
 ## 5. デバッグ・留意事項
@@ -198,9 +234,9 @@ if (AppLogger.IsEnabled(this, SRDMirrorDebugLogger.TagProjDetCheck) && Time.fram
 }
 ```
 
-### 5.2 SRD Display & URP デバッグトリガー一覧
+### 5.2 主要モジュール別デバッグトリガー一覧
 
-`AppLogManager` のインスペクター上で一元制御可能な SRD および URP 関連のサブトリガー仕様は以下の通りです：
+`AppLogManager` のインスペクター上で一元制御可能な各モジュール関連のサブトリガー仕様は以下の通りです：
 
 | カテゴリ | サブトリガー名 | 担当クラス | 説明 |
 |---|---|---|---|
@@ -209,6 +245,18 @@ if (AppLogger.IsEnabled(this, SRDMirrorDebugLogger.TagProjDetCheck) && Time.fram
 | `SRD Display (PCD/SRD)` | `[SRD_ProjDetCheck]` | `SRDMirrorDebugLogger` | 投影行列式(Det)および非対称性の検証ログ |
 | `SRD Display (PCD/SRD)` | `[SRD_MirrorPassDebug]` | `MirrorRendererFeature` | 2D 画面空間 Blit パスの実行ログおよび視差ズレ検証 |
 | `URP / RenderPipelines` | `[URP_MatrixDebug]` | `URP_LogTriggers` / `URPMatrixDebugFeature` | 汎用 URP パイプライン状態・View/Proj/CullingMatrix 全要素比較診断 |
+| `PR (PhysicalResponse)` | `[PR_LiftController]` | `PR_LiftController` | 接触開始・追従中重心・落下状態ログ |
+| `PR (PhysicalResponse)` | `[PR_BoneDetector]` | `PR_BoneDetector` | ボーン自動検出結果・一括同期通知 |
+| `PR (PhysicalResponse)` | `[PR_VirtualObjectManager]` | `PR_VirtualObjectManager` | アクティブモデル切り替えイベント |
+| `PR (PhysicalResponse)` | `[PR_AnimationController]` | `PR_AnimationController` | アニメーション制御・撮影・移動操作ログ |
+| `PR (PhysicalResponse)` | `[PR_PCDKeyController]` | `PR_PCDKeyController` | PCD 設定キー操作・Ablation 切り替えログ |
+| `SICESI` | `[SICESI] Core Controller` | `SICESI_StereoEvaluationController` | 初期化、コンポーネント自動検出、パラメータ検証ログ |
+| `SICESI` | `[SICESI] Capture & Camera` | `SICESI_StereoEvaluationController` | GT撮影、条件撮影、カメラ姿勢ロック、マテリアル・Transform ログ |
+| `SICESI` | `[SICESI] Stereo Sweep` | `SICESI_StereoEvaluationController` | 点群密度・セクター数・連続非占有・閾値スイープ進行ログ |
+| `SICESI` | `[SICESI] Sector Mask Collector` | `SICESI_SectorMaskCollector` | 8セクター画面保存マスクスイープ、256パターンスイープ、Readback ログ |
+
+> 📎 `PhysicalResponse` の各パラメータおよび仕様詳細は [PhysicalResponse.md](./PhysicalResponse.md) を参照してください。  
+> 📎 `SICESI` の各スイープ・撮影仕様詳細は [SICESI2026.md](./SICESI2026.md) を参照してください。
 
 ### 5.3 SRDisplay ネイティブ C++ DLL ログ (`[oz-debug-log]`) の一元管理と初期化順序
 

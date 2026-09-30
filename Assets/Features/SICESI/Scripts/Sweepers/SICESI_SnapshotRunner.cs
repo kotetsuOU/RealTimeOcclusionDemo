@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.IO;
 using UnityEngine;
+using Core.Logging;
 
 namespace SICESI
 {
@@ -49,7 +50,7 @@ namespace SICESI
                 }
 
                 _controller.statusMessage = "Ground Truth Capture Completed!";
-                Debug.Log($"[SICESI] GT撮影完了: {gtDir} (共通: {commonGtDir})");
+                AppLogger.Log(_controller, $"[SICESI] GT撮影完了: {gtDir} (共通: {commonGtDir})", SICESI_StereoEvaluationController.TagCapture);
             }
             finally
             {
@@ -80,7 +81,7 @@ namespace SICESI
                 SICESI_ScreenCaptureUtil.CaptureStereoViews(_controller.leftEyeCamera, _controller.rightEyeCamera, targetDir, "test", _controller.applySRGBConversion);
 
                 _controller.statusMessage = $"Condition {_controller.conditionName} Capture Completed!";
-                Debug.Log($"[SICESI] 条件撮影完了: {targetDir}");
+                AppLogger.Log(_controller, $"[SICESI] 条件撮影完了: {targetDir}", SICESI_StereoEvaluationController.TagCapture);
             }
             finally
             {
@@ -123,7 +124,51 @@ namespace SICESI
                 }
 
                 _controller.statusMessage = "Scene Overview Capture Completed!";
-                Debug.Log($"[SICESI] シーン俯瞰撮影完了: {sceneDir}");
+                AppLogger.Log(_controller, $"[SICESI] シーン俯瞰撮影完了: {sceneDir}", SICESI_StereoEvaluationController.TagCapture);
+            }
+            finally
+            {
+                _swapper.RestoreGroundTruthSkinState(_controller.groundTruthObject, skinBackup);
+                _controller.isCapturing = false;
+            }
+        }
+
+        /// <summary>
+        /// 指定されたパス群にシーン俯瞰カメラおよびステレオ両眼視点の画像を保存します。
+        /// </summary>
+        public IEnumerator CaptureSceneViewToPathsRoutine(string primaryPath, string[] duplicatePaths = null)
+        {
+            _controller.isCapturing = true;
+            _controller.statusMessage = "Capturing Scene Overview...";
+
+            var skinBackup = _swapper.SetGroundTruthSkinState(_controller.groundTruthObject, _controller.groundTruthCaptureLayer, _controller.groundTruthSkinColor);
+            try
+            {
+                if (_controller.pointCloudObject != null) _controller.pointCloudObject.SetActive(true);
+
+                for (int i = 0; i < 3; i++) yield return null;
+                yield return new WaitForEndOfFrame();
+
+                if (_controller.sceneCaptureCamera != null)
+                {
+                    SICESI_ScreenCaptureUtil.SaveCameraView(_controller.sceneCaptureCamera, primaryPath, _controller.applySRGBConversion);
+                    if (duplicatePaths != null)
+                    {
+                        foreach (var dp in duplicatePaths)
+                        {
+                            SICESI_ScreenCaptureUtil.SaveCameraView(_controller.sceneCaptureCamera, dp, _controller.applySRGBConversion);
+                        }
+                    }
+                }
+
+                if (_controller.captureStereoEyesWithScene)
+                {
+                    string sceneDir = Path.GetDirectoryName(primaryPath);
+                    SICESI_ScreenCaptureUtil.SaveEyeViewsForScene(_controller.leftEyeCamera, _controller.rightEyeCamera, sceneDir, _controller.applySRGBConversion);
+                }
+
+                _controller.statusMessage = "Scene Overview Capture Completed!";
+                AppLogger.Log(_controller, $"[SICESI] シーン俯瞰撮影完了: {primaryPath}", SICESI_StereoEvaluationController.TagCapture);
             }
             finally
             {

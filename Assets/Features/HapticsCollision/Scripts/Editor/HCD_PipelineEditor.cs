@@ -15,19 +15,43 @@ public class HCD_PipelineEditor : Editor
     {
         serializedObject.Update();
 
-        // Assembly Definitionの制約によりReflectionでAnimationControllerを検索
+        // Assembly Definitionの制約によりReflectionでPR_VirtualObjectManagerまたはPR_AnimationControllerを検索
         bool isAutoLinked = false;
-        System.Type animCtrlType = System.Type.GetType("AnimationController, Assembly-CSharp");
-        if (animCtrlType != null)
+        string managerName = "PR_VirtualObjectManager";
+
+        System.Type vomType = System.Type.GetType("Features.Animation.PR_VirtualObjectManager, Assembly-CSharp") 
+                           ?? System.Type.GetType("PR_VirtualObjectManager, Assembly-CSharp");
+        if (vomType != null)
         {
-            Object animCtrl = Object.FindFirstObjectByType(animCtrlType);
-            if (animCtrl != null)
+            Object vom = Object.FindFirstObjectByType(vomType);
+            if (vom != null)
             {
-                SerializedObject animCtrlSO = new SerializedObject(animCtrl);
-                SerializedProperty autoUpdateProp = animCtrlSO.FindProperty("autoUpdateCollisionTarget");
-                if (autoUpdateProp != null && autoUpdateProp.boolValue)
+                SerializedObject vomSO = new SerializedObject(vom);
+                SerializedProperty syncProp = vomSO.FindProperty("syncWithHcd");
+                if (syncProp != null && syncProp.boolValue)
                 {
                     isAutoLinked = true;
+                    managerName = "PR_VirtualObjectManager";
+                }
+            }
+        }
+
+        if (!isAutoLinked)
+        {
+            System.Type animCtrlType = System.Type.GetType("Features.Animation.PR_AnimationController, Assembly-CSharp") 
+                                    ?? System.Type.GetType("PR_AnimationController, Assembly-CSharp");
+            if (animCtrlType != null)
+            {
+                Object animCtrl = Object.FindFirstObjectByType(animCtrlType);
+                if (animCtrl != null)
+                {
+                    SerializedObject animCtrlSO = new SerializedObject(animCtrl);
+                    SerializedProperty autoUpdateProp = animCtrlSO.FindProperty("autoUpdateCollisionTarget");
+                    if (autoUpdateProp != null && autoUpdateProp.boolValue)
+                    {
+                        isAutoLinked = true;
+                        managerName = "PR_AnimationController";
+                    }
                 }
             }
         }
@@ -61,7 +85,7 @@ public class HCD_PipelineEditor : Editor
                 // Detection Mode & Target Settings
                 if (isAutoLinked)
                 {
-                    EditorGUILayout.HelpBox("🔒 AnimationController の Auto Update が有効なため、対象設定は自動管理（ロック）されています。", MessageType.Info);
+                    EditorGUILayout.HelpBox($"🔒 {managerName} の自動同期が有効なため、対象設定は自動管理（ロック）されています。", MessageType.Info);
                     GUI.enabled = false;
                     if (detModeProp != null) EditorGUILayout.PropertyField(detModeProp);
                     GUI.enabled = true;

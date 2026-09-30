@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Threading.Tasks;
 using UnityEngine;
+using Core.Logging;
 
 namespace SICESI
 {
@@ -130,7 +131,7 @@ namespace SICESI
                 }
                 catch (Exception ex)
                 {
-                    Debug.LogWarning($"[SICESI] 非同期画像保存エラー ({destinationPath}): {ex.Message}");
+                    AppLogger.LogWarning(SICESI_StereoEvaluationController.TagCapture, $"[SICESI] 非同期画像保存エラー ({destinationPath}): {ex.Message}");
                 }
             });
         }
@@ -138,7 +139,7 @@ namespace SICESI
         /// <summary>
         /// 左右目線カメラの映像を指定ディレクトリに保存します。
         /// </summary>
-        public static void CaptureStereoViews(Camera leftCam, Camera rightCam, string targetDir, string filePrefix, bool applySRGB)
+        public static void CaptureStereoViews(Camera leftCam, Camera rightCam, string targetDir, string filePrefix, bool applySRGB, bool bypassSRGBConversion = false)
         {
             string leftDir = Path.Combine(targetDir, "Left");
             string rightDir = Path.Combine(targetDir, "Right");
@@ -148,13 +149,13 @@ namespace SICESI
             if (leftCam != null)
             {
                 string leftPath = Path.Combine(leftDir, $"{filePrefix}_left.png");
-                SaveCameraView(leftCam, leftPath, applySRGB);
+                SaveCameraView(leftCam, leftPath, applySRGB, bypassSRGBConversion);
             }
 
             if (rightCam != null)
             {
                 string rightPath = Path.Combine(rightDir, $"{filePrefix}_right.png");
-                SaveCameraView(rightCam, rightPath, applySRGB);
+                SaveCameraView(rightCam, rightPath, applySRGB, bypassSRGBConversion);
             }
         }
 
@@ -200,11 +201,11 @@ namespace SICESI
                 Directory.CreateDirectory(targetDir);
                 string savePath = Path.Combine(targetDir, "scene_transforms.json");
                 File.WriteAllText(savePath, json);
-                Debug.Log($"[SICESI] Transform 情報を保存しました: {savePath}");
+                AppLogger.Log(SICESI_StereoEvaluationController.TagCapture, $"[SICESI] Transform 情報を保存しました: {savePath}");
             }
             catch (Exception ex)
             {
-                Debug.LogWarning($"[SICESI] scene_transforms.json 保存失敗: {ex.Message}");
+                AppLogger.LogWarning(SICESI_StereoEvaluationController.TagCapture, $"[SICESI] scene_transforms.json 保存失敗: {ex.Message}");
             }
         }
 
@@ -218,7 +219,7 @@ namespace SICESI
             {
                 if (!File.Exists(jsonPath))
                 {
-                    Debug.LogWarning($"[SICESI] scene_transforms.json が見つかりません: {jsonPath}");
+                    AppLogger.LogWarning(SICESI_StereoEvaluationController.TagCapture, $"[SICESI] scene_transforms.json が見つかりません: {jsonPath}");
                     return false;
                 }
                 string json = File.ReadAllText(jsonPath);
@@ -236,12 +237,12 @@ namespace SICESI
                     outConditionName = data.conditionName;
                 }
 
-                Debug.Log($"[SICESI] Transform 情報を復元適用しました: {jsonPath}");
+                AppLogger.Log(SICESI_StereoEvaluationController.TagCapture, $"[SICESI] Transform 情報を復元適用しました: {jsonPath}");
                 return true;
             }
             catch (Exception ex)
             {
-                Debug.LogWarning($"[SICESI] scene_transforms.json 適用失敗: {ex.Message}");
+                AppLogger.LogWarning(SICESI_StereoEvaluationController.TagCapture, $"[SICESI] scene_transforms.json 適用失敗: {ex.Message}");
                 return false;
             }
         }
@@ -272,7 +273,7 @@ namespace SICESI
             }
             catch (Exception ex)
             {
-                Debug.LogWarning($"[SICESI] evaluation_params.json 保存失敗: {ex.Message}");
+                AppLogger.LogWarning(SICESI_StereoEvaluationController.TagCapture, $"[SICESI] evaluation_params.json 保存失敗: {ex.Message}");
             }
         }
     }

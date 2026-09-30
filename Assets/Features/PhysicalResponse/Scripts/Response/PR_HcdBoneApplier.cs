@@ -2,7 +2,7 @@
 using UnityEngine;
 using System.Collections.Generic;
 
-namespace Features.Animation
+namespace Features.PhysicalResponse
 {
     /// <summary>
     /// PR_Controller (PhysicsProfile) の設定値と HCD_Pipeline の点群衝突データを組み合わせて、
@@ -33,7 +33,7 @@ namespace Features.Animation
 
             if (targetBones.Count == 0)
             {
-                Debug.LogWarning("[PR_HcdBoneApplier] 対象となる targetBones が設定されていません。");
+                UnityEngine.Debug.LogWarning("[PR_HcdBoneApplier] 対象となる targetBones が設定されていません。");
             }
         }
 

@@ -280,7 +280,7 @@ namespace SICESI
             }
             catch (Exception ex)
             {
-                Debug.LogWarning($"[SICESI] JSON保存エラー: {ex.Message}");
+                AppLogger.LogWarning(_controller, $"[SICESI] JSON保存エラー: {ex.Message}", SICESI_StereoEvaluationController.TagMaskSweep);
             }
         }
     }

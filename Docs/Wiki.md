@@ -50,15 +50,8 @@ graph TD
         end
 
         DisplayNode["👓 5. 3D立体視・ハーフミラー<br/>(Display3D.md)"]:::display
-        ControlNode["🎮 6. アニメーション・操作<br/>(AnimationControls.md)"]:::control
-
-        subgraph PhysicsGroup ["🌀 7. 物理応答"]
-            direction TB
-            PhysicsNode["物理応答パラメータ<br/>(PhysicalResponse.md)"]:::control
-            LiftNode["└ リフト追従<br/>(PhysicalResponseLiftController.md)"]:::sub
-        end
-
-        ExpNode["🧪 8. 被験者実験<br/>(Experiments.md)"]:::control
+        PhysicsNode["🌀 6. 物理応答・インタラクション<br/>(PhysicalResponse.md)"]:::control
+        ExpNode["🧪 7. 被験者実験<br/>(Experiments.md)"]:::control
 
         %% パイプラインデータフロー
         Calibration -->|"アライメント行列"| PointCloudNode
@@ -67,8 +60,8 @@ graph TD
         RenderNode -->|"オクルージョン合成結果"| DisplayNode
         
         %% 独立した制御系
-        ControlNode -.->|"カメラ追従・UI操作"| RenderNode
-        ControlNode -->|"ターゲット自動連携"| PhysicsGroup
+        PhysicsNode -.->|"カメラ追従・UI操作"| RenderNode
+        PhysicsNode -->|"ターゲット自動連携"| HapticsGroup
         ExpNode -.->|"条件自動適用・データ記録"| AutdNode
     end
 ```
@@ -86,7 +79,7 @@ graph TD
 | 🔧 | SDK移行ガイド | SDK バージョン切り替え手順 |
 | 🧪 | 実験フレームワーク | 心理物理実験パラダイム・データ収集 |
 
-### 全ドキュメント一覧 (全 22 ファイル)
+### 全ドキュメント一覧 (全 20 ファイル)
 
 | # | 種類 | ドキュメント | 概要 |
 |:---|:---:|:---|:---|
@@ -106,11 +99,9 @@ graph TD
 | | 📖 | └── [HowToUseHaptics.md](./HowToUseHaptics.md) | ハプティクスの初回セットアップ〜使い方ガイド |
 | | 🔧 | └── [AUTD3_SDK_Transition.md](./AUTD3_SDK_Transition.md) | AUTD3 SDK 新旧仕様比較と切り替え方法 |
 | **5** | 🏗️ | [Display3D.md](./Display3D.md) | SRDisplay 視線追跡 + ハーフミラー鏡像制御 |
-| **6** | 📖 | [AnimationControls.md](./AnimationControls.md) | キーボード操作対応表・デバッグ用ショートカット |
-| **7** | 🏗️ | [PhysicalResponse.md](./PhysicalResponse.md) | Softbody / BonePhysics パラメータ一括制御 |
-| | 🏗️ | └── [PhysicalResponseLiftController.md](./PhysicalResponseLiftController.md) | 手の点群でキャラクターをリフト追従 |
-| **8** | 🧪 | [Experiments.md](./Experiments.md) | 被験者実験フレームワーク (2AFC / ABX / 調整法 / データ出力) |
-| **9** | 🧪 | [SICESI2026.md](./SICESI2026.md) | SICE SI 2026 学術評価・ステレオオクルージョン自動撮影 & 占有マスク最適化システム |
+| **6** | 🏗️ | [PhysicalResponse.md](./PhysicalResponse.md) | 仮想モデル管理・操作・リフト追従・物理応答パラメータ統合制御 |
+| **7** | 🧪 | [Experiments.md](./Experiments.md) | 被験者実験フレームワーク (2AFC / ABX / 調整法 / データ出力) |
+| **8** | 🧪 | [SICESI2026.md](./SICESI2026.md) | SICE SI 2026 学術評価・ステレオオクルージョン自動撮影 & 占有マスク最適化システム |
 
 ---
 
@@ -161,28 +152,21 @@ SDK 標準トラッキングを完全活用し、描画空間をディスプレ�
 
 ---
 
-### 🎮 6. アニメーション・操作キーシステム
-デモ・実験時のキーボードショートカット（撮影、オブジェクト切り替え、オクルージョン手法の Ablation 切り替え）およびキャラクターの視点追従制御を提供します。
+### 🌀 6. 物理応答・インタラクションシステム
+仮想モデルの一元管理（`PR_VirtualObjectManager`）、アニメーション非依存ボーン自動検出・一括同期（`PR_BoneDetector` + `PR_BoneSearcher` + `PR_BoneSync`）、キーボードアニメーション・移動・LookAt制御（`PR_AnimationController`）、PCD設定キー操作（`PR_PCDKeyController`）、手の平によるキャラクター持ち上げ・加算落下復帰（`PR_LiftController`）、および統制ログ（`PR_LogTriggers`）を包括的に提供します。
 
-📎 詳細: [AnimationControls.md](./AnimationControls.md)
-
----
-
-### 🌀 7. 物理応答パラメータ制御
-Midair Haptics の物理応答コンポーネント（Softbody, BonePhysics 等）のパラメータをインスペクターで一括調整します。キャラクターリフト機能により、手の点群でキャラクターを持ち上げるインタラクションも実現しています。
-
-📎 詳細: [PhysicalResponse.md](./PhysicalResponse.md) | [PhysicalResponseLiftController.md](./PhysicalResponseLiftController.md)
+📎 詳細: [PhysicalResponse.md](./PhysicalResponse.md)
 
 ---
 
-### 🧪 8. 被験者実験フレームワーク
+### 🧪 7. 被験者実験フレームワーク
 心理物理学実験（2AFC, ABX, 単一刺激法, 調整法）を統一的に管理・実行するフレームワークです。教示・練習・本試行・休憩の自動進行、キーボード / ゲームパッド応答受付、および物理パラメータ・反応時間の CSV / JSON 自動記録を提供します。
 
 📎 詳細: [Experiments.md](./Experiments.md)
 
 ---
 
-### 🧪 9. SICE SI 学術評価・ステレオオクルージョン最適化システム
+### 🧪 8. SICE SI 学術評価・ステレオオクルージョン最適化システム
 ステレオカメラ（左右眼）からの自動一括撮影、8セクター二値マスク収集、および Python 側での数理最適化（MILP / 局所探索）と定性差分マップ（diff_map）自動生成を一気通貫で実行するフレームワークです。
 
 📎 詳細: [SICESI2026.md](./SICESI2026.md)

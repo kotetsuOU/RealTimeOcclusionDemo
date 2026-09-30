@@ -7,11 +7,20 @@ public class HCD_DistanceProcessor : IHCD_Processor
     {
         public string ProcessorName => "DistanceCalculator";
 
-        public enum DetectionMode { TransformOnly, SkinnedMeshRenderer, MeshFilter }
+        public enum DetectionMode { TransformOnly, SkinnedMeshRenderer, MeshFilter, FootPlane }
         public enum DistanceMode { MeshSurface, ViewDirection }
 
         [Header("Mode Settings")]
         public DetectionMode detectionMode;
+
+        [Header("FootPlane Mode Settings")]
+        public Transform footPlaneTarget;
+        public Vector3 footPlaneBoundsMin;
+        public Vector3 footPlaneBoundsMax;
+        public float footPlaneRefY;
+        public float footPlaneDepthThreshold = 0.05f;
+        public float footPlaneUpperMargin = 0.005f;
+        public Vector3 footPlaneNormal = Vector3.up;
 
         [Header("Distance Mode Settings")]
         [Tooltip("距離判定モード (MeshSurface: メッシュ表面基準の手前奥 / ViewDirection: 視線方向基準の手前奥)")]
@@ -59,6 +68,7 @@ public class HCD_DistanceProcessor : IHCD_Processor
         private int _kernelMesh;
         private int _kernelClearGrid;
         private int _kernelBuildGrid;
+        private int _kernelFootPlane;
 
         private readonly HCD_MeshBaker _meshBaker = new HCD_MeshBaker();
         private readonly HCD_SpatialGridBuilder _gridBuilder = new HCD_SpatialGridBuilder();
@@ -74,6 +84,7 @@ public class HCD_DistanceProcessor : IHCD_Processor
                 _kernelMesh = collisionComputeShader.FindKernel("CheckCollisionMesh");
                 _kernelClearGrid = collisionComputeShader.FindKernel("ClearMeshGrid");
                 _kernelBuildGrid = collisionComputeShader.FindKernel("BuildMeshGrid");
+                _kernelFootPlane = collisionComputeShader.FindKernel("CheckCollisionFootPlane");
             }
             
             _gridBuilder.Setup();
@@ -104,6 +115,10 @@ public class HCD_DistanceProcessor : IHCD_Processor
             else if (detectionMode == DetectionMode.SkinnedMeshRenderer || detectionMode == DetectionMode.MeshFilter)
             {
                 DispatchMeshMode(pointCloudBuffer, pointCount, cameraPos);
+            }
+            else if (detectionMode == DetectionMode.FootPlane)
+            {
+                DispatchFootPlaneMode(pointCloudBuffer, pointCount);
             }
         }
 
@@ -150,6 +165,26 @@ public class HCD_DistanceProcessor : IHCD_Processor
 
             int threadGroups = Mathf.CeilToInt(pointCount / 256.0f);
             collisionComputeShader.Dispatch(_kernelTransform, threadGroups, 1, 1);
+        }
+
+        private void DispatchFootPlaneMode(ComputeBuffer pointCloudBuffer, int pointCount)
+        {
+            if (footPlaneTarget == null) return;
+
+            collisionComputeShader.SetBuffer(_kernelFootPlane, "PointCloudBuffer", pointCloudBuffer);
+            collisionComputeShader.SetBuffer(_kernelFootPlane, "ResultBuffer", _resultBuffer);
+
+            collisionComputeShader.SetInt("PointsCount", pointCount);
+            collisionComputeShader.SetMatrix("WorldToTargetMatrix", footPlaneTarget.worldToLocalMatrix);
+            collisionComputeShader.SetVector("FootPlaneBoundsMin", footPlaneBoundsMin);
+            collisionComputeShader.SetVector("FootPlaneBoundsMax", footPlaneBoundsMax);
+            collisionComputeShader.SetFloat("FootPlaneRefY", footPlaneRefY);
+            collisionComputeShader.SetFloat("FootPlaneDepthThreshold", footPlaneDepthThreshold);
+            collisionComputeShader.SetFloat("FootPlaneUpperMargin", footPlaneUpperMargin);
+            collisionComputeShader.SetVector("FootPlaneNormal", footPlaneNormal);
+
+            int threadGroups = Mathf.CeilToInt(pointCount / 256.0f);
+            collisionComputeShader.Dispatch(_kernelFootPlane, threadGroups, 1, 1);
         }
 
         private void DispatchMeshMode(ComputeBuffer pointCloudBuffer, int pointCount, Vector3 cameraPos)

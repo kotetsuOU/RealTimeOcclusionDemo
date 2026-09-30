@@ -15,7 +15,7 @@
 
 * **4足ボーン自動検出機能**: ルート Transform を与えることで、`frontLeftFoot`, `frontRightFoot`, `backLeftFoot`, `backRightFoot` および `tailBone` を自動検索・再検出します。
 * **着地インパルス刺激**: 足の上下運動・速度変化を検知し、着地瞬間にパルス状の強い触覚刺激を生成します。
-* **`AnimationController` 自動バインド連動**: ターゲットオブジェクト切り替え (`Tab` キー) 時に `AnimationController` から自動的に参照が更新されます。
+* **`PR_BoneDetector` / `PR_BoneSync` 自動同期連動**: ターゲットオブジェクト切り替え (`Tab` キー) 時に `PR_BoneDetector` および `PR_BoneSync` から自動的に足ボーンおよび基準姿勢が同期されます。
 
 ---
 
@@ -34,11 +34,11 @@ Assets/Features/Haptics/Scripts/
 
 ```mermaid
 graph TD
-    AC["AnimationController"] --> |AutoDetectBones| FootCtrl["HAP_FoxFootHapticsController"]
+    BD["PR_BoneDetector<br/>(PR_BoneSync)"] --> |SyncTo / AutoDetectBones| FootCtrl["HAP_FoxFootHapticsController"]
     FootCtrl --> |Ground Check| Feet["4 Feet Transforms"]
     FootCtrl --> |Trigger Pulse| HAP["HAP_Pipeline"]
 
-    style AC fill:#4a90d9,color:#fff
+    style BD fill:#27ae60,color:#fff
     style FootCtrl fill:#f5a623,color:#fff
     style HAP fill:#50e3c2,color:#000
 ```

@@ -95,20 +95,34 @@ public class HAP_FoxBodyHapticsControllerEditor : Editor
         serializedObject.Update();
 
         EditorGUILayout.PropertyField(autdControllerProp);
-        EditorGUILayout.Space();
-
-        EditorGUILayout.PropertyField(headBoneProp);
-        EditorGUILayout.PropertyField(leftEarBoneProp);
-        EditorGUILayout.PropertyField(rightEarBoneProp);
-        EditorGUILayout.PropertyField(frontLeftFootProp);
-        EditorGUILayout.PropertyField(frontRightFootProp);
-        EditorGUILayout.PropertyField(backLeftFootProp);
-        EditorGUILayout.PropertyField(backRightFootProp);
-        EditorGUILayout.PropertyField(tailBoneProp);
-
-        if (GUILayout.Button("Auto Detect Bones"))
+        bool isBoneDetectorActive = false;
+        var detectorType = System.Type.GetType("Features.Animation.PR_BoneDetector, Assembly-CSharp")
+                        ?? System.Type.GetType("PR_BoneDetector, Assembly-CSharp");
+        if (detectorType != null && Object.FindFirstObjectByType(detectorType) != null)
         {
-            ((HAP_FoxBodyHapticsController)target).AutoDetectBones();
+            isBoneDetectorActive = true;
+        }
+
+        if (isBoneDetectorActive)
+        {
+            EditorGUILayout.HelpBox("🔒 各ボーンTransform および RootTransform は PR_BoneDetector により一元同期されています。", MessageType.Info);
+        }
+        else
+        {
+            EditorGUILayout.LabelField("Bone Transforms (Manual Fallback)", EditorStyles.boldLabel);
+            EditorGUILayout.PropertyField(headBoneProp);
+            EditorGUILayout.PropertyField(leftEarBoneProp);
+            EditorGUILayout.PropertyField(rightEarBoneProp);
+            EditorGUILayout.PropertyField(frontLeftFootProp);
+            EditorGUILayout.PropertyField(frontRightFootProp);
+            EditorGUILayout.PropertyField(backLeftFootProp);
+            EditorGUILayout.PropertyField(backRightFootProp);
+            EditorGUILayout.PropertyField(tailBoneProp);
+
+            if (GUILayout.Button("Auto Detect Bones"))
+            {
+                ((HAP_FoxBodyHapticsController)target).AutoDetectBones();
+            }
         }
         EditorGUILayout.Space();
 
@@ -131,7 +145,10 @@ public class HAP_FoxBodyHapticsControllerEditor : Editor
         {
             EditorGUI.indentLevel++;
             EditorGUILayout.PropertyField(airborneHeightThresholdProp);
-            EditorGUILayout.PropertyField(rootTransformProp);
+            if (!isBoneDetectorActive)
+            {
+                EditorGUILayout.PropertyField(rootTransformProp);
+            }
             EditorGUI.indentLevel--;
         }
         

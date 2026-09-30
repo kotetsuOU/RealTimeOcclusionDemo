@@ -2,6 +2,7 @@
 #pragma kernel BuildMeshGrid
 #pragma kernel CheckCollisionTransform
 #pragma kernel CheckCollisionMesh
+#pragma kernel CheckCollisionFootPlane
 
 struct PointCollisionData
 {
@@ -56,6 +57,15 @@ RWStructuredBuffer<int> GridBuffer;
 float3 GridBoundsMin;
 float3 GridCellSize;
 int3 GridResolution; // default (8,8,8)
+
+// FootPlane Mode
+float4x4 WorldToTargetMatrix;
+float3 FootPlaneBoundsMin;
+float3 FootPlaneBoundsMax;
+float FootPlaneRefY;
+float FootPlaneDepthThreshold;
+float FootPlaneUpperMargin;
+float3 FootPlaneNormal;
 
 [numthreads(256, 1, 1)]
 void ClearMeshGrid (uint3 id : SV_DispatchThreadID)
@@ -446,3 +456,41 @@ void CheckCollisionMesh (uint3 id : SV_DispatchThreadID)
 
     ResultBuffer[id.x] = res;
 }
+
+[numthreads(256, 1, 1)]
+void CheckCollisionFootPlane (uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= PointsCount) return;
+
+    float3 p = PointCloudBuffer[id.x].position;
+    PointCollisionData res;
+    res.isColliding = 0;
+    res.distance = 0.0;
+    res.pointPos = p;
+    res.hitPoint = float3(0, 0, 0);
+    res.hitNormal = float3(0, 0, 0);
+
+    // ワールド座標からターゲットローカル座標へ変換
+    float4 localP4 = mul(WorldToTargetMatrix, float4(p, 1.0));
+    float3 localP = localP4.xyz;
+
+    // 水平領域判定 (ローカルXZの拡大矩形内)
+    if (localP.x >= FootPlaneBoundsMin.x && localP.x <= FootPlaneBoundsMax.x &&
+        localP.z >= FootPlaneBoundsMin.z && localP.z <= FootPlaneBoundsMax.z)
+    {
+        // 平面からの相対高さ (ローカルY)
+        float h = localP.y - FootPlaneRefY;
+
+        // 平面より下部かつ深さ閾値以内 (-depthThreshold <= h <= upperMargin)
+        if (h >= -FootPlaneDepthThreshold && h <= FootPlaneUpperMargin)
+        {
+            res.isColliding = 1;
+            res.distance = abs(h);
+            res.hitPoint = p - FootPlaneNormal * h;
+            res.hitNormal = FootPlaneNormal;
+        }
+    }
+
+    ResultBuffer[id.x] = res;
+}
+

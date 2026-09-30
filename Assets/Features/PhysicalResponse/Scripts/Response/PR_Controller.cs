@@ -1,7 +1,7 @@
 #if false
 using UnityEngine;
 
-namespace Features.Animation
+namespace Features.PhysicalResponse
 {
     /// <summary>
     /// Midair Hapticsの物理応答（PhysicsProfile, MoveToStartPosApplier, ShapeMatchingSoftbodyApplier）
@@ -197,13 +197,13 @@ namespace Features.Animation
                     _physicsProfile = generatedRoot.GetComponentInChildren<PhysicsProfile>();
                     _moveToStartPosApplier = generatedRoot.GetComponentInChildren<MoveToStartPosApplier>();
                     _softbodyApplier = generatedRoot.GetComponentInChildren<ShapeMatchingSoftbodyApplier>();
-                    Debug.Log($"[PR_Controller] '{targetObject.name}' に関連する物理セットアップ '{generatedRoot.name}' を自動検出しました。");
+                    UnityEngine.Debug.Log($"[PR_Controller] '{targetObject.name}' に関連する物理セットアップ '{generatedRoot.name}' を自動検出しました。");
                 }
             }
 
             if (_physicsProfile == null && _softbodyApplier == null)
             {
-                Debug.LogWarning($"[PR_Controller] '{targetObject.name}' に関連する PhysicsProfile や SoftbodyApplier が見つかりませんでした。Contact Physics Setup ツールで生成されているか確認してください。");
+                UnityEngine.Debug.LogWarning($"[PR_Controller] '{targetObject.name}' に関連する PhysicsProfile や SoftbodyApplier が見つかりませんでした。Contact Physics Setup ツールで生成されているか確認してください。");
             }
 
             FetchCurrentSettings();
