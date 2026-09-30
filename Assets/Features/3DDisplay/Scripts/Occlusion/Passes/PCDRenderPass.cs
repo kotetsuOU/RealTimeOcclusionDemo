@@ -48,6 +48,7 @@ public class PCDRenderPass : ScriptableRenderPass
     // =========================================================================
     private readonly PCDKernelRegistry _kernels = new PCDKernelRegistry();
     private readonly PCDResourcePool _resources = new PCDResourcePool();
+    internal PCDResourcePool Resources => _resources;
     private readonly PCDPointBufferManager _bufferManager = new PCDPointBufferManager();
     private readonly PCDDebugReadbackManager _debugManager = new PCDDebugReadbackManager();
 
@@ -139,7 +140,10 @@ public class PCDRenderPass : ScriptableRenderPass
 
     public Texture GetDebugDisplayMap()
     {
-        if ((_settings.enablePixelTagMap || _settings.enableOcclusionMap) && _resources.DebugDisplayMap != null)
+        bool isDebug = _settings.enablePixelTagMap || _settings.enableOcclusionMap
+            || (_settings.debugPatternId >= 0 && _settings.debugPatternId < 256)
+            || (_settings.debugSectorId >= 0 && _settings.debugSectorId <= 9);
+        if (isDebug && _resources.DebugDisplayMap != null)
             return _resources.DebugDisplayMap;
         return null;
     }

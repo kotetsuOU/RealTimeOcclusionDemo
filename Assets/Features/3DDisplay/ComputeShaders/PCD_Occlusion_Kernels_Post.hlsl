@@ -103,11 +103,17 @@ void InitFromCamera(uint3 id : SV_DispatchThreadID, uint groupIndex : SV_GroupIn
             float4 cameraColor = _CameraColorTexture[id.xy];
             _ColorMap_RW[writeUV] = float4(cameraColor.rgb, 1.0);
 
-            float2 uv = float2(id.xy) / _ScreenParams.xy;
+            float2 uv = (float2(id.xy) + 0.5) / _ScreenParams.xy;
             float2 ndc = uv * 2.0 - 1.0;
-            float4 clipPos = float4(ndc.x, ndc.y, cameraDepth * 2.0 - 1.0, 1.0);
+
+            // GPU生深度 (rawDepth: 1=近, 0=遠) をクリップ空間 Z に直接渡す
+            float4 clipPos = float4(ndc.x, ndc.y, rawDepth, 1.0);
             float4 viewPos = mul(_InverseProjectionMatrix, clipPos);
             viewPos /= viewPos.w;
+
+            // Unity のカメラビュー空間は右手系 (前方が -Z) のため、逆投影結果の Z を反転
+            // これにより、点群側の mul(_ViewMatrix, worldPos) とXYZ座標系が完全に一致する
+            viewPos.z = -viewPos.z;
 
             _ViewPositionMap_RW[writeUV] = float4(viewPos.xyz, cameraDepth);
             _OriginTypeMap_RW[writeUV] = 1u;
@@ -161,6 +167,8 @@ void InitFromCamera(uint3 id : SV_DispatchThreadID, uint groupIndex : SV_GroupIn
 }
 
 int _DebugDisplayMode;
+int _DebugPatternId;
+int _DebugSectorId;
 
 // 13. Visualize Occlusion Debug
 // OcclusionValueMapの値をREADME/Exporterと同じルールでカラー変換し、
@@ -170,6 +178,81 @@ void VisualizeOcclusionDebug(uint3 id : SV_DispatchThreadID)
 {
     if (id.x >= (uint)_ScreenParams.x || id.y >= (uint)_ScreenParams.y)
         return;
+
+    // mode 3: 256占有パターン単独二値マスク表示 (指定パターン 0..255 と完全一致する画素を白、他を黒)
+    if (_DebugDisplayMode == 3)
+    {
+        uint val = _NeighborCountMap_RW[id.xy];
+        uint isEvaluated = (val >> 12) & 1u;
+        if (isEvaluated == 0u)
+        {
+            _OriginMap_RW[id.xy] = float4(0, 0, 0, 1);
+            return;
+        }
+
+        uint mask = val & 0xFFu;
+        if (_DebugPatternId >= 0 && _DebugPatternId < 256 && mask == (uint)_DebugPatternId)
+        {
+            _OriginMap_RW[id.xy] = float4(1, 1, 1, 1); // 所属画素: 白
+        }
+        else
+        {
+            _OriginMap_RW[id.xy] = float4(0, 0, 0, 1); // 非所属画素: 黒
+        }
+        return;
+    }
+
+    // mode 4: 8セクター二値マスク表示 (指定セクター _DebugSectorId 0..7 の bit が 1 なら白、0 なら黒)
+    // 更新: mode 分岐を増やさず、_DebugSectorId の指定により 8bit 占有パターン直接出力 (8) および GPU 実判定マスク直接出力 (9) を統合サポート
+    if (_DebugDisplayMode == 4)
+    {
+        uint val = _NeighborCountMap_RW[id.xy];
+        uint isEvaluated = (val >> 12) & 1u;
+        if (isEvaluated == 0u)
+        {
+            _OriginMap_RW[id.xy] = float4(0, 0, 0, 1);
+            return;
+        }
+
+        uint mask = val & 0xFFu;
+
+        // _DebugSectorId == 8: 全8セクター統合 8-bit グレースケール占有マスク (各画素のパターン m ∈ [0, 255] を直接出力)
+        if (_DebugSectorId == 8)
+        {
+            float p = (float)mask / 255.0;
+            _OriginMap_RW[id.xy] = float4(p, p, p, 1.0);
+            return;
+        }
+
+        // _DebugSectorId == 9: GPU 実遮蔽判定マスク (bit 13: 遮蔽なら白, 可視なら黒)
+        if (_DebugSectorId == 9)
+        {
+            uint isGpuOccluded = (val >> 13) & 1u;
+            float p = (isGpuOccluded != 0u) ? 1.0 : 0.0;
+            _OriginMap_RW[id.xy] = float4(p, p, p, 1.0);
+            return;
+        }
+
+        // _DebugSectorId == 10: 実測点群の手前直接投影マスク (点群画素なら白, 他は黒)
+        if (_DebugSectorId == 10)
+        {
+            uint originType = _OriginTypeMap[id.xy];
+            float p = (originType == 0u) ? 1.0 : 0.0;
+            _OriginMap_RW[id.xy] = float4(p, p, p, 1.0);
+            return;
+        }
+
+        // 従来互換: _DebugSectorId 0..7 (個別セクター二値マスク)
+        if (_DebugSectorId >= 0 && _DebugSectorId < 8 && (((mask >> (uint)_DebugSectorId) & 1u) != 0u))
+        {
+            _OriginMap_RW[id.xy] = float4(1, 1, 1, 1); // セクターが占有(1): 白
+        }
+        else
+        {
+            _OriginMap_RW[id.xy] = float4(0, 0, 0, 1); // 非占有(0): 黒
+        }
+        return;
+    }
 
     // mode 1: PixelTagMap(判定後), mode 2: OcclusionMap(生値)
     if (_DebugDisplayMode == 2)

@@ -45,7 +45,8 @@ public class PCDRendererFeature : ScriptableRendererFeature
     public enum PCD_OcclusionEvaluationMode
     {
         Average = 0,
-        SectorThreshold = 1
+        SectorThreshold = 1,
+        SectorConsecutiveZeros = 2
     }
 
     public enum PCD_HoleFillingMethod
@@ -80,6 +81,7 @@ public class PCDRendererFeature : ScriptableRendererFeature
         public PCD_OcclusionKernel kernelType;
         public PCD_OcclusionEvaluationMode evaluationMode;
         [Range(1, 8)] public int minOccludedSectors;
+        [Range(0, 8)] public int maxConsecutiveEmptySectors;
         [Range(0, 6)] public int minSearchLevel;
 
         public float exponentAlpha;
@@ -103,6 +105,18 @@ public class PCDRendererFeature : ScriptableRendererFeature
         public bool recordNeighborhoodMap;
         public bool recordNeighborCountMap;
 
+        /// <summary>
+        /// 256占有パターンの単独二値マスク表示 (-1: 通常描画, 0..255: 指定パターンの二値マスク表示)
+        /// </summary>
+        [Range(-1, 255)]
+        public int debugPatternId;
+
+        /// <summary>
+        /// 8セクターの単独二値マスク表示 (-1: 通常描画, 0..7: 指定セクターの二値マスク表示)
+        /// </summary>
+        [Range(-1, 7)]
+        public int debugSectorId;
+
         public bool enableVirtualDepthIntegration;
 
         public bool enableTagBasedOptimization;   // ① タグに基づく探索スキップ
@@ -125,6 +139,7 @@ public class PCDRendererFeature : ScriptableRendererFeature
     public PCDSettingsBridge settings { get; private set; }
 
     private PCDRenderPass _scriptablePass;
+    internal PCDResourcePool CurrentResources => _scriptablePass != null ? _scriptablePass.Resources : null;
 
     private bool _useGlobalBufferMode = false;
     public bool IsGlobalBufferMode => _useGlobalBufferMode;

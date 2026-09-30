@@ -134,6 +134,7 @@ int _EnableJointBilateralHoleFilling;
 int _KernelType;
 int _EvaluationMode;
 int _MinOccludedSectors;
+int _MaxConsecutiveEmptySectors;
 int _MinSearchLevel;
 float _Alpha;
 

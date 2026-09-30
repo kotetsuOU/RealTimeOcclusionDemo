@@ -40,11 +40,6 @@ namespace SRD.Core
 #if UNITY_2019_1_OR_NEWER
             RenderPipelineManager.beginCameraRendering += OnBeginCameraRendering;
             RenderPipelineManager.endCameraRendering += OnEndCameraRendering;
-#if UNITY_2021_1_OR_NEWER
-            RenderPipelineManager.beginContextRendering += OnBeginContextRendering;
-#else
-            RenderPipelineManager.beginFrameRendering += OnBeginFrameRendering;
-#endif
 #endif
         }
 
@@ -72,11 +67,19 @@ namespace SRD.Core
             foreach (var cam in cameras)
             {
                 if (cam == null || !cam.enabled) continue;
-                bool isLeft = cam.name.Contains("LeftEyeCamera");
-                bool isRight = cam.name.Contains("RightEyeCamera");
-                if (!isLeft && !isRight) continue;
+                if (!IsTargetEyeCamera(cam)) continue;
 
-                ApplyMirrorToCamera(cam);
+                // URP のフレームレンダリング開始前に行列 (worldToCameraMatrix, cullingMatrix) を確実に更新
+                // ※ GL.invertCulling はここでは触らず、描画直前の OnBeginCameraRendering でのみ設定します
+                ApplyMirrorMatricesToCamera(cam);
+            }
+        }
+
+        private void OnValidate()
+        {
+            if (!enableMirror)
+            {
+                RestoreAllCameras();
             }
         }
 
@@ -85,11 +88,6 @@ namespace SRD.Core
 #if UNITY_2019_1_OR_NEWER
             RenderPipelineManager.beginCameraRendering -= OnBeginCameraRendering;
             RenderPipelineManager.endCameraRendering -= OnEndCameraRendering;
-#if UNITY_2021_1_OR_NEWER
-            RenderPipelineManager.beginContextRendering -= OnBeginContextRendering;
-#else
-            RenderPipelineManager.beginFrameRendering -= OnBeginFrameRendering;
-#endif
 #endif
             RestoreAllCameras();
         }
@@ -97,6 +95,14 @@ namespace SRD.Core
         void OnDisable()
         {
             RestoreAllCameras();
+        }
+
+        private bool IsTargetEyeCamera(Camera cam)
+        {
+            if (cam == null) return false;
+            string camName = cam.name;
+            return camName.IndexOf("LeftEyeCamera", System.StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   camName.IndexOf("RightEyeCamera", System.StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private void RestoreAllCameras()
@@ -138,58 +144,61 @@ namespace SRD.Core
         }
 
 #if UNITY_2019_1_OR_NEWER
-#if UNITY_2021_1_OR_NEWER
-        private void OnBeginContextRendering(ScriptableRenderContext context, List<Camera> cameras)
-        {
-            if (!Application.isPlaying || !enableMirror || srdManager == null) return;
-            foreach (var cam in cameras)
-            {
-                if (cam == null) continue;
-                bool isLeft = cam.name.Contains("LeftEyeCamera");
-                bool isRight = cam.name.Contains("RightEyeCamera");
-                if (isLeft || isRight)
-                {
-                    ApplyMirrorToCamera(cam);
-                }
-            }
-        }
-#else
-        private void OnBeginFrameRendering(ScriptableRenderContext context, Camera[] cameras)
-        {
-            if (!Application.isPlaying || !enableMirror || srdManager == null) return;
-            foreach (var cam in cameras)
-            {
-                if (cam == null) continue;
-                bool isLeft = cam.name.Contains("LeftEyeCamera");
-                bool isRight = cam.name.Contains("RightEyeCamera");
-                if (isLeft || isRight)
-                {
-                    ApplyMirrorToCamera(cam);
-                }
-            }
-        }
-#endif
-
         private void OnBeginCameraRendering(ScriptableRenderContext context, Camera cam)
         {
-            if (!Application.isPlaying || !enableMirror || srdManager == null) return;
+            if (cam == null) return;
 
-            bool isLeft = cam.name.Contains("LeftEyeCamera");
-            bool isRight = cam.name.Contains("RightEyeCamera");
+            // 1. 対象の SRD 左右目カメラの場合: 描画の瞬間のみ GL.invertCulling = true を適用
+            if (IsTargetEyeCamera(cam))
+            {
+                if (Application.isPlaying && enableMirror && srdManager != null)
+                {
+                    // 描画直前の最終確認として行列およびカリング反転を適用
+                    ApplyMirrorMatricesToCamera(cam);
+                    GL.invertCulling = true;
+                }
+                else
+                {
+                    GL.invertCulling = false;
+                }
+            }
+            else
+            {
+                // 2. 非対象カメラ (通常 URP カメラ, SceneView, Inspector Preview など):
+                // カリング反転が誤って適用されないよう確実に false を保証
+                if (GL.invertCulling)
+                {
+                    GL.invertCulling = false;
+                }
+            }
+        }
 
-            if (!isLeft && !isRight) return;
+        private void OnEndCameraRendering(ScriptableRenderContext context, Camera cam)
+        {
+            if (cam == null) return;
 
-            ApplyMirrorToCamera(cam);
+            if (IsTargetEyeCamera(cam))
+            {
+                // 対象カメラのレンダリングが終了した瞬間、無条件で GL.invertCulling を false に即時復帰
+                GL.invertCulling = false;
+            }
+            else
+            {
+                // 非対象カメラ終了時も常にカリング反転を確実に false に維持
+                if (GL.invertCulling)
+                {
+                    GL.invertCulling = false;
+                }
+            }
         }
 #endif
 
-        private void ApplyMirrorToCamera(Camera cam)
+        private void ApplyMirrorMatricesToCamera(Camera cam)
         {
             // バックアップ (未バックアップ時のみ)
             if (!_originalViewMatrices.ContainsKey(cam)) _originalViewMatrices[cam] = cam.worldToCameraMatrix;
             if (!_originalCullMatrices.ContainsKey(cam)) _originalCullMatrices[cam] = cam.cullingMatrix;
             if (!_originalCullingMasks.ContainsKey(cam)) _originalCullingMasks[cam] = cam.cullingMask;
-            if (!_originalInvertCulling.ContainsKey(cam)) _originalInvertCulling[cam] = GL.invertCulling;
             if (!_originalClearFlags.ContainsKey(cam)) _originalClearFlags[cam] = cam.clearFlags;
             if (!_originalBackgroundColors.ContainsKey(cam)) _originalBackgroundColors[cam] = cam.backgroundColor;
 
@@ -201,34 +210,6 @@ namespace SRD.Core
 
             // 3. cullingMatrix の強制上書き（CPUカリング用）
             cam.cullingMatrix = cam.projectionMatrix * CalculateCaseBViewMatrix(cam, isRigid: true);
-
-            // 4. GL.invertCulling の適用
-            GL.invertCulling = true;
-        }
-
-        private void OnEndCameraRendering(ScriptableRenderContext context, Camera cam)
-        {
-            if (!Application.isPlaying || !enableMirror) return;
-
-            bool isLeft = cam.name.Contains("LeftEyeCamera");
-            bool isRight = cam.name.Contains("RightEyeCamera");
-
-            if (!isLeft && !isRight) return;
-
-            if (_originalInvertCulling.TryGetValue(cam, out bool origCulling))
-            {
-                GL.invertCulling = origCulling;
-            }
-            else
-            {
-                GL.invertCulling = false;
-            }
-
-            if (_originalViewMatrices.TryGetValue(cam, out Matrix4x4 v)) cam.worldToCameraMatrix = v;
-            if (_originalCullMatrices.TryGetValue(cam, out Matrix4x4 c)) cam.cullingMatrix = c;
-            if (_originalCullingMasks.TryGetValue(cam, out int mask)) cam.cullingMask = mask;
-            if (_originalClearFlags.TryGetValue(cam, out CameraClearFlags cf)) cam.clearFlags = cf;
-            if (_originalBackgroundColors.TryGetValue(cam, out Color bg)) cam.backgroundColor = bg;
         }
 
         private Matrix4x4 CalculateCaseBViewMatrix(Camera cam, bool isRigid)

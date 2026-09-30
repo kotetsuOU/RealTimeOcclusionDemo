@@ -10,6 +10,7 @@ public class PCDSettingsBridge
         kernelType = PCD_OcclusionKernel.Bouchiba,
         evaluationMode = PCD_OcclusionEvaluationMode.Average,
         minOccludedSectors = 1,
+        maxConsecutiveEmptySectors = 2,
         minSearchLevel = 6,
         exponentAlpha = 0f,
         densityThreshold_e = 0.04f,
@@ -30,6 +31,8 @@ public class PCDSettingsBridge
         recordIntegratedDepthMap = false,
         recordNeighborhoodMap = false,
         recordNeighborCountMap = false,
+        debugPatternId = -1,
+        debugSectorId = -1,
         enableVirtualDepthIntegration = true,
         enableTagBasedOptimization = true,
         enableTypeAwareDensity = true,
@@ -90,6 +93,16 @@ public class PCDSettingsBridge
         {
             if (Controller != null) Controller.minOccludedSectors = value;
             else _fallbackSettings.minOccludedSectors = value;
+        }
+    }
+
+    public int maxConsecutiveEmptySectors
+    {
+        get => Controller != null ? Controller.maxConsecutiveEmptySectors : _fallbackSettings.maxConsecutiveEmptySectors;
+        set
+        {
+            if (Controller != null) Controller.maxConsecutiveEmptySectors = value;
+            else _fallbackSettings.maxConsecutiveEmptySectors = value;
         }
     }
 
@@ -300,6 +313,26 @@ public class PCDSettingsBridge
         {
             if (Controller != null) Controller.recordNeighborCountMap = value;
             else _fallbackSettings.recordNeighborCountMap = value;
+        }
+    }
+
+    public int debugPatternId
+    {
+        get => Controller != null ? Controller.debugPatternId : _fallbackSettings.debugPatternId;
+        set
+        {
+            if (Controller != null) Controller.debugPatternId = value;
+            else _fallbackSettings.debugPatternId = value;
+        }
+    }
+
+    public int debugSectorId
+    {
+        get => Controller != null ? Controller.debugSectorId : _fallbackSettings.debugSectorId;
+        set
+        {
+            if (Controller != null) Controller.debugSectorId = value;
+            else _fallbackSettings.debugSectorId = value;
         }
     }
 

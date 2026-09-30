@@ -26,6 +26,10 @@ public class PCDOcclusionPipelineController : MonoBehaviour, IAppLoggable
     [Range(1, 8)]
     public int minOccludedSectors = 1;
 
+    [Tooltip("SectorConsecutiveZerosモード時: 許容最大連続非占有セクター数 L_th (0〜8。8で方向制限無効)")]
+    [Range(0, 8)]
+    public int maxConsecutiveEmptySectors = 2;
+
     [Tooltip("オクルージョン近傍探索のベース/最小レベル(0〜6)。OFF時は固定レベルとして使用され、ON時は探索レベルの下限および空領域のデフォルト値として使用されます。")]
     [Range(0, 6)]
     public int minSearchLevel = 6;
@@ -78,6 +82,14 @@ public class PCDOcclusionPipelineController : MonoBehaviour, IAppLoggable
 
     [Tooltip("内積計算で得た occlusionAverage(0~1) を、Record Occlusion Debug Map と同じ配色ルールで画面上に常時表示します")]
     public bool enableOcclusionMap = false;
+
+    [Tooltip("256占有パターンの単独二値マスク表示 (-1: 通常描画, 0..255: 指定パターンの二値マスク表示)")]
+    [Range(-1, 255)]
+    public int debugPatternId = -1;
+
+    [Tooltip("セクターマスク表示 (-1: 通常描画, 0..7: 個別セクター二値マスク, 8: 全8セクター統合8bit占有マスク, 9: GPU実判定マスク)")]
+    [Range(-1, 9)]
+    public int debugSectorId = -1;
 
     [Header("Record Debug")]
     [Tooltip("1フレームだけOcclusionMapを保存します（occlusionAverageをPNG/CSVへ出力）")]
@@ -180,6 +192,7 @@ public class PCDOcclusionPipelineController : MonoBehaviour, IAppLoggable
             kernelType = this.kernelType,
             evaluationMode = this.evaluationMode,
             minOccludedSectors = this.minOccludedSectors,
+            maxConsecutiveEmptySectors = this.maxConsecutiveEmptySectors,
             minSearchLevel = this.minSearchLevel,
             exponentAlpha = this.exponentAlpha,
             densityThreshold_e = this.densityThreshold_e,
@@ -201,6 +214,8 @@ public class PCDOcclusionPipelineController : MonoBehaviour, IAppLoggable
             recordIntegratedDepthMap = this.recordIntegratedDepthMap,
             recordNeighborhoodMap = this.recordNeighborhoodMap,
             recordNeighborCountMap = this.recordNeighborCountMap,
+            debugPatternId = this.debugPatternId,
+            debugSectorId = this.debugSectorId,
             enableVirtualDepthIntegration = this.enableVirtualDepthIntegration,
             enableTagBasedOptimization = this.enableTagBasedOptimization,
             enableTypeAwareDensity = this.enableTypeAwareDensity,
@@ -248,6 +263,38 @@ public class PCDOcclusionPipelineController : MonoBehaviour, IAppLoggable
             Gizmos.DrawLine(centroid, centroid + normal * 0.05f);
 #endif
         }
+    }
+
+    /// <summary>
+    /// 次のフレームで占有セクターマスク (SectorMask DebugMap) を1フレーム出力します。
+    /// 保存先: Assets/HandTrackingData/SectorMasks/ (.raw バイナリ, .csv サマリー, .png グレースケール)
+    /// </summary>
+    public void TriggerRecordSectorMask()
+    {
+        recordNeighborCountMap = true;
+        Debug.Log("[PCD] 占有セクターマスク (SectorMask DebugMap) のキャプチャをリクエストしました (次フレームで出力されます)");
+    }
+
+    /// <summary>
+    /// 次のフレームでオクルージョンマップ (OcclusionMap) を1フレーム出力します。
+    /// </summary>
+    public void TriggerRecordOcclusionMap()
+    {
+        recordOcclusionDebugMap = true;
+        Debug.Log("[PCD] オクルージョンマップ (OcclusionMap) のキャプチャをリクエストしました");
+    }
+
+    /// <summary>
+    /// 全てのデバッグマップを一括出力します。
+    /// </summary>
+    public void TriggerRecordAllDebugMaps()
+    {
+        recordOcclusionDebugMap = true;
+        recordPixelTagMap = true;
+        recordIntegratedDepthMap = true;
+        recordNeighborhoodMap = true;
+        recordNeighborCountMap = true;
+        Debug.Log("[PCD] 全デバッグマップの一括キャプチャをリクエストしました");
     }
 
     public void RegisterLogTriggers(LogCategoryGroup group, System.Collections.Generic.HashSet<string> existingLabels)

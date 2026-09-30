@@ -12,6 +12,7 @@ public class PCDOcclusionPipelineControllerEditor : Editor
     private SerializedProperty _kernelType;
     private SerializedProperty _evaluationMode;
     private SerializedProperty _minOccludedSectors;
+    private SerializedProperty _maxConsecutiveEmptySectors;
     private SerializedProperty _minSearchLevel;
 
     private SerializedProperty _exponentAlpha;
@@ -32,6 +33,8 @@ public class PCDOcclusionPipelineControllerEditor : Editor
 
     private SerializedProperty _enablePixelTagMap;
     private SerializedProperty _enableOcclusionMap;
+    private SerializedProperty _debugPatternId;
+    private SerializedProperty _debugSectorId;
 
     private SerializedProperty _recordOcclusionDebugMap;
     private SerializedProperty _recordPixelTagMap;
@@ -70,6 +73,7 @@ public class PCDOcclusionPipelineControllerEditor : Editor
         _kernelType = serializedObject.FindProperty("kernelType");
         _evaluationMode = serializedObject.FindProperty("evaluationMode");
         _minOccludedSectors = serializedObject.FindProperty("minOccludedSectors");
+        _maxConsecutiveEmptySectors = serializedObject.FindProperty("maxConsecutiveEmptySectors");
         _minSearchLevel = serializedObject.FindProperty("minSearchLevel");
 
         _exponentAlpha = serializedObject.FindProperty("exponentAlpha");
@@ -90,6 +94,8 @@ public class PCDOcclusionPipelineControllerEditor : Editor
 
         _enablePixelTagMap = serializedObject.FindProperty("enablePixelTagMap");
         _enableOcclusionMap = serializedObject.FindProperty("enableOcclusionMap");
+        _debugPatternId = serializedObject.FindProperty("debugPatternId");
+        _debugSectorId = serializedObject.FindProperty("debugSectorId");
 
         _recordOcclusionDebugMap = serializedObject.FindProperty("recordOcclusionDebugMap");
         _recordPixelTagMap = serializedObject.FindProperty("recordPixelTagMap");
@@ -168,7 +174,14 @@ public class PCDOcclusionPipelineControllerEditor : Editor
         EditorGUI.indentLevel++;
         EditorGUILayout.PropertyField(_kernelType);
         EditorGUILayout.PropertyField(_evaluationMode);
-        EditorGUILayout.PropertyField(_minOccludedSectors);
+        if (_evaluationMode.enumValueIndex != (int)PCDRendererFeature.PCD_OcclusionEvaluationMode.Average)
+        {
+            EditorGUILayout.PropertyField(_minOccludedSectors);
+        }
+        if (_evaluationMode.enumValueIndex == (int)PCDRendererFeature.PCD_OcclusionEvaluationMode.SectorConsecutiveZeros)
+        {
+            EditorGUILayout.PropertyField(_maxConsecutiveEmptySectors);
+        }
         EditorGUILayout.PropertyField(_minSearchLevel);
         EditorGUI.indentLevel--;
         EditorGUILayout.Space();
@@ -251,6 +264,8 @@ public class PCDOcclusionPipelineControllerEditor : Editor
         EditorGUI.indentLevel++;
         EditorGUILayout.PropertyField(_enablePixelTagMap);
         EditorGUILayout.PropertyField(_enableOcclusionMap);
+        EditorGUILayout.PropertyField(_debugSectorId);
+        EditorGUILayout.PropertyField(_debugPatternId);
         EditorGUILayout.PropertyField(_recordOcclusionDebugMap);
         EditorGUILayout.PropertyField(_recordPixelTagMap);
         EditorGUILayout.PropertyField(_recordIntegratedDepthMap);
@@ -258,6 +273,33 @@ public class PCDOcclusionPipelineControllerEditor : Editor
         EditorGUILayout.PropertyField(_recordNeighborCountMap);
         EditorGUILayout.PropertyField(_enableBufferManagerLog);
         EditorGUI.indentLevel--;
+
+        EditorGUILayout.Space(6);
+        EditorGUILayout.LabelField("📸 Quick Capture DebugMaps (PlayMode)", EditorStyles.boldLabel);
+
+        GUI.backgroundColor = new Color(0.4f, 0.85f, 0.95f);
+        if (GUILayout.Button("📸 占有セクターマスク (SectorMask RAW/CSV/PNG) を出力", GUILayout.Height(30)))
+        {
+            var controller = (PCDOcclusionPipelineController)target;
+            controller.TriggerRecordSectorMask();
+            EditorUtility.SetDirty(controller);
+        }
+
+        GUI.backgroundColor = new Color(0.95f, 0.85f, 0.4f);
+        if (GUILayout.Button("📸 オクルージョンマップ (OcclusionMap PNG/CSV) を出力", GUILayout.Height(26)))
+        {
+            var controller = (PCDOcclusionPipelineController)target;
+            controller.TriggerRecordOcclusionMap();
+            EditorUtility.SetDirty(controller);
+        }
+
+        GUI.backgroundColor = Color.white;
+        if (GUILayout.Button("📸 全デバッグマップ (Occlusion, Depth, SectorMask) 一括出力", GUILayout.Height(26)))
+        {
+            var controller = (PCDOcclusionPipelineController)target;
+            controller.TriggerRecordAllDebugMaps();
+            EditorUtility.SetDirty(controller);
+        }
 
         serializedObject.ApplyModifiedProperties();
     }

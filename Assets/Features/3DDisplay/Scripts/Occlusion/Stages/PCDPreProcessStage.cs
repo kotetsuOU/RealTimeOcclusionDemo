@@ -98,6 +98,7 @@ internal class PCDPreProcessStage : IPCDPipelineStage
         cmd.SetComputeIntParam(cs, PCDShaderConstants.KernelType, (int)s.kernelType);
         cmd.SetComputeIntParam(cs, PCDShaderConstants.EvaluationMode, (int)s.evaluationMode);
         cmd.SetComputeIntParam(cs, PCDShaderConstants.MinOccludedSectors, s.minOccludedSectors);
+        cmd.SetComputeIntParam(cs, PCDShaderConstants.MaxConsecutiveEmptySectors, s.maxConsecutiveEmptySectors);
         cmd.SetComputeIntParam(cs, PCDShaderConstants.MinSearchLevel, s.minSearchLevel);
         cmd.SetComputeFloatParam(cs, PCDShaderConstants.Alpha, s.exponentAlpha);
         cmd.SetComputeFloatParam(cs, PCDShaderConstants.OcclusionThreshold, s.occlusionThreshold);
@@ -136,22 +137,20 @@ internal class PCDPreProcessStage : IPCDPipelineStage
         var r = ctx.Resources;
         var s = ctx.Settings;
 
-        if (!runInitFromCamera)
-        {
-            cmd.SetComputeTextureParam(cs, k.ClearMaps, PCDShaderConstants.ColorMap_RW, r.ColorMap);
-            cmd.SetComputeTextureParam(cs, k.ClearMaps, PCDShaderConstants.DepthMap_RW,
-                s.recordIntegratedDepthMap ? r.IntegratedDepthMap : r.DepthMap);
-            cmd.SetComputeTextureParam(cs, k.ClearMaps, PCDShaderConstants.ViewPositionMap_RW, r.ViewPositionMap);
-            cmd.SetComputeTextureParam(cs, k.ClearMaps, PCDShaderConstants.OcclusionResultMap_RW, r.OcclusionResultMap);
-            cmd.SetComputeTextureParam(cs, k.ClearMaps, PCDShaderConstants.OcclusionValueMap_RW, r.OcclusionValueMap);
+        // 全マップを確実に初期化して前フレームの残骸を完全に排除
+        cmd.SetComputeTextureParam(cs, k.ClearMaps, PCDShaderConstants.ColorMap_RW, r.ColorMap);
+        cmd.SetComputeTextureParam(cs, k.ClearMaps, PCDShaderConstants.DepthMap_RW,
+            s.recordIntegratedDepthMap ? r.IntegratedDepthMap : r.DepthMap);
+        cmd.SetComputeTextureParam(cs, k.ClearMaps, PCDShaderConstants.ViewPositionMap_RW, r.ViewPositionMap);
+        cmd.SetComputeTextureParam(cs, k.ClearMaps, PCDShaderConstants.OcclusionResultMap_RW, r.OcclusionResultMap);
+        cmd.SetComputeTextureParam(cs, k.ClearMaps, PCDShaderConstants.OcclusionValueMap_RW, r.OcclusionValueMap);
 
-            var clearFinalImageTarget = (s.holeFillingMethod != PCDRendererFeature.PCD_HoleFillingMethod.None) ? r.FinalImage : r.OcclusionResultMap;
-            cmd.SetComputeTextureParam(cs, k.ClearMaps, PCDShaderConstants.FinalImage_RW, clearFinalImageTarget);
+        var clearFinalImageTarget = (s.holeFillingMethod != PCDRendererFeature.PCD_HoleFillingMethod.None) ? r.FinalImage : r.OcclusionResultMap;
+        cmd.SetComputeTextureParam(cs, k.ClearMaps, PCDShaderConstants.FinalImage_RW, clearFinalImageTarget);
 
-            cmd.SetComputeTextureParam(cs, k.ClearMaps, PCDShaderConstants.OriginTypeMap_RW, r.OriginTypeMap);
-            cmd.SetComputeTextureParam(cs, k.ClearMaps, PCDShaderConstants.OriginMap_RW, r.DebugDisplayMap);
-            cmd.DispatchCompute(cs, k.ClearMaps, ctx.ThreadGroupsX, ctx.ThreadGroupsY, 1);
-        }
+        cmd.SetComputeTextureParam(cs, k.ClearMaps, PCDShaderConstants.OriginTypeMap_RW, r.OriginTypeMap);
+        cmd.SetComputeTextureParam(cs, k.ClearMaps, PCDShaderConstants.OriginMap_RW, r.DebugDisplayMap);
+        cmd.DispatchCompute(cs, k.ClearMaps, ctx.ThreadGroupsX, ctx.ThreadGroupsY, 1);
 
         // カウンターのクリアは常に実行
         cmd.SetComputeBufferParam(cs, k.ClearCounter, PCDShaderConstants.StaticMeshCounter_RW, ctx.StaticMeshCounterBuffer);

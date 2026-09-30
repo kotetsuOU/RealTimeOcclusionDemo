@@ -44,6 +44,8 @@ internal static class PCDShaderConstants
     public static readonly int EvaluationMode = Shader.PropertyToID("_EvaluationMode");
     /// <summary> SectorThreshold モード時に必要な最小遮蔽セクター数 </summary>
     public static readonly int MinOccludedSectors = Shader.PropertyToID("_MinOccludedSectors");
+    /// <summary> SectorConsecutiveZeros モード時に許容する最大連続非占有セクター数 (0〜8) </summary>
+    public static readonly int MaxConsecutiveEmptySectors = Shader.PropertyToID("_MaxConsecutiveEmptySectors");
     /// <summary> 探索を開始するピラミッドの最小レベル </summary>
     public static readonly int MinSearchLevel = Shader.PropertyToID("_MinSearchLevel");
     /// <summary> 指数カーネルのアルファパラメータ </summary>
@@ -177,6 +179,8 @@ internal static class PCDShaderConstants
     public static readonly int OriginMap_RW = Shader.PropertyToID("_OriginMap_RW");
     public static readonly int NeighborCountMap_RW = Shader.PropertyToID("_NeighborCountMap_RW");
     public static readonly int DebugDisplayMode = Shader.PropertyToID("_DebugDisplayMode");
+    public static readonly int DebugPatternId = Shader.PropertyToID("_DebugPatternId");
+    public static readonly int DebugSectorId = Shader.PropertyToID("_DebugSectorId");
     public static readonly int OcclusionValueMap_RW = Shader.PropertyToID("_OcclusionValueMap_RW");
     public static readonly int RecordOcclusionDebug = Shader.PropertyToID("_RecordOcclusionDebug");
 
