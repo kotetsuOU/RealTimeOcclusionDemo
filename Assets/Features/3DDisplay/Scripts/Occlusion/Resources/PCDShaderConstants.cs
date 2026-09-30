@@ -54,6 +54,8 @@ internal static class PCDShaderConstants
     public static readonly int OcclusionThreshold = Shader.PropertyToID("_OcclusionThreshold");
     /// <summary> ソフトオクルージョンのフェード幅 </summary>
     public static readonly int OcclusionFadeWidth = Shader.PropertyToID("_OcclusionFadeWidth");
+    /// <summary> 256パターンLUT (uint[8] 配列) </summary>
+    public static readonly int PatternLUT = Shader.PropertyToID("_PatternLUT");
 
     // =====================================================================
     // メインテクスチャマップ（読み取り / 書き込み）

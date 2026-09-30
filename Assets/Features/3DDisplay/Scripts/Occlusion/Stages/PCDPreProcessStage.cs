@@ -104,6 +104,11 @@ internal class PCDPreProcessStage : IPCDPipelineStage
         cmd.SetComputeFloatParam(cs, PCDShaderConstants.OcclusionThreshold, s.occlusionThreshold);
         cmd.SetComputeFloatParam(cs, PCDShaderConstants.OcclusionFadeWidth, s.occlusionFadeWidth);
 
+        if (s.patternLutWords != null && s.patternLutWords.Length >= 8)
+        {
+            cmd.SetComputeIntParams(cs, PCDShaderConstants.PatternLUT, s.patternLutWords);
+        }
+
         // 提案手法の各最適化フラグ
         cmd.SetComputeIntParam(cs, Shader.PropertyToID("_EnableTagBasedOptimization"), s.enableTagBasedOptimization ? 1 : 0);
         cmd.SetComputeIntParam(cs, Shader.PropertyToID("_EnableTypeAwareDensity"), s.enableTypeAwareDensity ? 1 : 0);

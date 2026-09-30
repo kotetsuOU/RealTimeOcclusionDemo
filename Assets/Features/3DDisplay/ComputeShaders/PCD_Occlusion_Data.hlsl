@@ -137,6 +137,7 @@ int _MinOccludedSectors;
 int _MaxConsecutiveEmptySectors;
 int _MinSearchLevel;
 float _Alpha;
+uint _PatternLUT[8];
 
 int _PullPushMaxLevel;
 int _PullPushCurrentLevel;

@@ -49,19 +49,11 @@ if hasattr(sys.stdout, 'reconfigure'):
 
 import cv2
 
-# export_occlusion_diff_maps と統一した配色定義 (RGB)
-COLOR_CORRECT   = np.array([200, 200, 200], dtype=np.uint8)  # 正しく表示 / 一致可視（薄いグレー）
-COLOR_OCC_MATCH = np.array([45, 45, 45], dtype=np.uint8)     # 正しく遮蔽 / 一致遮蔽（暗いグレー）
-COLOR_OVER_OCC  = np.array([255, 45, 45], dtype=np.uint8)    # 過剰遮蔽（赤: GPU可視だがTest遮蔽）
-COLOR_UNDER_OCC = np.array([30, 144, 255], dtype=np.uint8)   # 遮蔽漏れ（青: GPU遮蔽だがTest可視）
-COLOR_BG        = np.array([15, 15, 15], dtype=np.uint8)      # 背景（黒）
-
-# パイプライン一貫性のための二値化判定閾値 (50%カバレッジ基準で完全統一)
-DEFAULT_BINARY_THRESHOLD = 128
-
-
-def natural_sort_key(s: str):
-    return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', s)]
+from sicesi_core.constants import (
+    COLOR_CORRECT, COLOR_OCC_MATCH, COLOR_OVER_OCC, COLOR_UNDER_OCC, COLOR_BG,
+    DEFAULT_BINARY_THRESHOLD
+)
+from sicesi_core.dataset_loader import natural_sort_key
 
 
 def generate_gpu_diff_montage(gpu_occ_mask: np.ndarray, test_rgb: np.ndarray, vo_mask: np.ndarray,

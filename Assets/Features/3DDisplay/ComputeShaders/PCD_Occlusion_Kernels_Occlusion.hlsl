@@ -238,7 +238,7 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
             avgOcclusion = 1.0 - ((float)binaryOccludedCount / 8.0);
         }
     }
-    else // SectorConsecutiveZeros Mode (新手法: 占有数 N_occ + 最大連続非占有セクタ数 L_max 判定)
+    else if (_EvaluationMode == 2) // SectorConsecutiveZeros Mode (Mode 20: 占有数 N_occ + 最大連続非占有セクタ数 L_max 判定)
     {
         // 遮蔽条件: N_occ(x) >= R_th  and  L_max(x) <= L_th
         // R_th: _MinOccludedSectors (最低占有セクタ数)
@@ -258,6 +258,28 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
         {
             if (binaryOccludedCount >= (uint)_MinOccludedSectors && passesDirectionCondition)
                 alpha = 0.0;
+            avgOcclusion = 1.0 - ((float)binaryOccludedCount / 8.0);
+        }
+    }
+    else // Mode 3 (RotationLUT36) or Mode 4 (PatternLUT256) - 1クロック高速LUT参照
+    {
+        // 256パターンのマスクビット occupiedSectorMask (0..255) から 256bit LUT を参照
+        // ビットが 1 なら可視 (alpha = 1.0)、0 なら遮蔽 (alpha = 0.0)
+        uint wordIdx = (occupiedSectorMask >> 5u) & 7u;
+        uint bitIdx = occupiedSectorMask & 31u;
+        bool isVisible = ((_PatternLUT[wordIdx] >> bitIdx) & 1u) != 0u;
+
+        if (_EnableSoftOcclusionFade > 0 && _OcclusionFadeWidth > 1e-4)
+        {
+            float countFadeStart = max(0.0, (float)_MinOccludedSectors - 1.0);
+            float countFadeEnd = (float)_MinOccludedSectors;
+            float baseAlpha = 1.0 - smoothstep(countFadeStart, countFadeEnd, softOccludedCount);
+            alpha = isVisible ? 1.0 : baseAlpha;
+            avgOcclusion = 1.0 - (softOccludedCount / 8.0);
+        }
+        else
+        {
+            alpha = isVisible ? 1.0 : 0.0;
             avgOcclusion = 1.0 - ((float)binaryOccludedCount / 8.0);
         }
     }

@@ -44,9 +44,11 @@ public class PCDRendererFeature : ScriptableRendererFeature
 
     public enum PCD_OcclusionEvaluationMode
     {
-        Average = 0,
-        SectorThreshold = 1,
-        SectorConsecutiveZeros = 2
+        Average = 0,               // 従来手法 (内積平均値)
+        SectorThreshold = 1,       // Mode 8: 占有数判定 (最低占有セクタ数: デフォルト 7)
+        SectorConsecutiveZeros = 2,// Mode 20: 連続非占有規則 (R_th=4, L_th=1)
+        RotationLUT36 = 3,         // Mode 36: 36クラス回転不変LUT
+        PatternLUT256 = 4          // Mode 256: 256パターン独立最適LUT (推奨・最高精度)
     }
 
     public enum PCD_HoleFillingMethod
@@ -129,6 +131,7 @@ public class PCDRendererFeature : ScriptableRendererFeature
         [Range(1, 25)] public int morphKernelHalfSize;
         [Range(0, 5)] public int morphErodeIterations;
         [Range(1, 5)] public int morphDilateIterations;
+        public int[] patternLutWords;
 
         [HideInInspector] public uint _dynamicMultiplierRuntimeValue;
     }

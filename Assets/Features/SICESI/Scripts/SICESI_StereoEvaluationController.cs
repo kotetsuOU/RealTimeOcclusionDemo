@@ -8,13 +8,15 @@ using RealSense.DummyPointCloud;
 namespace SICESI
 {
     /// <summary>
-    /// SICE SI 発表用 臨時評価コントローラー
+    /// SICE SI 発表用 評価コントローラー (Facade)
     /// 左右眼カメラ映像および Ground Truth (手メッシュ) / 各密度での点群遮蔽画像の自動キャプチャを統括します。
-    /// 本体コードに影響を与えない独立クラスです。
+    /// 内部ロジックは SICESI_MaterialSwapper, SICESI_ScreenCaptureUtil, SICESI_StereoSweepRunner に責務分離されています。
     /// </summary>
     [DisallowMultipleComponent]
     public class SICESI_StereoEvaluationController : MonoBehaviour
     {
+        #region 設定パラメータ
+
         [Header("Target Cameras")]
         [Tooltip("左目用カメラ (SRDisplay LeftEyeCamera または単体カメラ)")]
         public Camera leftEyeCamera;
@@ -29,7 +31,7 @@ namespace SICESI
         [Tooltip("シーン保存カメラでの撮影時に GroundTruthObject (手メッシュ) のマテリアルに適用する肌色")]
         public Color groundTruthSkinColor = new Color(241f / 255f, 187f / 255f, 147f / 255f, 1f);
 
-        [Tooltip("シーン保存時に左右目線カメラ (leftEyeCamera, rightEyeCamera) の映像も一緒に保存するか (scene_left.png, scene_right.png)")]
+        [Tooltip("シーン保存時に左右目線カメラの映像も一緒に保存するか (scene_left.png, scene_right.png)")]
         public bool captureStereoEyesWithScene = true;
 
         [Header("Objects To Toggle")]
@@ -53,14 +55,14 @@ namespace SICESI
         public bool renderGroundTruthAsBlack = true;
 
         [Header("Virtual Object Material Settings")]
-        [Tooltip("映像取得時（正解画像GTおよび評価テスト画像）に、仮想オブジェクトのマテリアルを Universal Render Pipeline/Unlit かつ完全な白 (RGB: 1,1,1) に差し替えるかどうか")]
+        [Tooltip("映像取得時に、仮想オブジェクトのマテリアルを Universal Render Pipeline/Unlit かつ完全な白に差し替えるかどうか")]
         public bool renderVirtualObjectAsUnlitWhite = true;
 
         [Header("Density Sweep Settings")]
-        [Tooltip("点群の物理密度の指定単位 (PointSpacingMm: 点間隔mm, PointsPerCm2: 1cm^2あたりの点数 など)")]
+        [Tooltip("点群の物理密度の指定単位")]
         public PointDensityUnit densityUnit = PointDensityUnit.PointSpacingMm;
 
-        [Tooltip("評価実験でスイープする点群密度のリスト (上記 densityUnit に準拠した数値。例: PointSpacingMm の場合は 1.0, 2.0, 3.0 mm など)")]
+        [Tooltip("評価実験でスイープする点群密度のリスト")]
         public float[] sweepDensities = new float[] { 1.0f, 2.0f, 3.0f, 4.0f, 5.0f };
 
         [Tooltip("密度変更後、点群生成とGPU描画の反映を待機するフレーム数")]
@@ -68,17 +70,17 @@ namespace SICESI
         public int waitFramesAfterDensityChange = 5;
 
         [Header("Color Space & Capture Quality")]
-        [Tooltip("Linear色空間から追加でsRGBガンマ補正を行うか。通常URPの最終出力はすでにガンマ補正されているため、false(デフォルト)でGameViewと同一になります。trueにすると二重補正でコントラストが濃くなる場合があります。")]
+        [Tooltip("Linear色空間から追加でsRGBガンマ補正を行うか")]
         public bool applySRGBConversion = false;
 
         [Header("Sector Sweep Settings")]
-        [Tooltip("オクルージョンパイプラインのコントローラー (未設定時は自動検索)")]
+        [Tooltip("オクルージョンパイプラインのコントローラー")]
         public PCDOcclusionPipelineController occlusionPipelineController;
 
-        [Tooltip("Bouchibaオクルージョン評価でスイープするセクター閾値のリスト (1〜8)")]
+        [Tooltip("オクルージョン評価でスイープするセクター閾値のリスト (1〜8)")]
         public int[] sweepSectors = new int[] { 1, 2, 3, 4, 5, 6, 7, 8 };
 
-        [Tooltip("セクタースイープ時に点群密度 (sweepDensities) も全パターン組み合わせて一括撮影するか (ONの場合: 密度数 × セクター数 の全組み合わせ)")]
+        [Tooltip("セクタースイープ時に点群密度も全パターン組み合わせて一括撮影するか")]
         public bool sweepDensitiesAcrossSectors = true;
 
         [Tooltip("セクタースイープ時に、比較用として従来の Average (平均値判定) モードも各密度で一緒に撮影するか")]
@@ -88,14 +90,14 @@ namespace SICESI
         [Tooltip("新手法: 許容最大連続非占有セクター数 L_th のスイープリスト (0〜8)")]
         public int[] sweepMaxConsecutiveZeros = new int[] { 0, 1, 2, 3, 4, 5, 6, 7, 8 };
 
-        [Tooltip("数学的・幾何学的に等価な重複条件を自動スキップする (72組 -> 20組に短縮)")]
+        [Tooltip("数学的・幾何学的に等価な重複条件を自動スキップする")]
         public bool skipRedundantConditions = true;
 
-        [Tooltip("連続非占有数スイープ時に点群密度 (sweepDensities) も全パターン組み合わせて一括撮影するか (OFF時は現在の密度のみで撮影)")]
+        [Tooltip("連続非占有数スイープ時に点群密度も全パターン組み合わせて一括撮影するか")]
         public bool sweepDensitiesAcrossConsecutive = false;
 
         [Header("Density & Occlusion Threshold Sweep Settings")]
-        [Tooltip("固定する評価モード (Average: 平均値判定, SectorThreshold: セクター分割判定)")]
+        [Tooltip("固定する評価モード")]
         public PCDRendererFeature.PCD_OcclusionEvaluationMode fixedEvaluationMode = PCDRendererFeature.PCD_OcclusionEvaluationMode.SectorThreshold;
 
         [Tooltip("SectorThreshold モード時に固定するセクター閾値 R_th (1〜8)")]
@@ -112,12 +114,9 @@ namespace SICESI
         [HideInInspector]
         public string casesParentFolder = "RawTest_Cases";
 
-        [Tooltip("現在の実験条件・ケース名 (例: RawTest, RawTest_case1, RawTest_case2 など)")]
+        [Tooltip("現在の実験条件・ケース名 (例: RawTest, RawTest_case1 など)")]
         public string conditionName = "RawTest";
 
-        /// <summary>
-        /// 現在の実験条件のルートディレクトリを取得します (casesParentFolder が設定されている場合はその配下)。
-        /// </summary>
         public string ConditionRootDir
         {
             get
@@ -134,57 +133,48 @@ namespace SICESI
         public bool isCapturing = false;
         public string statusMessage = "Ready";
 
-        private Material _blackMaterialCache;
-        private Material _whiteUnlitMaterialCache;
+        #endregion
 
-        public class GroundTruthStateBackup
-        {
-            public Dictionary<Renderer, Material[]> Materials = new Dictionary<Renderer, Material[]>();
-            public Dictionary<GameObject, int> Layers = new Dictionary<GameObject, int>();
-        }
+        #region 内部コンポーネント
 
-        public class GroundTruthSkinColorBackup
-        {
-            public bool WasActive;
-            public Dictionary<GameObject, int> Layers = new Dictionary<GameObject, int>();
-            public List<MaterialColorRecord> MaterialRecords = new List<MaterialColorRecord>();
-            public Dictionary<Renderer, MaterialPropertyBlock> OriginalPropertyBlocks = new Dictionary<Renderer, MaterialPropertyBlock>();
-        }
+        private SICESI_MaterialSwapper _materialSwapper;
+        private SICESI_SnapshotRunner _snapshotRunner;
+        private SICESI_StereoSweepRunner _stereoSweepRunner;
 
-        public class MaterialColorRecord
-        {
-            public Material Mat;
-            public bool HasColor;
-            public Color OriginalColor;
-            public bool HasBaseColor;
-            public Color OriginalBaseColor;
-        }
+        public SICESI_MaterialSwapper MaterialSwapper => _materialSwapper ?? (_materialSwapper = new SICESI_MaterialSwapper());
+        public SICESI_SnapshotRunner SnapshotRunner => _snapshotRunner ?? (_snapshotRunner = new SICESI_SnapshotRunner(this, MaterialSwapper));
+        public SICESI_StereoSweepRunner StereoSweepRunner => _stereoSweepRunner ?? (_stereoSweepRunner = new SICESI_StereoSweepRunner(this, MaterialSwapper));
 
-        public class VirtualObjectStateBackup
+        // 後方互換性エイリアス
+        public SICESI_StereoSweepRunner SweepRunner => StereoSweepRunner;
+
+        #endregion
+
+        #region 後方互換用型定義・エイリアス
+
+        public class GroundTruthStateBackup : SICESI_MaterialSwapper.GroundTruthStateBackup { }
+        public class GroundTruthSkinColorBackup : SICESI_MaterialSwapper.GroundTruthSkinColorBackup { }
+        public class VirtualObjectStateBackup : SICESI_MaterialSwapper.VirtualObjectStateBackup { }
+        public class SerializableTransformData : SICESI_ScreenCaptureUtil.SerializableTransformData { }
+        public class SceneTransformsData : SICESI_ScreenCaptureUtil.SceneTransformsData { }
+
+        #endregion
+
+        #region Unity ライフサイクル
+
+        private void Awake()
         {
-            public Dictionary<Renderer, Material[]> Materials = new Dictionary<Renderer, Material[]>();
+            _materialSwapper = new SICESI_MaterialSwapper();
+            _snapshotRunner = new SICESI_SnapshotRunner(this, _materialSwapper);
+            _stereoSweepRunner = new SICESI_StereoSweepRunner(this, _materialSwapper);
         }
 
         private void OnDestroy()
         {
-            if (_blackMaterialCache != null)
+            if (_materialSwapper != null)
             {
-#if UNITY_EDITOR
-                DestroyImmediate(_blackMaterialCache);
-#else
-                Destroy(_blackMaterialCache);
-#endif
-                _blackMaterialCache = null;
-            }
-
-            if (_whiteUnlitMaterialCache != null)
-            {
-#if UNITY_EDITOR
-                DestroyImmediate(_whiteUnlitMaterialCache);
-#else
-                Destroy(_whiteUnlitMaterialCache);
-#endif
-                _whiteUnlitMaterialCache = null;
+                _materialSwapper.Dispose();
+                _materialSwapper = null;
             }
         }
 
@@ -194,162 +184,36 @@ namespace SICESI
             FindDummyComponents();
         }
 
-        /// <summary>
-        /// シーン内の LeftEyeCamera / RightEyeCamera を自動検索して割り当てます。
-        /// </summary>
+        #endregion
+
+        #region コンポーネント自動検索
+
         public void FindCameras()
         {
-#if UNITY_2023_1_OR_NEWER
-            var cameras = FindObjectsByType<Camera>(FindObjectsInactive.Include, FindObjectsSortMode.None);
-#else
-            var cameras = FindObjectsOfType<Camera>(true);
-#endif
-            foreach (var cam in cameras)
-            {
-                if (cam == null) continue;
-                string camName = cam.name.ToLower();
-                if (camName.Contains("lefteye") || camName.EndsWith("_l") || camName.Contains("left"))
-                {
-                    leftEyeCamera = cam;
-                }
-                else if (camName.Contains("righteye") || camName.EndsWith("_r") || camName.Contains("right"))
-                {
-                    rightEyeCamera = cam;
-                }
-                else if (sceneCaptureCamera == null && (camName.Contains("scene") || camName.Contains("overview") || camName.Contains("capture")))
-                {
-                    sceneCaptureCamera = cam;
-                }
-            }
-
-            if (leftEyeCamera != null || rightEyeCamera != null || sceneCaptureCamera != null)
-            {
-                Debug.Log($"[SICESI] カメラを自動検出しました: Left={leftEyeCamera?.name}, Right={rightEyeCamera?.name}, Scene={sceneCaptureCamera?.name}");
-            }
+            SICESI_SceneComponentLocator.LocateCameras(ref leftEyeCamera, ref rightEyeCamera, ref sceneCaptureCamera);
         }
 
-        /// <summary>
-        /// シーン内の RsDummyPointCloudProvider を自動検索します。
-        /// </summary>
         public void FindDummyComponents()
         {
-#if UNITY_2023_1_OR_NEWER
-            dummyPointCloudProvider = FindFirstObjectByType<RsDummyPointCloudProvider>();
-            var renderer = FindFirstObjectByType<RsDummyPointCloudRenderer>();
-            if (occlusionPipelineController == null)
-            {
-                occlusionPipelineController = FindFirstObjectByType<PCDOcclusionPipelineController>();
-            }
-#else
-            dummyPointCloudProvider = FindObjectOfType<RsDummyPointCloudProvider>();
-            var renderer = FindObjectOfType<RsDummyPointCloudRenderer>();
-            if (occlusionPipelineController == null)
-            {
-                occlusionPipelineController = FindObjectOfType<PCDOcclusionPipelineController>();
-            }
-#endif
-            if (renderer != null && pointCloudObject == null)
-            {
-                pointCloudObject = renderer.gameObject;
-            }
-
-            if (virtualObject == null)
-            {
-                var vo = GameObject.Find("VirtualObjects");
-                if (vo != null)
-                {
-                    virtualObject = vo;
-                    Debug.Log($"[SICESI] 仮想オブジェクトを自動検出しました: {vo.name}");
-                }
-            }
+            SICESI_SceneComponentLocator.LocateDummyComponents(ref dummyPointCloudProvider, ref pointCloudObject, ref occlusionPipelineController, ref virtualObject);
         }
 
-        /// <summary>
-        /// Ground Truth (手メッシュのみ有効) の左右眼画像を撮影・保存します。
-        /// </summary>
+        #endregion
+
+        #region スイープ実行 API (Facade)
+
         public void CaptureGroundTruth()
         {
             if (isCapturing) return;
-            StartCoroutine(CaptureGroundTruthRoutine());
+            StartCoroutine(SnapshotRunner.CaptureGroundTruthRoutine());
         }
 
-        private IEnumerator CaptureGroundTruthRoutine()
-        {
-            isCapturing = true;
-            statusMessage = "Capturing Ground Truth...";
-
-            var gtBackup = SetGroundTruthState(true);
-            var voBackup = SetVirtualObjectUnlitWhiteState(true);
-            try
-            {
-                if (pointCloudObject != null) pointCloudObject.SetActive(false);
-
-                // 描画の安定を待つ
-                for (int i = 0; i < 3; i++) yield return null;
-                yield return new WaitForEndOfFrame();
-
-                string conditionRootDir = ConditionRootDir;
-                SaveSceneTransformsJson(conditionRootDir);
-                string gtDir = Path.Combine(conditionRootDir, "GT");
-                CaptureStereoViews(gtDir, "gt");
-
-                // 共通フォールバック用として outputDirectory/GT にも保存
-                string commonGtDir = Path.Combine(outputDirectory, "GT");
-                if (commonGtDir != gtDir)
-                {
-                    CaptureStereoViews(commonGtDir, "gt");
-                }
-
-                statusMessage = "Ground Truth Capture Completed!";
-                Debug.Log($"[SICESI] GT撮影完了: {gtDir} (共通: {commonGtDir})");
-            }
-            finally
-            {
-                RestoreVirtualObjectState(voBackup);
-                RestoreGroundTruthState(gtBackup);
-                isCapturing = false;
-            }
-        }
-
-        /// <summary>
-        /// 現在の点群条件で左右眼画像を1組撮影・保存します。
-        /// </summary>
         public void CaptureCurrentCondition(string subFolderName = "")
         {
             if (isCapturing) return;
-            StartCoroutine(CaptureCurrentRoutine(subFolderName));
+            StartCoroutine(SnapshotRunner.CaptureCurrentRoutine(subFolderName));
         }
 
-        private IEnumerator CaptureCurrentRoutine(string subFolderName)
-        {
-            isCapturing = true;
-            statusMessage = $"Capturing condition: {conditionName}...";
-
-            var voBackup = SetVirtualObjectUnlitWhiteState(true);
-            try
-            {
-                if (pointCloudObject != null) pointCloudObject.SetActive(true);
-                if (dummyPointCloudProvider != null) dummyPointCloudProvider.densityUnit = densityUnit;
-
-                for (int i = 0; i < 3; i++) yield return null;
-                yield return new WaitForEndOfFrame();
-
-                string targetDir = string.IsNullOrEmpty(subFolderName) ? ConditionRootDir : Path.Combine(ConditionRootDir, subFolderName);
-                CaptureStereoViews(targetDir, "test");
-
-                statusMessage = $"Condition {conditionName} Capture Completed!";
-                Debug.Log($"[SICESI] 条件撮影完了: {targetDir}");
-            }
-            finally
-            {
-                RestoreVirtualObjectState(voBackup);
-                isCapturing = false;
-            }
-        }
-
-        /// <summary>
-        /// 設定された密度リスト (sweepDensities) を順に変更しながら、全密度の左右画像を自動一括キャプチャします。
-        /// </summary>
         public void RunDensitySweep()
         {
             if (isCapturing) return;
@@ -358,1341 +222,189 @@ namespace SICESI
                 Debug.LogError("[SICESI] RsDummyPointCloudProvider が設定されていません。");
                 return;
             }
-            StartCoroutine(DensitySweepRoutine());
+            StartCoroutine(StereoSweepRunner.DensitySweepRoutine());
         }
 
-        private IEnumerator DensitySweepRoutine()
-        {
-            isCapturing = true;
-            string conditionRootDir = ConditionRootDir;
-            SaveSceneTransformsJson(conditionRootDir);
-            Debug.Log($"[SICESI] === 点群密度スイープキャプチャ開始 (条件: {conditionName}) 保存先: {conditionRootDir} ===");
-
-            var voBackup = SetVirtualObjectUnlitWhiteState(true);
-            try
-            {
-                // Step 1: まず GT を撮影
-                var backup = SetGroundTruthState(true);
-                if (pointCloudObject != null) pointCloudObject.SetActive(false);
-
-                for (int i = 0; i < 3; i++) yield return null;
-                yield return new WaitForEndOfFrame();
-
-                string gtDir = Path.Combine(conditionRootDir, "GT");
-                CaptureStereoViews(gtDir, "gt");
-                Debug.Log($"[SICESI] [1/2] Ground Truth 撮影完了: {gtDir}");
-
-                RestoreGroundTruthState(backup);
-
-                // Step 2: 点群表示に切り替え
-                if (pointCloudObject != null) pointCloudObject.SetActive(true);
-
-                // Step 3: 各密度で順次撮影
-                string unitSuffix = GetDensityUnitSuffix();
-                for (int i = 0; i < sweepDensities.Length; i++)
-                {
-                    float density = sweepDensities[i];
-                    string densityStr = FormatFloat(density);
-                    statusMessage = $"Running sweep ({i + 1}/{sweepDensities.Length}): Density = {densityStr}{unitSuffix}";
-                    Debug.Log($"[SICESI] 密度設定変更: {densityStr} ({densityUnit})");
-
-                    dummyPointCloudProvider.densityUnit = densityUnit;
-                    dummyPointCloudProvider.densityValue = density;
-                    dummyPointCloudProvider.ForceUpdateSampling();
-
-                    Debug.Log($"[SICESI] 点群サンプリング強制更新完了: {dummyPointCloudProvider.LastSampledData.PointCount} 点 (密度: {densityStr}{unitSuffix})");
-
-                    // 点群サンプリングとGPU転送・URP描画の反映を待機
-                    for (int f = 0; f < waitFramesAfterDensityChange; f++)
-                    {
-                        yield return null;
-                    }
-                    yield return new WaitForEndOfFrame();
-
-                    string densityFolder = $"density_{densityStr}{unitSuffix}";
-                    string targetDir = Path.Combine(conditionRootDir, densityFolder);
-                    CaptureStereoViews(targetDir, $"test_{densityStr}{unitSuffix}");
-
-                    float curThreshold = occlusionPipelineController != null ? occlusionPipelineController.occlusionThreshold : 0.8f;
-                    var curMode = occlusionPipelineController != null ? occlusionPipelineController.evaluationMode : PCDRendererFeature.PCD_OcclusionEvaluationMode.Average;
-                    int curSectors = occlusionPipelineController != null ? occlusionPipelineController.minOccludedSectors : 1;
-                    SaveEvaluationParamsJson(targetDir, density, curThreshold, curMode, curSectors);
-
-                    Debug.Log($"[SICESI] [{i + 1}/{sweepDensities.Length}] 撮影完了: {densityFolder}");
-                }
-
-                statusMessage = "All Density Sweeps Completed!";
-                Debug.Log($"[SICESI] === 点群密度スイープキャプチャ完了! 保存先: {conditionRootDir} ===");
-            }
-            finally
-            {
-                RestoreVirtualObjectState(voBackup);
-                isCapturing = false;
-            }
-        }
-
-        /// <summary>
-        /// Bouchibaオクルージョンのセクター閾値 (sweepSectors: 0〜8) を順に変更しながら、全セクターの左右画像を自動一括キャプチャします。
-        /// 保存先は outputDirectory/SectorSweep/ 配下に自動整理されます。
-        /// </summary>
         public void RunSectorSweep()
         {
             if (isCapturing) return;
             if (occlusionPipelineController == null)
             {
-                FindDummyComponents();
-            }
-            if (occlusionPipelineController == null)
-            {
-                Debug.LogError("[SICESI] PCDOcclusionPipelineController が見つかりません。");
+                Debug.LogError("[SICESI] PCDOcclusionPipelineController が設定されていません。");
                 return;
             }
-            StartCoroutine(SectorSweepRoutine());
+            StartCoroutine(StereoSweepRunner.SectorSweepRoutine());
         }
 
-        private IEnumerator SectorSweepRoutine()
-        {
-            isCapturing = true;
-            // ConditionName を最上位フォルダーとする階層構造: SICESI_Dataset/{casesParentFolder}/{conditionName}/
-            string conditionRootDir = ConditionRootDir;
-            SaveSceneTransformsJson(conditionRootDir);
-            Debug.Log($"[SICESI] === Bouchiba セクタースイープキャプチャ開始 (条件: {conditionName}) 保存先: {conditionRootDir} ===");
-
-            var voBackup = SetVirtualObjectUnlitWhiteState(true);
-            try
-            {
-                // Step 1: まず GT を撮影 (conditionRootDir/GT に保存)
-                var backup = SetGroundTruthState(true);
-            if (pointCloudObject != null) pointCloudObject.SetActive(false);
-
-            for (int i = 0; i < 3; i++) yield return null;
-            yield return new WaitForEndOfFrame();
-
-            string gtDir = Path.Combine(conditionRootDir, "GT");
-            CaptureStereoViews(gtDir, "gt");
-            Debug.Log($"[SICESI] [1/2] Ground Truth 撮影完了: {gtDir}");
-
-            RestoreGroundTruthState(backup);
-
-            // Step 2: 点群表示に切り替え & パイプラインを Bouchiba + SectorThreshold に設定
-            if (pointCloudObject != null) pointCloudObject.SetActive(true);
-
-            occlusionPipelineController.kernelType = PCDRendererFeature.PCD_OcclusionKernel.Bouchiba;
-            occlusionPipelineController.evaluationMode = PCDRendererFeature.PCD_OcclusionEvaluationMode.SectorThreshold;
-
-            // Step 3: 点群密度 × (Average + セクター閾値) の組み合わせ撮影
-            bool runAllDensities = sweepDensitiesAcrossSectors && sweepDensities != null && sweepDensities.Length > 0;
-            int perDensityCount = sweepSectors.Length + (includeAverageMode ? 1 : 0);
-            int totalCombinations = runAllDensities ? (sweepDensities.Length * perDensityCount) : perDensityCount;
-            int progress = 0;
-            string unitSuffix = GetDensityUnitSuffix();
-
-            if (runAllDensities)
-            {
-                for (int d = 0; d < sweepDensities.Length; d++)
-                {
-                    float density = sweepDensities[d];
-                    string densityStr = FormatFloat(density);
-                    string densitySubDir = $"density_{densityStr}{unitSuffix}";
-
-                    if (dummyPointCloudProvider != null)
-                    {
-                        dummyPointCloudProvider.densityUnit = densityUnit;
-                        dummyPointCloudProvider.densityValue = density;
-                        dummyPointCloudProvider.ForceUpdateSampling();
-                        Debug.Log($"[SICESI] 点群サンプリング強制更新完了: {dummyPointCloudProvider.LastSampledData.PointCount} 点 (密度: {densityStr}{unitSuffix})");
-                    }
-
-                    // (A) 従来の Average モード
-                    if (includeAverageMode)
-                    {
-                        progress++;
-                        statusMessage = $"Sector Sweep ({progress}/{totalCombinations}): Density={densityStr}{unitSuffix}, Mode=Average";
-                        Debug.Log($"[SICESI] 設定変更 ({progress}/{totalCombinations}): 密度={densityStr}{unitSuffix}, 評価モード=Average");
-
-                        occlusionPipelineController.evaluationMode = PCDRendererFeature.PCD_OcclusionEvaluationMode.Average;
-
-                        for (int f = 0; f < waitFramesAfterDensityChange; f++) yield return null;
-                        yield return new WaitForEndOfFrame();
-
-                        string avgFolder = Path.Combine(densitySubDir, "Average");
-                        string avgTargetDir = Path.Combine(conditionRootDir, avgFolder);
-                        CaptureStereoViews(avgTargetDir, $"test_{densityStr}{unitSuffix}_Average");
-                        SaveEvaluationParamsJson(avgTargetDir, density, occlusionPipelineController.occlusionThreshold, PCDRendererFeature.PCD_OcclusionEvaluationMode.Average, 1);
-
-                        Debug.Log($"[SICESI] [{progress}/{totalCombinations}] 撮影完了: {avgFolder}");
-                    }
-
-                    // (B) 各セクター閾値モード (SectorThreshold)
-                    occlusionPipelineController.evaluationMode = PCDRendererFeature.PCD_OcclusionEvaluationMode.SectorThreshold;
-                    for (int s = 0; s < sweepSectors.Length; s++)
-                    {
-                        int sector = sweepSectors[s];
-                        progress++;
-                        statusMessage = $"Sector Sweep ({progress}/{totalCombinations}): Density={densityStr}{unitSuffix}, Sector={sector}";
-                        Debug.Log($"[SICESI] 設定変更 ({progress}/{totalCombinations}): 密度={densityStr}{unitSuffix}, セクター={sector}/8");
-
-                        occlusionPipelineController.minOccludedSectors = sector;
-
-                        for (int f = 0; f < waitFramesAfterDensityChange; f++) yield return null;
-                        yield return new WaitForEndOfFrame();
-
-                        string folder = Path.Combine(densitySubDir, $"sector_{sector}");
-                        string targetDir = Path.Combine(conditionRootDir, folder);
-                        CaptureStereoViews(targetDir, $"test_{densityStr}{unitSuffix}_sector_{sector}");
-                        SaveEvaluationParamsJson(targetDir, density, occlusionPipelineController.occlusionThreshold, PCDRendererFeature.PCD_OcclusionEvaluationMode.SectorThreshold, sector);
-
-                        Debug.Log($"[SICESI] [{progress}/{totalCombinations}] 撮影完了: {folder}");
-                    }
-                }
-            }
-            else
-            {
-                float curDensity = dummyPointCloudProvider != null ? dummyPointCloudProvider.densityValue : 1.0f;
-
-                // 現在の密度設定のまま (Average + セクター閾値) をスイープ
-                if (includeAverageMode)
-                {
-                    progress++;
-                    statusMessage = $"Sector Sweep ({progress}/{totalCombinations}): Mode=Average";
-                    Debug.Log($"[SICESI] 設定変更 ({progress}/{totalCombinations}): 評価モード=Average");
-
-                    occlusionPipelineController.evaluationMode = PCDRendererFeature.PCD_OcclusionEvaluationMode.Average;
-
-                    for (int f = 0; f < waitFramesAfterDensityChange; f++) yield return null;
-                    yield return new WaitForEndOfFrame();
-
-                    string avgFolder = "Average";
-                    string avgTargetDir = Path.Combine(conditionRootDir, avgFolder);
-                    CaptureStereoViews(avgTargetDir, "test_Average");
-                    SaveEvaluationParamsJson(avgTargetDir, curDensity, occlusionPipelineController.occlusionThreshold, PCDRendererFeature.PCD_OcclusionEvaluationMode.Average, 1);
-
-                    Debug.Log($"[SICESI] [{progress}/{totalCombinations}] 撮影完了: {avgFolder}");
-                }
-
-                occlusionPipelineController.evaluationMode = PCDRendererFeature.PCD_OcclusionEvaluationMode.SectorThreshold;
-                for (int s = 0; s < sweepSectors.Length; s++)
-                {
-                    int sector = sweepSectors[s];
-                    progress++;
-                    statusMessage = $"Sector Sweep ({progress}/{totalCombinations}): Sector={sector}";
-                    Debug.Log($"[SICESI] セクター閾値設定変更: {sector} / 8");
-
-                    occlusionPipelineController.minOccludedSectors = sector;
-
-                    for (int f = 0; f < waitFramesAfterDensityChange; f++) yield return null;
-                    yield return new WaitForEndOfFrame();
-
-                    string sectorFolder = $"sector_{sector}";
-                    string targetDir = Path.Combine(conditionRootDir, sectorFolder);
-                    CaptureStereoViews(targetDir, $"test_sector_{sector}");
-                    SaveEvaluationParamsJson(targetDir, curDensity, occlusionPipelineController.occlusionThreshold, PCDRendererFeature.PCD_OcclusionEvaluationMode.SectorThreshold, sector);
-
-                    Debug.Log($"[SICESI] [{progress}/{totalCombinations}] 撮影完了: {sectorFolder}");
-                }
-            }
-
-                statusMessage = "All Sector Sweeps Completed!";
-                Debug.Log($"[SICESI] === セクタースイープキャプチャ完了! 保存先: {conditionRootDir} ===");
-            }
-            finally
-            {
-                RestoreVirtualObjectState(voBackup);
-                isCapturing = false;
-            }
-        }
-
-        /// <summary>
-        /// 最低占有数 (sweepSectors: 1〜8) × 許容最大連続0数 (sweepMaxConsecutiveZeros: 0〜8) の計72設定
-        /// （および必要に応じて各点群密度）の左右画像を自動一括キャプチャします。
-        /// 保存先: outputDirectory / conditionName / ConsecutiveSweep / density_{X} / sector_{s}_maxzero_{z}
-        /// </summary>
         public void RunConsecutiveSectorSweep()
         {
             if (isCapturing) return;
             if (occlusionPipelineController == null)
             {
-                FindDummyComponents();
-            }
-            if (occlusionPipelineController == null)
-            {
-                Debug.LogError("[SICESI] PCDOcclusionPipelineController が見つかりません。");
+                Debug.LogError("[SICESI] PCDOcclusionPipelineController が設定されていません。");
                 return;
             }
-            StartCoroutine(ConsecutiveSectorSweepRoutine());
+            StartCoroutine(StereoSweepRunner.ConsecutiveSectorSweepRoutine());
         }
 
-        private IEnumerator ConsecutiveSectorSweepRoutine()
-        {
-            isCapturing = true;
-            string conditionRootDir = ConditionRootDir;
-            SaveSceneTransformsJson(conditionRootDir);
-            Debug.Log($"[SICESI] === 占有数 × 最大連続0数 スイープキャプチャ開始 (条件: {conditionName}) 保存先: {conditionRootDir} ===");
-
-            var voBackup = SetVirtualObjectUnlitWhiteState(true);
-            try
-            {
-                // Step 1: まず GT を撮影 (conditionRootDir/GT に保存)
-                var backup = SetGroundTruthState(true);
-            if (pointCloudObject != null) pointCloudObject.SetActive(false);
-
-            for (int i = 0; i < 3; i++) yield return null;
-            yield return new WaitForEndOfFrame();
-
-            string gtDir = Path.Combine(conditionRootDir, "GT");
-            CaptureStereoViews(gtDir, "gt");
-            Debug.Log($"[SICESI] [1/2] Ground Truth 撮影完了: {gtDir}");
-
-            RestoreGroundTruthState(backup);
-
-            // Step 2: 点群表示に切り替え & パイプラインを Bouchiba + SectorConsecutiveZeros に設定
-            if (pointCloudObject != null) pointCloudObject.SetActive(true);
-
-            occlusionPipelineController.kernelType = PCDRendererFeature.PCD_OcclusionKernel.Bouchiba;
-            occlusionPipelineController.evaluationMode = PCDRendererFeature.PCD_OcclusionEvaluationMode.SectorConsecutiveZeros;
-
-            var pairs = GetValidConsecutivePairs();
-            int perGridCount = pairs.Count;
-            bool runAllDensities = sweepDensitiesAcrossConsecutive && sweepDensities != null && sweepDensities.Length > 0;
-            int totalCombinations = runAllDensities ? (sweepDensities.Length * perGridCount) : perGridCount;
-            int progress = 0;
-            string unitSuffix = GetDensityUnitSuffix();
-
-            if (runAllDensities)
-            {
-                for (int d = 0; d < sweepDensities.Length; d++)
-                {
-                    float density = sweepDensities[d];
-                    string densityStr = FormatFloat(density);
-                    string densitySubDir = $"density_{densityStr}{unitSuffix}";
-
-                    if (dummyPointCloudProvider != null)
-                    {
-                        dummyPointCloudProvider.densityUnit = densityUnit;
-                        dummyPointCloudProvider.densityValue = density;
-                        dummyPointCloudProvider.ForceUpdateSampling();
-                        Debug.Log($"[SICESI] 点群サンプリング強制更新完了: {dummyPointCloudProvider.LastSampledData.PointCount} 点 (密度: {densityStr}{unitSuffix})");
-                    }
-
-                    for (int p = 0; p < pairs.Count; p++)
-                    {
-                        int sector = pairs[p].sector;
-                        int maxZero = pairs[p].maxZero;
-                        occlusionPipelineController.minOccludedSectors = sector;
-                        occlusionPipelineController.maxConsecutiveEmptySectors = maxZero;
-                        progress++;
-
-                        statusMessage = $"Consecutive Sweep ({progress}/{totalCombinations}): Density={densityStr}{unitSuffix}, MinOcc={sector}, MaxZero={maxZero}";
-                        Debug.Log($"[SICESI] 設定変更 ({progress}/{totalCombinations}): 密度={densityStr}{unitSuffix}, 最低占有={sector}/8, 許容連続0={maxZero}/8");
-
-                        for (int f = 0; f < waitFramesAfterDensityChange; f++) yield return null;
-                        yield return new WaitForEndOfFrame();
-
-                        string folder = Path.Combine("ConsecutiveSweep", densitySubDir, $"sector_{sector}_maxzero_{maxZero}");
-                        string targetDir = Path.Combine(conditionRootDir, folder);
-                        CaptureStereoViews(targetDir, $"test_{densityStr}{unitSuffix}_sector_{sector}_maxzero_{maxZero}");
-                        SaveEvaluationParamsJson(targetDir, density, occlusionPipelineController.occlusionThreshold, PCDRendererFeature.PCD_OcclusionEvaluationMode.SectorConsecutiveZeros, sector, maxZero);
-
-                        Debug.Log($"[SICESI] [{progress}/{totalCombinations}] 撮影完了: {folder}");
-                    }
-                }
-            }
-            else
-            {
-                float curDensity = dummyPointCloudProvider != null ? dummyPointCloudProvider.densityValue : 1.0f;
-                string densityStr = FormatFloat(curDensity);
-                string densitySubDir = $"density_{densityStr}{unitSuffix}";
-
-                for (int p = 0; p < pairs.Count; p++)
-                {
-                    int sector = pairs[p].sector;
-                    int maxZero = pairs[p].maxZero;
-                    occlusionPipelineController.minOccludedSectors = sector;
-                    occlusionPipelineController.maxConsecutiveEmptySectors = maxZero;
-                    progress++;
-
-                    statusMessage = $"Consecutive Sweep ({progress}/{totalCombinations}): MinOcc={sector}, MaxZero={maxZero}";
-                    Debug.Log($"[SICESI] 設定変更 ({progress}/{totalCombinations}): 最低占有={sector}/8, 許容連続0={maxZero}/8");
-
-                    for (int f = 0; f < waitFramesAfterDensityChange; f++) yield return null;
-                    yield return new WaitForEndOfFrame();
-
-                    string folder = Path.Combine("ConsecutiveSweep", densitySubDir, $"sector_{sector}_maxzero_{maxZero}");
-                    string targetDir = Path.Combine(conditionRootDir, folder);
-                    CaptureStereoViews(targetDir, $"test_sector_{sector}_maxzero_{maxZero}");
-                    SaveEvaluationParamsJson(targetDir, curDensity, occlusionPipelineController.occlusionThreshold, PCDRendererFeature.PCD_OcclusionEvaluationMode.SectorConsecutiveZeros, sector, maxZero);
-
-                    Debug.Log($"[SICESI] [{progress}/{totalCombinations}] 撮影完了: {folder}");
-                }
-            }
-
-                statusMessage = "All Consecutive Sector Sweeps Completed!";
-                Debug.Log($"[SICESI] === 占有数 × 最大連続0数 スイープキャプチャ完了! 保存先: {conditionRootDir} ===");
-            }
-            finally
-            {
-                RestoreVirtualObjectState(voBackup);
-                isCapturing = false;
-            }
-        }
-
-        /// <summary>
-        /// 8セクター円環において、数学的・幾何学的に重複（等価）なパラメータ組み合わせかどうかを判定します。
-        /// </summary>
-        public static bool IsRedundantCombination(int rTh, int lTh, int K = 8)
-        {
-            // 1. L_th = 0 は全セクター占有 (N_occ = 8) と等価。
-            //    R_th = 8, L_th = 8 (全占有) が代表として存在するため、それ以外の L_th = 0 はスキップ。
-            if (lTh == 0)
-            {
-                return true;
-            }
-
-            // 2. L_th >= K - rTh の領域は、すべて「占有数 rTh のみ」と等価。
-            //    代表値として L_th = K (8: 方向条件無効化) のみを残し、それ以外の K - rTh <= lTh < K はスキップ。
-            if (lTh >= K - rTh && lTh < K)
-            {
-                return true;
-            }
-
-            // 3. 最大連続0数が lTh 以下という幾何学的制約により、数学的に必然的に保証される最小占有数 minOccForL:
-            //    - lTh = 1: 0同士が隣接不可 -> 0は最大4個 -> N_occ >= 4. (R_th < 4 は R_th = 4 と同一)
-            //    - lTh = 2: 0が最大2連続 -> 0は最大5個 (00100101) -> N_occ >= 3. (R_th < 3 は R_th = 3 と同一)
-            //    - lTh = 3: 0が最大3連続 -> 0は最大6個 (00010001) -> N_occ >= 2. (R_th < 2 は R_th = 2 と同一)
-            if (lTh < K)
-            {
-                int maxZerosPossible = (K * lTh) / (lTh + 1);
-                int implicitMinOcc = K - maxZerosPossible;
-                if (rTh < implicitMinOcc)
-                {
-                    return true; // より大きい rTh と全く同じ条件になるため重複
-                }
-            }
-
-            return false;
-        }
-
-        /// <summary>
-        /// 現在の設定において評価対象となる (R_th, L_th) の有効ペアリストを取得します。
-        /// </summary>
-        public List<(int sector, int maxZero)> GetValidConsecutivePairs()
-        {
-            var pairs = new List<(int sector, int maxZero)>();
-            if (sweepSectors == null || sweepMaxConsecutiveZeros == null) return pairs;
-
-            for (int s = 0; s < sweepSectors.Length; s++)
-            {
-                int sector = sweepSectors[s];
-                for (int z = 0; z < sweepMaxConsecutiveZeros.Length; z++)
-                {
-                    int maxZero = sweepMaxConsecutiveZeros[z];
-                    if (skipRedundantConditions && IsRedundantCombination(sector, maxZero))
-                    {
-                        continue;
-                    }
-                    pairs.Add((sector, maxZero));
-                }
-            }
-            return pairs;
-        }
-
-        /// <summary>
-        /// 分割の R_th (セクター閾値: 1〜8) または Average モードを固定したまま、
-        /// 点群密度 (sweepDensities) とオクルージョン判定閾値 (sweepOcclusionThresholds) を順次変更しながら
-        /// 全パターンの左右画像を自動一括キャプチャします。
-        /// 保存先: outputDirectory / conditionName / Fixed_{Mode} / density_{X} / occ_{Y}
-        /// </summary>
         public void RunDensityOcclusionThresholdSweep()
         {
             if (isCapturing) return;
-            if (occlusionPipelineController == null)
-            {
-                FindDummyComponents();
-            }
-            if (occlusionPipelineController == null)
-            {
-                Debug.LogError("[SICESI] PCDOcclusionPipelineController が見つかりません。");
-                return;
-            }
-            if (dummyPointCloudProvider == null)
-            {
-                Debug.LogError("[SICESI] RsDummyPointCloudProvider が設定されていません。");
-                return;
-            }
-            if (sweepDensities == null || sweepDensities.Length == 0)
-            {
-                Debug.LogError("[SICESI] sweepDensities が設定されていません。");
-                return;
-            }
-            if (sweepOcclusionThresholds == null || sweepOcclusionThresholds.Length == 0)
-            {
-                Debug.LogError("[SICESI] sweepOcclusionThresholds が設定されていません。");
-                return;
-            }
-
-            StartCoroutine(DensityOcclusionThresholdSweepRoutine());
+            StartCoroutine(StereoSweepRunner.DensityOcclusionThresholdSweepRoutine());
         }
 
-        private IEnumerator DensityOcclusionThresholdSweepRoutine()
+        public void CaptureSceneOverview()
+        {
+            if (isCapturing) return;
+            StartCoroutine(SnapshotRunner.CaptureSceneViewRoutine());
+        }
+
+        public IEnumerator CaptureSceneViewRoutine(string primaryPath, string[] duplicatePaths = null)
         {
             isCapturing = true;
+            statusMessage = "Capturing Scene Overview...";
 
-            // 実験前の設定をバックアップ (終了時に確実に復元)
-            var prevEvalMode = occlusionPipelineController.evaluationMode;
-            var prevMinSectors = occlusionPipelineController.minOccludedSectors;
-            var prevThreshold = occlusionPipelineController.occlusionThreshold;
-
-            string modeFolderName = (fixedEvaluationMode == PCDRendererFeature.PCD_OcclusionEvaluationMode.Average)
-                ? "Fixed_Average"
-                : $"Fixed_Sector_{fixedMinOccludedSectors}";
-
-            // 保存先ルート: SICESI_Dataset/{casesParentFolder}/{conditionName}/{modeFolderName}
-            string conditionRootDir = ConditionRootDir;
-            SaveSceneTransformsJson(conditionRootDir);
-            string sweepTargetRootDir = Path.Combine(conditionRootDir, modeFolderName);
-
-            string modeDesc = (fixedEvaluationMode == PCDRendererFeature.PCD_OcclusionEvaluationMode.Average)
-                ? "Average (平均値)"
-                : $"SectorThreshold (R_th = {fixedMinOccludedSectors})";
-
-            int totalCombinations = sweepDensities.Length * sweepOcclusionThresholds.Length;
-            Debug.Log($"[SICESI] === 密度 × オクルージョン閾値 スイープ開始 (条件: {conditionName}, 固定: {modeDesc}, 全{totalCombinations}組) ===");
-            Debug.Log($"[SICESI] 出力先: {sweepTargetRootDir}");
-
-            var voBackup = SetVirtualObjectUnlitWhiteState(true);
+            var skinBackup = SetGroundTruthSkinState(true);
             try
             {
-                // Step 1: まず GT を撮影
-                // sweepTargetRootDir/GT と conditionRootDir/GT の両方に保存して Python スクリプトの自動探索を確実化
-                var backup = SetGroundTruthState(true);
-                if (pointCloudObject != null) pointCloudObject.SetActive(false);
+                if (pointCloudObject != null) pointCloudObject.SetActive(true);
 
                 for (int i = 0; i < 3; i++) yield return null;
                 yield return new WaitForEndOfFrame();
 
-                string gtDir = Path.Combine(sweepTargetRootDir, "GT");
-                CaptureStereoViews(gtDir, "gt");
-
-                string commonGtDir = Path.Combine(conditionRootDir, "GT");
-                if (commonGtDir != gtDir)
+                if (sceneCaptureCamera != null)
                 {
-                    CaptureStereoViews(commonGtDir, "gt");
-                }
-                Debug.Log($"[SICESI] [1/2] Ground Truth 撮影完了: {gtDir}");
-
-                RestoreGroundTruthState(backup);
-
-                // Step 2: 点群表示に切り替え & 評価モードと R_th を設定
-                if (pointCloudObject != null) pointCloudObject.SetActive(true);
-
-                occlusionPipelineController.evaluationMode = fixedEvaluationMode;
-                if (fixedEvaluationMode == PCDRendererFeature.PCD_OcclusionEvaluationMode.SectorThreshold)
-                {
-                    occlusionPipelineController.minOccludedSectors = fixedMinOccludedSectors;
-                }
-
-                string unitSuffix = GetDensityUnitSuffix();
-                int progress = 0;
-
-                // Step 3: 密度 × 閾値 のグリッドスイープ
-                for (int d = 0; d < sweepDensities.Length; d++)
-                {
-                    float density = sweepDensities[d];
-                    string densityStr = FormatFloat(density);
-                    string densitySubDir = $"density_{densityStr}{unitSuffix}";
-
-                    dummyPointCloudProvider.densityUnit = densityUnit;
-                    dummyPointCloudProvider.densityValue = density;
-                    dummyPointCloudProvider.ForceUpdateSampling();
-                    Debug.Log($"[SICESI] 点群サンプリング更新: {dummyPointCloudProvider.LastSampledData.PointCount} 点 (密度: {densityStr}{unitSuffix})");
-
-                    for (int t = 0; t < sweepOcclusionThresholds.Length; t++)
+                    SaveCameraView(sceneCaptureCamera, primaryPath);
+                    if (duplicatePaths != null)
                     {
-                        float threshold = sweepOcclusionThresholds[t];
-                        string threshStr = FormatFloat(threshold);
-                        progress++;
-
-                        statusMessage = $"Sweep ({progress}/{totalCombinations}): Density={densityStr}{unitSuffix}, Thresh={threshStr}";
-                        Debug.Log($"[SICESI] 設定適用 ({progress}/{totalCombinations}): 密度={densityStr}{unitSuffix}, オクルージョン閾値={threshStr}");
-
-                        occlusionPipelineController.occlusionThreshold = threshold;
-
-                        // 点群更新とURP描画の安定待機
-                        for (int f = 0; f < waitFramesAfterDensityChange; f++) yield return null;
-                        yield return new WaitForEndOfFrame();
-
-                        string occFolder = $"occ_{threshStr}";
-                        string targetDir = Path.Combine(sweepTargetRootDir, densitySubDir, occFolder);
-                        string filePrefix = $"test_{densityStr}{unitSuffix}_occ_{threshStr}";
-                        CaptureStereoViews(targetDir, filePrefix);
-                        SaveEvaluationParamsJson(targetDir, density, threshold, fixedEvaluationMode, fixedMinOccludedSectors);
-
-                        Debug.Log($"[SICESI] [{progress}/{totalCombinations}] 撮影完了: {densitySubDir}/{occFolder}");
+                        foreach (var dp in duplicatePaths)
+                        {
+                            SaveCameraView(sceneCaptureCamera, dp);
+                        }
                     }
                 }
 
-                statusMessage = "Density & Occlusion Sweep Completed!";
-                Debug.Log($"[SICESI] === 密度 × オクルージョン閾値 スイープ完了! 保存先: {sweepTargetRootDir} ===");
+                if (captureStereoEyesWithScene)
+                {
+                    string sceneDir = Path.GetDirectoryName(primaryPath);
+                    SaveEyeViewsForScene(sceneDir);
+                }
+
+                statusMessage = "Scene Overview Capture Completed!";
             }
             finally
             {
-                RestoreVirtualObjectState(voBackup);
-                // 実験前の設定をリストア
-                if (occlusionPipelineController != null)
-                {
-                    occlusionPipelineController.evaluationMode = prevEvalMode;
-                    occlusionPipelineController.minOccludedSectors = prevMinSectors;
-                    occlusionPipelineController.occlusionThreshold = prevThreshold;
-                }
+                RestoreGroundTruthSkinState(skinBackup);
                 isCapturing = false;
             }
         }
 
-        private string GetDensityUnitSuffix()
+        #endregion
+
+        #region マテリアル・レイヤー委譲メソッド
+
+        public SICESI_MaterialSwapper.GroundTruthStateBackup SetGroundTruthState(bool enable)
+        {
+            return MaterialSwapper.SetGroundTruthState(groundTruthObject, groundTruthCaptureLayer, renderGroundTruthAsBlack);
+        }
+
+        public void RestoreGroundTruthState(SICESI_MaterialSwapper.GroundTruthStateBackup backup)
+        {
+            MaterialSwapper.RestoreGroundTruthState(backup);
+        }
+
+        public SICESI_MaterialSwapper.VirtualObjectStateBackup SetVirtualObjectUnlitWhiteState(bool enable)
+        {
+            return MaterialSwapper.SetVirtualObjectUnlitWhiteState(virtualObject, renderVirtualObjectAsUnlitWhite);
+        }
+
+        public void RestoreVirtualObjectState(SICESI_MaterialSwapper.VirtualObjectStateBackup backup)
+        {
+            MaterialSwapper.RestoreVirtualObjectState(backup);
+        }
+
+        public SICESI_MaterialSwapper.GroundTruthSkinColorBackup SetGroundTruthSkinState(bool enable)
+        {
+            return MaterialSwapper.SetGroundTruthSkinState(groundTruthObject, groundTruthCaptureLayer, groundTruthSkinColor);
+        }
+
+        public void RestoreGroundTruthSkinState(SICESI_MaterialSwapper.GroundTruthSkinColorBackup backup)
+        {
+            MaterialSwapper.RestoreGroundTruthSkinState(groundTruthObject, backup);
+        }
+
+        #endregion
+
+        #region キャプチャ・JSON 委譲メソッド
+
+        public void SaveCameraView(Camera cam, string destinationPath, bool bypassSRGBConversion = false)
+        {
+            SICESI_ScreenCaptureUtil.SaveCameraView(cam, destinationPath, applySRGBConversion, bypassSRGBConversion);
+        }
+
+        public void CaptureStereoViews(string targetDir, string filePrefix, bool bypassSRGBConversion = false)
+        {
+            string leftDir = Path.Combine(targetDir, "Left");
+            string rightDir = Path.Combine(targetDir, "Right");
+            Directory.CreateDirectory(leftDir);
+            Directory.CreateDirectory(rightDir);
+
+            if (leftEyeCamera != null)
+            {
+                string leftPath = Path.Combine(leftDir, $"{filePrefix}_left.png");
+                SaveCameraView(leftEyeCamera, leftPath, bypassSRGBConversion);
+            }
+
+            if (rightEyeCamera != null)
+            {
+                string rightPath = Path.Combine(rightDir, $"{filePrefix}_right.png");
+                SaveCameraView(rightEyeCamera, rightPath, bypassSRGBConversion);
+            }
+        }
+
+        public void SaveEyeViewsForScene(string sceneDir)
+        {
+            SICESI_ScreenCaptureUtil.SaveEyeViewsForScene(leftEyeCamera, rightEyeCamera, sceneDir, applySRGBConversion);
+        }
+
+        public void SaveSceneTransformsJson(string targetDir)
+        {
+            SICESI_ScreenCaptureUtil.SaveSceneTransformsJson(targetDir, conditionName, groundTruthObject, virtualObject, leftEyeCamera, rightEyeCamera, sceneCaptureCamera);
+        }
+
+        public bool LoadAndApplySceneTransformsJson(string jsonPath)
+        {
+            return SICESI_ScreenCaptureUtil.LoadAndApplySceneTransformsJson(jsonPath, groundTruthObject, virtualObject, leftEyeCamera, rightEyeCamera, sceneCaptureCamera, out conditionName);
+        }
+
+        public string GetDensityUnitSuffix()
         {
             switch (densityUnit)
             {
-                case PointDensityUnit.PointSpacingMm:
-                    return "mm";
-                case PointDensityUnit.PointsPerCm2:
-                    return "pts_cm2";
-                case PointDensityUnit.PointsPerMm2:
-                    return "pts_mm2";
-                case PointDensityUnit.TotalPointCount:
-                    return "pts";
-                default:
-                    return "";
-            }
-        }
-
-        private static string FormatFloat(float val)
-        {
-            return val.ToString("0.0###", System.Globalization.CultureInfo.InvariantCulture);
-        }
-
-        [System.Serializable]
-        public class SerializableTransformData
-        {
-            public string name;
-            public Vector3 position;
-            public Vector3 rotationEuler;
-            public Quaternion rotationQuaternion;
-            public Vector3 lossyScale;
-            public Vector3 localPosition;
-            public Vector3 localEulerAngles;
-            public Vector3 localScale;
-
-            public static SerializableTransformData FromTransform(Transform t)
-            {
-                if (t == null) return null;
-                return new SerializableTransformData
-                {
-                    name = t.name,
-                    position = t.position,
-                    rotationEuler = t.eulerAngles,
-                    rotationQuaternion = t.rotation,
-                    lossyScale = t.lossyScale,
-                    localPosition = t.localPosition,
-                    localEulerAngles = t.localEulerAngles,
-                    localScale = t.localScale
-                };
-            }
-
-            public void ApplyToTransform(Transform t)
-            {
-                if (t == null) return;
-                t.position = position;
-                if (rotationQuaternion.x != 0f || rotationQuaternion.y != 0f || rotationQuaternion.z != 0f || rotationQuaternion.w != 0f)
-                {
-                    t.rotation = rotationQuaternion;
-                }
-                else
-                {
-                    t.eulerAngles = rotationEuler;
-                }
-                t.localScale = localScale;
-            }
-        }
-
-        [System.Serializable]
-        public class SceneTransformsData
-        {
-            public string timestamp;
-            public string conditionName;
-            public SerializableTransformData handMesh;
-            public SerializableTransformData virtualObject;
-            public SerializableTransformData leftCamera;
-            public SerializableTransformData rightCamera;
-            public SerializableTransformData sceneCamera;
-        }
-
-        /// <summary>
-        /// 現在の手メッシュ (groundTruthObject) と仮想オブジェクト (virtualObject) およびカメラの Transform 情報を JSON に保存します。
-        /// </summary>
-        public void SaveSceneTransformsJson(string targetDir)
-        {
-            try
-            {
-                var data = new SceneTransformsData
-                {
-                    timestamp = System.DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss"),
-                    conditionName = this.conditionName,
-                    handMesh = SerializableTransformData.FromTransform(groundTruthObject != null ? groundTruthObject.transform : null),
-                    virtualObject = SerializableTransformData.FromTransform(virtualObject != null ? virtualObject.transform : null),
-                    leftCamera = SerializableTransformData.FromTransform(leftEyeCamera != null ? leftEyeCamera.transform : null),
-                    rightCamera = SerializableTransformData.FromTransform(rightEyeCamera != null ? rightEyeCamera.transform : null),
-                    sceneCamera = SerializableTransformData.FromTransform(sceneCaptureCamera != null ? sceneCaptureCamera.transform : null)
-                };
-
-                string json = JsonUtility.ToJson(data, true);
-                Directory.CreateDirectory(targetDir);
-                string savePath = Path.Combine(targetDir, "scene_transforms.json");
-                File.WriteAllText(savePath, json);
-                Debug.Log($"[SICESI] Transform 情報を保存しました: {savePath}");
-            }
-            catch (System.Exception ex)
-            {
-                Debug.LogWarning($"[SICESI] scene_transforms.json 保存失敗: {ex.Message}");
+                case PointDensityUnit.PointSpacingMm: return "mm";
+                case PointDensityUnit.PointsPerCm2: return "pts_cm2";
+                case PointDensityUnit.PointsPerMm2: return "pts_mm2";
+                case PointDensityUnit.TotalPointCount: return "pts";
+                default: return "";
             }
         }
 
         /// <summary>
-        /// 指定された JSON ファイルからシーン内の各 Transform 情報を復元・適用します。
+        /// 連続非占有セクター許容規則において、幾何学的に重複・等価な条件を判定します。
         /// </summary>
-        public bool LoadAndApplySceneTransformsJson(string jsonPath)
+        public static bool IsRedundantCombination(int rTh, int lTh, int K = 8)
         {
-            try
-            {
-                if (!File.Exists(jsonPath))
-                {
-                    Debug.LogWarning($"[SICESI] scene_transforms.json が見つかりません: {jsonPath}");
-                    return false;
-                }
-                string json = File.ReadAllText(jsonPath);
-                var data = JsonUtility.FromJson<SceneTransformsData>(json);
-                if (data == null) return false;
-
-                if (data.handMesh != null && groundTruthObject != null) data.handMesh.ApplyToTransform(groundTruthObject.transform);
-                if (data.virtualObject != null && virtualObject != null) data.virtualObject.ApplyToTransform(virtualObject.transform);
-                if (data.leftCamera != null && leftEyeCamera != null) data.leftCamera.ApplyToTransform(leftEyeCamera.transform);
-                if (data.rightCamera != null && rightEyeCamera != null) data.rightCamera.ApplyToTransform(rightEyeCamera.transform);
-                if (data.sceneCamera != null && sceneCaptureCamera != null) data.sceneCamera.ApplyToTransform(sceneCaptureCamera.transform);
-
-                if (!string.IsNullOrEmpty(data.conditionName))
-                {
-                    this.conditionName = data.conditionName;
-                }
-
-                Debug.Log($"[SICESI] Transform 情報を復元適用しました: {jsonPath}");
-                return true;
-            }
-            catch (System.Exception ex)
-            {
-                Debug.LogWarning($"[SICESI] scene_transforms.json 適用失敗: {ex.Message}");
-                return false;
-            }
-        }
-
-        [System.Serializable]
-        private class EvaluationParamsData
-        {
-            public string conditionName;
-            public float densityValue;
-            public string densityUnit;
-            public float occlusionThreshold;
-            public string evaluationMode;
-            public int minOccludedSectors;
-            public int maxConsecutiveEmptySectors;
-            public string timestamp;
-            public SerializableTransformData handMeshTransform;
-            public SerializableTransformData virtualObjectTransform;
+            return SICESI_ConsecutivePairEvaluator.IsRedundantCombination(rTh, lTh, K);
         }
 
         /// <summary>
-        /// 撮影時の正確な設定値 (丸めなしの float) を JSON として記録します。
+        /// 有効な（重複スキップ設定が反映された）占有数と最大連続非占有数の組み合わせペアリストを取得します。
         /// </summary>
-        private void SaveEvaluationParamsJson(string targetDir, float density, float threshold, PCDRendererFeature.PCD_OcclusionEvaluationMode mode, int sectors, int maxZeros = 8)
+        public List<(int sector, int maxZero)> GetValidConsecutivePairs()
         {
-            try
-            {
-                var data = new EvaluationParamsData
-                {
-                    conditionName = this.conditionName,
-                    densityValue = density,
-                    densityUnit = this.densityUnit.ToString(),
-                    occlusionThreshold = threshold,
-                    evaluationMode = mode.ToString(),
-                    minOccludedSectors = sectors,
-                    maxConsecutiveEmptySectors = maxZeros,
-                    timestamp = System.DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss"),
-                    handMeshTransform = SerializableTransformData.FromTransform(groundTruthObject != null ? groundTruthObject.transform : null),
-                    virtualObjectTransform = SerializableTransformData.FromTransform(virtualObject != null ? virtualObject.transform : null)
-                };
-                string json = JsonUtility.ToJson(data, true);
-                Directory.CreateDirectory(targetDir);
-                File.WriteAllText(Path.Combine(targetDir, "evaluation_params.json"), json);
-            }
-            catch (System.Exception ex)
-            {
-                Debug.LogWarning($"[SICESI] evaluation_params.json 保存失敗: {ex.Message}");
-            }
+            return SICESI_ConsecutivePairEvaluator.GenerateValidPairs(sweepSectors, sweepMaxConsecutiveZeros, skipRedundantConditions);
         }
 
-        public GroundTruthStateBackup SetGroundTruthState(bool enable)
-        {
-            var backup = new GroundTruthStateBackup();
-            if (groundTruthObject == null) return backup;
-
-            if (enable)
-            {
-                // 1. Layer を一時変更 (PCDレイヤー等)
-                if (!string.IsNullOrEmpty(groundTruthCaptureLayer))
-                {
-                    int targetLayer = LayerMask.NameToLayer(groundTruthCaptureLayer);
-                    if (targetLayer >= 0)
-                    {
-                        var transforms = groundTruthObject.GetComponentsInChildren<Transform>(true);
-                        foreach (var t in transforms)
-                        {
-                            backup.Layers[t.gameObject] = t.gameObject.layer;
-                            t.gameObject.layer = targetLayer;
-                        }
-                        Debug.Log($"[SICESI] GT撮影のため一時的に Layer を '{groundTruthCaptureLayer}' (ID: {targetLayer}) に変更しました。");
-                    }
-                    else
-                    {
-                        Debug.LogWarning($"[SICESI] 指定レイヤー '{groundTruthCaptureLayer}' が見つかりません。ProjectSettings > Tags and Layers を確認してください。");
-                    }
-                }
-
-                // 2. マテリアルを黒に一時変更
-                if (renderGroundTruthAsBlack)
-                {
-                    if (_blackMaterialCache == null)
-                    {
-                        Shader unlitShader = Shader.Find("Universal Render Pipeline/Unlit") ?? Shader.Find("Unlit/Color");
-                        _blackMaterialCache = new Material(unlitShader)
-                        {
-                            color = Color.black,
-                            name = "SICESI_Black_GT_Mat"
-                        };
-                        if (_blackMaterialCache.HasProperty("_BaseColor"))
-                        {
-                            _blackMaterialCache.SetColor("_BaseColor", Color.black);
-                        }
-                    }
-
-                    var renderers = groundTruthObject.GetComponentsInChildren<Renderer>(true);
-                    foreach (var r in renderers)
-                    {
-                        backup.Materials[r] = r.sharedMaterials;
-                        Material[] blackMats = new Material[r.sharedMaterials.Length];
-                        for (int m = 0; m < blackMats.Length; m++)
-                        {
-                            blackMats[m] = _blackMaterialCache;
-                        }
-                        r.sharedMaterials = blackMats;
-                    }
-                }
-            }
-
-            return backup;
-        }
-
-        public void RestoreGroundTruthState(GroundTruthStateBackup backup)
-        {
-            if (backup == null) return;
-
-            // 1. レイヤーを元に戻す
-            foreach (var kvp in backup.Layers)
-            {
-                if (kvp.Key != null)
-                {
-                    kvp.Key.layer = kvp.Value;
-                }
-            }
-
-            // 2. マテリアルを元に戻す
-            foreach (var kvp in backup.Materials)
-            {
-                if (kvp.Key != null)
-                {
-                    kvp.Key.sharedMaterials = kvp.Value;
-                }
-            }
-        }
-
-        /// <summary>
-        /// 撮影用に仮想オブジェクト (Virtual Object) のマテリアルを Universal Render Pipeline/Unlit の完全な白 (RGB: 1, 1, 1) に設定します。
-        /// 撮影完了後に復元するためのバックアップオブジェクトを返します。
-        /// </summary>
-        public VirtualObjectStateBackup SetVirtualObjectUnlitWhiteState(bool enable)
-        {
-            var backup = new VirtualObjectStateBackup();
-            if (virtualObject == null || !renderVirtualObjectAsUnlitWhite) return backup;
-
-            if (enable)
-            {
-                if (_whiteUnlitMaterialCache == null)
-                {
-                    Shader unlitShader = Shader.Find("Universal Render Pipeline/Unlit") ?? Shader.Find("Unlit/Color");
-                    _whiteUnlitMaterialCache = new Material(unlitShader)
-                    {
-                        color = Color.white,
-                        name = "SICESI_White_Unlit_VO_Mat"
-                    };
-                    if (_whiteUnlitMaterialCache.HasProperty("_BaseColor"))
-                    {
-                        _whiteUnlitMaterialCache.SetColor("_BaseColor", Color.white);
-                    }
-                    if (_whiteUnlitMaterialCache.HasProperty("_Color"))
-                    {
-                        _whiteUnlitMaterialCache.SetColor("_Color", Color.white);
-                    }
-                }
-
-                var renderers = virtualObject.GetComponentsInChildren<Renderer>(true);
-                foreach (var r in renderers)
-                {
-                    if (r == null) continue;
-                    backup.Materials[r] = r.sharedMaterials;
-                    Material[] whiteMats = new Material[r.sharedMaterials.Length];
-                    for (int m = 0; m < whiteMats.Length; m++)
-                    {
-                        whiteMats[m] = _whiteUnlitMaterialCache;
-                    }
-                    r.sharedMaterials = whiteMats;
-                }
-            }
-
-            return backup;
-        }
-
-        /// <summary>
-        /// 一時的に Unlit 白に差し替えた仮想オブジェクトのマテリアルを元に戻します。
-        /// </summary>
-        public void RestoreVirtualObjectState(VirtualObjectStateBackup backup)
-        {
-            if (backup == null || backup.Materials == null) return;
-
-            foreach (var kvp in backup.Materials)
-            {
-                if (kvp.Key != null)
-                {
-                    kvp.Key.sharedMaterials = kvp.Value;
-                }
-            }
-        }
-
-        /// <summary>
-        /// 左右のカメラから画像を取得して保存します。
-        /// </summary>
-        public void CaptureStereoViews(string baseDirectory, string filePrefix, bool bypassSRGBConversion = false)
-        {
-            if (leftEyeCamera != null)
-            {
-                string leftPath = Path.Combine(baseDirectory, "Left", $"{filePrefix}_left.png");
-                SaveCameraView(leftEyeCamera, leftPath, bypassSRGBConversion);
-            }
-            else
-            {
-                Debug.LogWarning("[SICESI] LeftEyeCamera が未設定です。");
-            }
-
-            if (rightEyeCamera != null)
-            {
-                string rightPath = Path.Combine(baseDirectory, "Right", $"{filePrefix}_right.png");
-                SaveCameraView(rightEyeCamera, rightPath, bypassSRGBConversion);
-            }
-            else
-            {
-                Debug.LogWarning("[SICESI] RightEyeCamera が未設定です。");
-            }
-        }
-
-        private class CameraCaptureState
-        {
-            public Camera Cam;
-            public bool PrevEnabled;
-            public bool PrevActive;
-            public RenderTexture OriginalTargetTexture;
-            public RenderTexture TempRT;
-
-            public CameraCaptureState(Camera cam)
-            {
-                Cam = cam;
-            }
-
-            public void Setup()
-            {
-                if (Cam == null) return;
-                PrevActive = Cam.gameObject.activeSelf;
-                PrevEnabled = Cam.enabled;
-                OriginalTargetTexture = Cam.targetTexture;
-
-                if (!PrevActive) Cam.gameObject.SetActive(true);
-                Cam.enabled = true;
-
-                if (OriginalTargetTexture == null)
-                {
-                    int width = Cam.pixelWidth > 0 ? Cam.pixelWidth : (Screen.width > 0 ? Screen.width : 1920);
-                    int height = Cam.pixelHeight > 0 ? Cam.pixelHeight : (Screen.height > 0 ? Screen.height : 1080);
-                    TempRT = RenderTexture.GetTemporary(width, height, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
-                    Cam.targetTexture = TempRT;
-                }
-            }
-
-            public void Restore()
-            {
-                if (Cam == null) return;
-                if (TempRT != null)
-                {
-                    Cam.targetTexture = OriginalTargetTexture;
-                    RenderTexture.ReleaseTemporary(TempRT);
-                    TempRT = null;
-                }
-                Cam.enabled = PrevEnabled;
-                if (!PrevActive) Cam.gameObject.SetActive(false);
-            }
-        }
-
-        /// <summary>
-        /// シーン保存カメラ (sceneCaptureCamera) および左右目線カメラ (leftEyeCamera, rightEyeCamera) から
-        /// 現在のシーン全体の様子を撮影してPNG保存します (単発呼び出し用)。
-        /// </summary>
-        public void CaptureSceneOverview(string destinationPath = "")
-        {
-            bool hasSceneCam = sceneCaptureCamera != null;
-            bool hasStereo = captureStereoEyesWithScene && (leftEyeCamera != null || rightEyeCamera != null);
-
-            if (!hasSceneCam && !hasStereo)
-            {
-                Debug.LogWarning("[SICESI] SceneCaptureCamera および左右目線カメラが未設定です。シーン撮影をスキップします。");
-                return;
-            }
-
-            if (string.IsNullOrEmpty(destinationPath))
-            {
-                destinationPath = Path.Combine(ConditionRootDir, "scene.png");
-            }
-
-            StartCoroutine(CaptureSceneViewRoutine(destinationPath));
-        }
-
-        /// <summary>
-        /// シーン全体の様子を1フレーム描画・撮影して保存します。
-        /// sceneCaptureCamera に加え、captureStereoEyesWithScene が有効な場合は左右目線カメラ (leftEyeCamera, rightEyeCamera) の映像も保存します。
-        /// 撮影時のみ一瞬 GroundTruthObject (手メッシュ) のマテリアルを肌色にし、点群生成・表示を停止します。
-        /// targetTexture が設定されていない場合は一時的な RenderTexture を自動生成して画面表示に影響を与えずに取得します。
-        /// </summary>
-        public IEnumerator CaptureSceneViewRoutine(string primaryPath, string[] secondaryPaths = null)
-        {
-            bool hasSceneCam = sceneCaptureCamera != null;
-            bool hasStereo = captureStereoEyesWithScene && (leftEyeCamera != null || rightEyeCamera != null);
-
-            if (!hasSceneCam && !hasStereo)
-            {
-                Debug.LogWarning("[SICESI] SceneCaptureCamera および左右目線カメラが未設定です。シーン撮影をスキップします。");
-                yield break;
-            }
-
-            // 1. 点群生成・表示を一時停止 (GroundTruthObject からの点群生成を停止)
-            bool prevPointCloudActive = pointCloudObject != null && pointCloudObject.activeSelf;
-            if (pointCloudObject != null) pointCloudObject.SetActive(false);
-            bool prevProviderEnabled = dummyPointCloudProvider != null && dummyPointCloudProvider.enabled;
-            if (dummyPointCloudProvider != null) dummyPointCloudProvider.enabled = false;
-
-            // 2. GroundTruthObject (手メッシュ) の既存マテリアルの色を一瞬肌色に変更 (レイヤーも一時切り替え)
-            var skinBackup = SetGroundTruthSkinState(true);
-
-            // 3. 対象カメラの有効化と一時 RT の準備
-            CameraCaptureState sceneState = hasSceneCam ? new CameraCaptureState(sceneCaptureCamera) : null;
-            CameraCaptureState leftState = (captureStereoEyesWithScene && leftEyeCamera != null) ? new CameraCaptureState(leftEyeCamera) : null;
-            CameraCaptureState rightState = (captureStereoEyesWithScene && rightEyeCamera != null) ? new CameraCaptureState(rightEyeCamera) : null;
-
-            sceneState?.Setup();
-            leftState?.Setup();
-            rightState?.Setup();
-
-            try
-            {
-                // 1フレーム待機して全カメラのレンダリングを反映
-                yield return null;
-                yield return new WaitForEndOfFrame();
-
-                // 4. 画像の保存
-                // (a) Scene カメラ
-                if (sceneState != null)
-                {
-                    SaveCameraView(sceneCaptureCamera, primaryPath, bypassSRGBConversion: false);
-
-                    if (secondaryPaths != null)
-                    {
-                        for (int i = 0; i < secondaryPaths.Length; i++)
-                        {
-                            if (!string.IsNullOrEmpty(secondaryPaths[i]) && secondaryPaths[i] != primaryPath)
-                            {
-                                SaveCameraView(sceneCaptureCamera, secondaryPaths[i], bypassSRGBConversion: false);
-                            }
-                        }
-                    }
-                }
-
-                // (b) 左右目線カメラ (Left / Right)
-                if (captureStereoEyesWithScene)
-                {
-                    SaveEyeViewsForScene(primaryPath);
-
-                    if (secondaryPaths != null)
-                    {
-                        for (int i = 0; i < secondaryPaths.Length; i++)
-                        {
-                            if (!string.IsNullOrEmpty(secondaryPaths[i]) && secondaryPaths[i] != primaryPath)
-                            {
-                                SaveEyeViewsForScene(secondaryPaths[i]);
-                            }
-                        }
-                    }
-                }
-            }
-            finally
-            {
-                // 5. カメラ状態の復元
-                sceneState?.Restore();
-                leftState?.Restore();
-                rightState?.Restore();
-
-                // 6. GroundTruthObject (手メッシュ) のマテリアル色・レイヤー・アクティブ状態を復元
-                RestoreGroundTruthSkinState(skinBackup);
-
-                // 7. 点群生成・表示の復元
-                if (dummyPointCloudProvider != null) dummyPointCloudProvider.enabled = prevProviderEnabled;
-                if (pointCloudObject != null) pointCloudObject.SetActive(prevPointCloudActive);
-            }
-        }
-
-        /// <summary>
-        /// シーン保存パスに対応する左右目線カメラ画像を保存します。
-        /// 例: primaryPath が ".../scene.png" の場合、
-        /// 直下に ".../scene_left.png", ".../scene_right.png" を保存し、
-        /// かつステレオフォルダ配下 ".../Left/scene_left.png", ".../Right/scene_right.png" にも保存します。
-        /// </summary>
-        private void SaveEyeViewsForScene(string scenePath)
-        {
-            if (string.IsNullOrEmpty(scenePath)) return;
-
-            string dir = Path.GetDirectoryName(scenePath);
-            string fileNameWithoutExt = Path.GetFileNameWithoutExtension(scenePath);
-            string ext = Path.GetExtension(scenePath);
-
-            // 1. 左目カメラ (scene_left.png および Left/scene_left.png)
-            if (leftEyeCamera != null)
-            {
-                string leftPrimaryPath = Path.Combine(dir, $"{fileNameWithoutExt}_left{ext}");
-                SaveCameraView(leftEyeCamera, leftPrimaryPath, bypassSRGBConversion: false);
-
-                string leftSubDir = Path.Combine(dir, "Left");
-                string leftSubPath = Path.Combine(leftSubDir, $"{fileNameWithoutExt}_left{ext}");
-                SaveCameraView(leftEyeCamera, leftSubPath, bypassSRGBConversion: false);
-            }
-
-            // 2. 右目カメラ (scene_right.png および Right/scene_right.png)
-            if (rightEyeCamera != null)
-            {
-                string rightPrimaryPath = Path.Combine(dir, $"{fileNameWithoutExt}_right{ext}");
-                SaveCameraView(rightEyeCamera, rightPrimaryPath, bypassSRGBConversion: false);
-
-                string rightSubDir = Path.Combine(dir, "Right");
-                string rightSubPath = Path.Combine(rightSubDir, $"{fileNameWithoutExt}_right{ext}");
-                SaveCameraView(rightEyeCamera, rightSubPath, bypassSRGBConversion: false);
-            }
-        }
-
-        /// <summary>
-        /// シーン撮影用に GroundTruthObject (手メッシュ) の既存マテリアル自体の色を一瞬肌色に変更し、撮影用レイヤーへ一時変更します。
-        /// </summary>
-        public GroundTruthSkinColorBackup SetGroundTruthSkinState(bool enable)
-        {
-            var backup = new GroundTruthSkinColorBackup();
-            if (groundTruthObject == null) return backup;
-
-            backup.WasActive = groundTruthObject.activeSelf;
-
-            if (enable)
-            {
-                if (!groundTruthObject.activeSelf)
-                {
-                    groundTruthObject.SetActive(true);
-                }
-
-                // 1. レイヤーをカメラの CullingMask に含まれるレイヤーに一時変更
-                if (!string.IsNullOrEmpty(groundTruthCaptureLayer))
-                {
-                    int targetLayer = LayerMask.NameToLayer(groundTruthCaptureLayer);
-                    if (targetLayer != -1)
-                    {
-                        var transforms = groundTruthObject.GetComponentsInChildren<Transform>(true);
-                        foreach (var t in transforms)
-                        {
-                            backup.Layers[t.gameObject] = t.gameObject.layer;
-                            t.gameObject.layer = targetLayer;
-                        }
-                    }
-                }
-
-                Color skinCol = groundTruthSkinColor;
-                var skinMPB = new MaterialPropertyBlock();
-                skinMPB.SetColor("_Color", skinCol);
-                skinMPB.SetColor("_BaseColor", skinCol);
-
-                var renderers = groundTruthObject.GetComponentsInChildren<Renderer>(true);
-                var processedMats = new HashSet<Material>();
-
-                foreach (var r in renderers)
-                {
-                    if (r == null) continue;
-
-                    // 2. MaterialPropertyBlock のバックアップと肌色適用
-                    var oldMPB = new MaterialPropertyBlock();
-                    r.GetPropertyBlock(oldMPB);
-                    backup.OriginalPropertyBlocks[r] = oldMPB;
-                    r.SetPropertyBlock(skinMPB);
-
-                    // 3. マテリアル本体の色プロパティも直接肌色に変更
-                    var mats = r.sharedMaterials;
-                    if (mats != null)
-                    {
-                        foreach (var mat in mats)
-                        {
-                            if (mat == null || processedMats.Contains(mat)) continue;
-                            processedMats.Add(mat);
-
-                            var record = new MaterialColorRecord
-                            {
-                                Mat = mat,
-                                HasBaseColor = mat.HasProperty("_BaseColor"),
-                                HasColor = mat.HasProperty("_Color")
-                            };
-
-                            if (record.HasBaseColor) record.OriginalBaseColor = mat.GetColor("_BaseColor");
-                            if (record.HasColor) record.OriginalColor = mat.GetColor("_Color");
-
-                            backup.MaterialRecords.Add(record);
-
-                            if (record.HasBaseColor) mat.SetColor("_BaseColor", skinCol);
-                            if (record.HasColor) mat.SetColor("_Color", skinCol);
-                            try { mat.color = skinCol; } catch { }
-                        }
-                    }
-                }
-            }
-
-            return backup;
-        }
-
-        /// <summary>
-        /// 肌色に変更した GroundTruthObject のマテリアル色、レイヤー、およびアクティブ状態を元に戻します。
-        /// </summary>
-        public void RestoreGroundTruthSkinState(GroundTruthSkinColorBackup backup)
-        {
-            if (backup == null) return;
-
-            // 1. レイヤーを復元
-            foreach (var kvp in backup.Layers)
-            {
-                if (kvp.Key != null)
-                {
-                    kvp.Key.layer = kvp.Value;
-                }
-            }
-
-            // 2. マテリアル本体の色を復元
-            foreach (var record in backup.MaterialRecords)
-            {
-                if (record.Mat != null)
-                {
-                    if (record.HasBaseColor) record.Mat.SetColor("_BaseColor", record.OriginalBaseColor);
-                    if (record.HasColor) record.Mat.SetColor("_Color", record.OriginalColor);
-                    try { record.Mat.color = record.OriginalColor; } catch { }
-                }
-            }
-
-            // 3. MaterialPropertyBlock を復元
-            foreach (var kvp in backup.OriginalPropertyBlocks)
-            {
-                if (kvp.Key != null)
-                {
-                    kvp.Key.SetPropertyBlock(kvp.Value);
-                }
-            }
-
-            // 4. アクティブ状態を復元
-            if (groundTruthObject != null && groundTruthObject.activeSelf != backup.WasActive)
-            {
-                groundTruthObject.SetActive(backup.WasActive);
-            }
-        }
-
-        /// <summary>
-        /// 指定カメラの描画結果 (targetTexture またはバックバッファ) からピクセルを読み出してPNG保存します。
-        /// 通常画像ではリニア色空間から sRGB ガンマ補正を正しく適用して保存します。
-        /// 占有マスク・デバッグ判定マスク等の数値データ画像では bypassSRGBConversion=true によりガンマ歪みを防止します。
-        /// </summary>
-        public void SaveCameraView(Camera cam, string destinationPath, bool bypassSRGBConversion = false)
-        {
-            int width = cam.pixelWidth > 0 ? cam.pixelWidth : Screen.width;
-            int height = cam.pixelHeight > 0 ? cam.pixelHeight : Screen.height;
-
-            RenderTexture prevActive = RenderTexture.active;
-            Texture2D screenshot = new Texture2D(width, height, TextureFormat.RGB24, false);
-
-            if (cam.targetTexture != null)
-            {
-                if (!bypassSRGBConversion && applySRGBConversion && QualitySettings.desiredColorSpace == ColorSpace.Linear)
-                {
-                    // Linear RT から sRGB 補正をかけて一時RTへBlit
-                    RenderTexture tempSRGB = RenderTexture.GetTemporary(
-                        width, height, 0,
-                        RenderTextureFormat.ARGB32,
-                        RenderTextureReadWrite.sRGB
-                    );
-                    Graphics.Blit(cam.targetTexture, tempSRGB);
-                    RenderTexture.active = tempSRGB;
-                    screenshot.ReadPixels(new Rect(0, 0, width, height), 0, 0);
-                    RenderTexture.ReleaseTemporary(tempSRGB);
-                }
-                else
-                {
-                    RenderTexture.active = cam.targetTexture;
-                    screenshot.ReadPixels(new Rect(0, 0, cam.targetTexture.width, cam.targetTexture.height), 0, 0);
-                }
-            }
-            else
-            {
-                RenderTexture.active = null;
-                Rect screenRect = cam.rect;
-                int x = Mathf.RoundToInt(screenRect.x * Screen.width);
-                int y = Mathf.RoundToInt(screenRect.y * Screen.height);
-                screenshot.ReadPixels(new Rect(x, y, width, height), 0, 0);
-            }
-
-            RenderTexture.active = prevActive;
-
-            Directory.CreateDirectory(Path.GetDirectoryName(destinationPath));
-            byte[] pngBytes = screenshot.EncodeToPNG();
-            Destroy(screenshot);
-
-            System.Threading.Tasks.Task.Run(() =>
-            {
-                try
-                {
-                    File.WriteAllBytes(destinationPath, pngBytes);
-                }
-                catch (Exception ex)
-                {
-                    Debug.LogWarning($"[SICESI] 非同期画像保存エラー ({destinationPath}): {ex.Message}");
-                }
-            });
-        }
+        #endregion
     }
 }

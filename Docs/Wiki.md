@@ -86,7 +86,7 @@ graph TD
 | 🔧 | SDK移行ガイド | SDK バージョン切り替え手順 |
 | 🧪 | 実験フレームワーク | 心理物理実験パラダイム・データ収集 |
 
-### 全ドキュメント一覧 (全 21 ファイル)
+### 全ドキュメント一覧 (全 22 ファイル)
 
 | # | 種類 | ドキュメント | 概要 |
 |:---|:---:|:---|:---|
@@ -95,7 +95,7 @@ graph TD
 | | 🏗️ | [Logging.md](./Logging.md) | 統制ログ管理システム (`AppLogManager` & `AppLogger`) |
 | **1** | 🏗️ | [PointCloudPipeline.md](./PointCloudPipeline.md) | RealSense 点群取得 → GPU 非同期マージ |
 | | 🏗️ | └── [DummyPointCloud.md](./DummyPointCloud.md) | Unity 3Dモデルからのダミー点群生成・法線ノイズ・外れ値付与 |
-| **2** | 🏗️ | [OcclusionRendering.md](./OcclusionRendering.md) | URP RenderGraph 上の点群オクルージョン処理 |
+| **2** | 🏗️ | [OcclusionRendering.md](./OcclusionRendering.md) | URP RenderGraph 上の点群オクルージョン処理 (Mode 8/20/36/256 & 1クロックLUT参照) |
 | **3** | 🏗️ | [Collision.md](./Collision.md) | GPU 衝突判定・クラスタリング (HCD Pipeline) |
 | | 🔬 | └── [CollisionAlgorithmComparison.md](./CollisionAlgorithmComparison.md) | Native C++ vs GPU の数理モデル比較 |
 | **4** | 🏗️ | [Haptics.md](./Haptics.md) | AUTD3 超音波ハプティクス出力制御 |
@@ -110,6 +110,7 @@ graph TD
 | **7** | 🏗️ | [PhysicalResponse.md](./PhysicalResponse.md) | Softbody / BonePhysics パラメータ一括制御 |
 | | 🏗️ | └── [PhysicalResponseLiftController.md](./PhysicalResponseLiftController.md) | 手の点群でキャラクターをリフト追従 |
 | **8** | 🧪 | [Experiments.md](./Experiments.md) | 被験者実験フレームワーク (2AFC / ABX / 調整法 / データ出力) |
+| **9** | 🧪 | [SICESI2026.md](./SICESI2026.md) | SICE SI 2026 学術評価・ステレオオクルージョン自動撮影 & 占有マスク最適化システム |
 
 ---
 
@@ -178,6 +179,13 @@ Midair Haptics の物理応答コンポーネント（Softbody, BonePhysics 等�
 心理物理学実験（2AFC, ABX, 単一刺激法, 調整法）を統一的に管理・実行するフレームワークです。教示・練習・本試行・休憩の自動進行、キーボード / ゲームパッド応答受付、および物理パラメータ・反応時間の CSV / JSON 自動記録を提供します。
 
 📎 詳細: [Experiments.md](./Experiments.md)
+
+---
+
+### 🧪 9. SICE SI 学術評価・ステレオオクルージョン最適化システム
+ステレオカメラ（左右眼）からの自動一括撮影、8セクター二値マスク収集、および Python 側での数理最適化（MILP / 局所探索）と定性差分マップ（diff_map）自動生成を一気通貫で実行するフレームワークです。
+
+📎 詳細: [SICESI2026.md](./SICESI2026.md)
 
 ---
 
