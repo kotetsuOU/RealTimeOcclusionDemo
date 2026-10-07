@@ -4,12 +4,14 @@ using UnityEngine;
 using UnityEngine.Scripting.APIUpdating;
 using static PCDRendererFeature;
 using Core.Logging;
+using Core.Keyboard;
 
 namespace Features.PhysicalResponse
 {
     /// <summary>
     /// バーチャルオブジェクトのアニメーション制御・手動移動・視点(カメラ)LookAt追従に専念するコントローラー。
-    /// PCD設定系キー操作（M/1/2/3/4/T/O/P/L/K/J/C）は PR_PCDKeyController に委譲します。
+    /// AppKeyboard (Core.Keyboard) を通じて一元管理されたキーバインドに従い動作します (パターン A)。
+    /// PCD設定系キー操作（M/1/2/3/4/T/O/P/L/K/J/C）は PCDKeyController (Features.ThreeDDisplay) に委譲します。
     /// アクティブなモデルの管理は PR_VirtualObjectManager に委譲します。
     /// </summary>
     [MovedFrom(true, null, null, "AnimationController")]
@@ -59,6 +61,15 @@ namespace Features.PhysicalResponse
         private void Awake()
         {
             EnsureVirtualObjectManager();
+            EnsureKeyController();
+        }
+
+        private void EnsureKeyController()
+        {
+            if (GetComponent<PR_KeyController>() == null)
+            {
+                gameObject.AddComponent<PR_KeyController>();
+            }
         }
 
         private void Start()
@@ -138,127 +149,129 @@ namespace Features.PhysicalResponse
 
         private void Update()
         {
-            // ---------------------------------------------------
-            // 1. ゲーム終了 (Escapeキー)
-            // ---------------------------------------------------
-            if (Input.GetKeyDown(KeyCode.Escape))
-            {
+            UpdateLookAtRotation();
+        }
+
+        #region Public Operation API (Called by PR_KeyController or UI)
+
+        /// <summary>
+        /// アプリケーション終了またはアニメーション状態のリセットを行います。
+        /// </summary>
+        public void ResetOrQuit()
+        {
 #if UNITY_EDITOR
-                UnityEditor.EditorApplication.isPlaying = false;
+            UnityEditor.EditorApplication.isPlaying = false;
 #else
-                UnityEngine.Application.Quit();
+            UnityEngine.Application.Quit();
 #endif
+        }
+
+        /// <summary>
+        /// オクルージョン関連デバッグマップおよびカメラ映像の撮影・保存を実行します。
+        /// </summary>
+        public void CaptureDebug()
+        {
+            string methodPrefix = "";
+
+            if (PCDRendererFeature.Instance != null && PCDRendererFeature.Instance.settings != null)
+            {
+                var s = PCDRendererFeature.Instance.settings;
+                s.recordOcclusionDebugMap   = true;
+                s.recordPixelTagMap         = true;
+                s.recordIntegratedDepthMap  = true;
+                s.recordNeighborhoodMap     = true;
+                s.recordNeighborCountMap    = true;
+                AppLogger.Log(this, "[PR_AnimationController] オクルージョン関連DebugMapの出力をリクエストしました");
+
+                bool isTag    = s.enableTagBasedOptimization;
+                bool isDensity= s.enableTypeAwareDensity;
+                bool isFade   = s.enableSoftOcclusionFade;
+                bool isHole   = s.holeFillingMethod != PCD_HoleFillingMethod.None;
+                if      ( isTag &&  isDensity &&  isFade &&  isHole) methodPrefix = "Proposal";
+                else if (!isTag && !isDensity && !isFade && !isHole) methodPrefix = "Traditional";
+                else methodPrefix = $"Ablation_T{(isTag?"1":"0")}_D{(isDensity?"1":"0")}_F{(isFade?"1":"0")}_H{(isHole?"1":"0")}";
             }
 
-            // ---------------------------------------------------
-            // 2. 撮影 (Enter / Returnキー) - デバッグ画像 & カメラ映像
-            // ---------------------------------------------------
-            if (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter))
+            CameraCapture cc = cameraCapture ?? FindFirstObjectByType<CameraCapture>();
+            if (cc != null)
             {
-                string methodPrefix = "";
+                cc.Capture(methodPrefix);
+            }
+            else
+            {
+                AppLogger.LogWarning(this, "[PR_AnimationController] CameraCaptureが設定・発見されなかったため、カメラ映像の保存はスキップされました。");
+            }
+        }
 
-                if (PCDRendererFeature.Instance != null && PCDRendererFeature.Instance.settings != null)
+        /// <summary>
+        /// 操作対象のバーチャルオブジェクトを次のモデルに切り替えます。
+        /// </summary>
+        public void SwitchNextObject()
+        {
+            if (virtualObjectManager != null)
+            {
+                if (!virtualObjectManager.allowTabSwitch)
                 {
-                    var s = PCDRendererFeature.Instance.settings;
-                    s.recordOcclusionDebugMap   = true;
-                    s.recordPixelTagMap         = true;
-                    s.recordIntegratedDepthMap  = true;
-                    s.recordNeighborhoodMap     = true;
-                    s.recordNeighborCountMap    = true;
-                    AppLogger.Log(this, "[PR_AnimationController] オクルージョン関連DebugMapの出力をリクエストしました");
-
-                    bool isTag    = s.enableTagBasedOptimization;
-                    bool isDensity= s.enableTypeAwareDensity;
-                    bool isFade   = s.enableSoftOcclusionFade;
-                    bool isHole   = s.holeFillingMethod != PCD_HoleFillingMethod.None;
-                    if      ( isTag &&  isDensity &&  isFade &&  isHole) methodPrefix = "Proposal";
-                    else if (!isTag && !isDensity && !isFade && !isHole) methodPrefix = "Traditional";
-                    else methodPrefix = $"Ablation_T{(isTag?"1":"0")}_D{(isDensity?"1":"0")}_F{(isFade?"1":"0")}_H{(isHole?"1":"0")}";
-                }
-
-                CameraCapture cc = cameraCapture ?? FindFirstObjectByType<CameraCapture>();
-                if (cc != null)
-                {
-                    cc.Capture(methodPrefix);
-                }
-                else
-                {
-                    AppLogger.LogWarning(this, "[PR_AnimationController] CameraCaptureが設定・発見されなかったため、カメラ映像の保存はスキップされました。");
+                    virtualObjectManager.SwitchNext();
                 }
             }
-
-            // ---------------------------------------------------
-            // 3. オブジェクト切り替え (Tabキー)
-            // ---------------------------------------------------
-            if (Input.GetKeyDown(KeyCode.Tab))
+            else if (toggleObjects != null && toggleObjects.Length > 0)
             {
-                if (virtualObjectManager != null)
-                {
-                    if (!virtualObjectManager.allowTabSwitch)
-                    {
-                        virtualObjectManager.SwitchNext();
-                    }
-                }
-                else if (toggleObjects != null && toggleObjects.Length > 0)
-                {
-                    if (toggleObjects[currentActiveIndex] != null) toggleObjects[currentActiveIndex].SetActive(false);
-                    currentActiveIndex = (currentActiveIndex + 1) % toggleObjects.Length;
-                    if (toggleObjects[currentActiveIndex] != null) toggleObjects[currentActiveIndex].SetActive(true);
-                    UpdateActiveTargetReferences();
-                    AppLogger.Log(this, $"[PR_AnimationController] オブジェクトのActiveを {toggleObjects[currentActiveIndex]?.name} ({currentActiveIndex}番目) に切り替えました。");
-                }
+                if (toggleObjects[currentActiveIndex] != null) toggleObjects[currentActiveIndex].SetActive(false);
+                currentActiveIndex = (currentActiveIndex + 1) % toggleObjects.Length;
+                if (toggleObjects[currentActiveIndex] != null) toggleObjects[currentActiveIndex].SetActive(true);
+                UpdateActiveTargetReferences();
+                AppLogger.Log(this, $"[PR_AnimationController] オブジェクトのActiveを {toggleObjects[currentActiveIndex]?.name} ({currentActiveIndex}番目) に切り替えました。");
             }
+        }
 
-            // ---------------------------------------------------
-            // 4. アニメーション一時停止 / 再開 (Spaceキー)
-            // ---------------------------------------------------
-            if (Input.GetKeyDown(KeyCode.Space))
+        /// <summary>
+        /// アニメーションの再生 / 一時停止を切り替えます。
+        /// </summary>
+        public void ToggleAnimationPlay()
+        {
+            if (targetAnimator != null)
             {
-                if (targetAnimator != null)
-                {
-                    targetAnimator.speed = (targetAnimator.speed > 0f) ? 0f : 1f;
-                    AppLogger.Log(this, $"[PR_AnimationController] アニメーション: {(targetAnimator.speed > 0f ? "再生" : "停止")}");
-                }
-                else
-                {
-                    AppLogger.LogWarning(this, "[PR_AnimationController] 現在アクティブなオブジェクトにAnimatorがアタッチされていません。");
-                }
+                targetAnimator.speed = (targetAnimator.speed > 0f) ? 0f : 1f;
+                AppLogger.Log(this, $"[PR_AnimationController] アニメーション: {(targetAnimator.speed > 0f ? "再生" : "停止")}");
             }
-
-            // ---------------------------------------------------
-            // 5. 対象オブジェクトの移動 (W/A/S/D / Q/E / 方向キー)
-            // ---------------------------------------------------
-            if (targetTransform != null)
+            else
             {
-                Vector3 move = Vector3.zero;
-                if (Input.GetKey(KeyCode.W) || Input.GetKey(KeyCode.UpArrow))    move += Vector3.forward;
-                if (Input.GetKey(KeyCode.S) || Input.GetKey(KeyCode.DownArrow))  move += Vector3.back;
-                if (Input.GetKey(KeyCode.A) || Input.GetKey(KeyCode.LeftArrow))  move += Vector3.left;
-                if (Input.GetKey(KeyCode.D) || Input.GetKey(KeyCode.RightArrow)) move += Vector3.right;
-                if (Input.GetKey(KeyCode.E)) move += Vector3.up;
-                if (Input.GetKey(KeyCode.Q)) move += Vector3.down;
+                AppLogger.LogWarning(this, "[PR_AnimationController] 現在アクティブなオブジェクトにAnimatorがアタッチされていません。");
+            }
+        }
 
-                if (move != Vector3.zero)
-                {
-                    targetTransform.Translate(move.normalized * (moveSpeed * Time.deltaTime), Space.World);
-                }
+        /// <summary>
+        /// 操作対象オブジェクトを指定方向に移動させます。
+        /// </summary>
+        public void MoveTarget(Vector3 moveDirection)
+        {
+            if (targetTransform != null && moveDirection != Vector3.zero)
+            {
+                targetTransform.Translate(moveDirection.normalized * (moveSpeed * Time.deltaTime), Space.World);
+            }
+        }
 
-                // 6. 視点(カメラ)への向き追従 (Fキーで切り替え)
-                if (Input.GetKeyDown(KeyCode.F))
-                {
-                    lookAtCamera = !lookAtCamera;
-                    AppLogger.Log(this, $"[PR_AnimationController] 視点追従: {(lookAtCamera ? "ON" : "OFF")}");
-                }
+        /// <summary>
+        /// 視点(カメラ)への向き追従の ON/OFF を切り替えます。
+        /// </summary>
+        public void ToggleLookAtCamera()
+        {
+            lookAtCamera = !lookAtCamera;
+        }
 
-                if (lookAtCamera && Camera.main != null)
+        #endregion
+
+        private void UpdateLookAtRotation()
+        {
+            if (targetTransform != null && lookAtCamera && Camera.main != null)
+            {
+                Vector3 dir = Camera.main.transform.position - targetTransform.position;
+                dir.y = 0;
+                if (dir != Vector3.zero)
                 {
-                    Vector3 dir = Camera.main.transform.position - targetTransform.position;
-                    dir.y = 0;
-                    if (dir != Vector3.zero)
-                    {
-                        Quaternion targetRot = Quaternion.LookRotation(dir);
-                        targetTransform.rotation = Quaternion.Slerp(targetTransform.rotation, targetRot, lookAtSpeed * Time.deltaTime);
-                    }
+                    Quaternion targetRot = Quaternion.LookRotation(dir);
+                    targetTransform.rotation = Quaternion.Slerp(targetTransform.rotation, targetRot, lookAtSpeed * Time.deltaTime);
                 }
             }
         }

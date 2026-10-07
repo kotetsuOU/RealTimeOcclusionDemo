@@ -26,6 +26,7 @@ on:
       - "Docs/HapticsIllusion.md"
       - "Docs/Experiments.md"
       - "Docs/Logging.md"
+      - "Docs/Keyboard.md"
       - "Docs/DummyPointCloud.md"
       - "Docs/SICESI2026.md"
   workflow_dispatch:
@@ -65,6 +66,7 @@ jobs:
           cp Docs/HapticsIllusion.md temp-wiki/HapticsIllusion.md
           cp Docs/Experiments.md temp-wiki/Experiments.md
           cp Docs/Logging.md temp-wiki/Logging.md
+          cp Docs/Keyboard.md temp-wiki/Keyboard.md
           cp Docs/SICESI2026.md temp-wiki/SICESI2026.md
           
           python3 -c '
@@ -89,6 +91,7 @@ jobs:
               "HapticsIllusion.md": "HapticsIllusion",
               "Experiments.md": "Experiments",
               "Logging.md": "Logging",
+              "Keyboard.md": "Keyboard",
               "SICESI2026.md": "SICESI2026"
           }
           pattern = re.compile(r"\(\s*(?:.*?/)?([^/)]+\.md)\s*\)")

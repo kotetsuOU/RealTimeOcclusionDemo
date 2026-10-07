@@ -78,8 +78,8 @@ public class EXP_InputHandler : MonoBehaviour
 
     void Update()
     {
-        if (!IsListening || (blockAfterFirstResponse && HasResponded)) return;
-        CheckKeyboard();
+        // キーボード入力 (Update) の監視は EXP_KeyController (AppKeyboard 連動) に委譲されています。
+        // （IMGUI / EditorWindow フォーカス時の補足は引き続き OnGUI() で処理されます）
     }
 
     /// <summary>

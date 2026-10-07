@@ -42,11 +42,13 @@ public class EXP_InGameControlPanel : MonoBehaviour
         _manager = GetComponent<EXP_ExperimentManager>() ?? Object.FindAnyObjectByType<EXP_ExperimentManager>();
     }
 
+    public bool IsVisible => _isVisible;
+
     void Update()
     {
         if (Input.GetKeyDown(toggleKey))
         {
-            _isVisible = !_isVisible;
+            ToggleVisibility();
         }
     }
 

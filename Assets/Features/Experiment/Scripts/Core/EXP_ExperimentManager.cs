@@ -93,6 +93,7 @@ public class EXP_ExperimentManager : MonoBehaviour, IAppLoggable
     void Awake()
     {
         GetOrAdd<EXP_LogTriggers>();
+        GetOrAdd<EXP_KeyController>();
         sequencer    ??= GetOrAdd<EXP_TrialSequencer>();
         dataRecorder ??= GetOrAdd<EXP_DataRecorder>();
         eventMarker  ??= GetOrAdd<EXP_EventMarker>();
@@ -125,9 +126,7 @@ public class EXP_ExperimentManager : MonoBehaviour, IAppLoggable
 
     void Update()
     {
-        if (!debugKeyEnabled) return;
-        if (Input.GetKeyDown(KeyCode.Space) && CurrentState == EXP_ExperimentState.Idle) StartExperiment();
-        if (Input.GetKeyDown(KeyCode.Escape) && CurrentState != EXP_ExperimentState.Idle && CurrentState != EXP_ExperimentState.Finished) AbortExperiment();
+        // キーボード操作 (Space / Escape) は EXP_KeyController (AppKeyboard 連動) に委譲されています。
     }
 
     // =====================================================
