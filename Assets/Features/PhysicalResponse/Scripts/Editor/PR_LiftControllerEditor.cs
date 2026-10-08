@@ -136,7 +136,6 @@ namespace Features.PhysicalResponse
             EditorGUILayout.PropertyField(planeMarginProp);
             EditorGUILayout.PropertyField(underPlaneDepthThresholdProp);
             EditorGUILayout.PropertyField(upperPlaneMarginProp);
-            EditorGUILayout.PropertyField(syncWithHcdProp);
             EditorGUILayout.Space();
 
             EditorGUILayout.LabelField("Lift Calculation & Movement Settings", EditorStyles.boldLabel);

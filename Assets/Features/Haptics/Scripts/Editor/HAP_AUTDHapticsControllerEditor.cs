@@ -1,182 +1,153 @@
 #if UNITY_EDITOR
-using UnityEngine;
 using UnityEditor;
+using UnityEngine;
+using Features.Haptics.Editor;
 
 /// <summary>
-/// HAP_AUTDHapticsController の Inspector 表示を最適化し、
-/// 依存関係、触覚演算アルゴリズム、STM、プロファイリング設定を分かりやすく表示する専用エディタ。
+/// HAP_AUTDHapticsController のカスタム Inspector エディタ。
+/// タブ切り替え（Toolbar）により、設定カテゴリごとに直感的なパラメータ調整 UI を提供します。
+/// ハードウェア通信、配置・キャリブレーション、音響、STM、HCD焦点設定、プロファイリングを一つの画面から一元管理します。
+/// 具体的な描画は以下の専任 Drawer に完全に分離されています:
+/// - HAP_GeneralTabDrawer: 動作モード・照射先オブジェクト選択・パイプライン連携
+/// - HAP_HardwareTabDrawer: 通信リンク種別・変調（Modulation）・サイレンサー・温度/ファン
+/// - HAP_PlacementTabDrawer: デバイス配置（JSON保存/復元）・プレハブ生成・焦点オフセット
+/// - HAP_AcousticTabDrawer: ホログラフィアルゴリズム・音圧強度・GSPAT反復回数・STM設定
+/// - HAP_HCDFociTabDrawer: 手指接触領域に対する焦点生成方式（Simplified/Precision）・ソース設定
+/// - HAP_DebugTabDrawer: 処理時間プロファイラ・Gizmos・特定デバイス強制停止（ミュート）
 /// </summary>
 [CustomEditor(typeof(HAP_AUTDHapticsController))]
 public class HAP_AUTDHapticsControllerEditor : Editor
 {
-    private SerializedProperty hardwareControllerProp = null!;
-    private SerializedProperty transformLoaderProp = null!;
-    private SerializedProperty sourceModeProp = null!;
-    private SerializedProperty hcdPipelineProp = null!;
-    private SerializedProperty hcdFociSettingsProp = null!;
-    private SerializedProperty objectHapticsControllersProp = null!;
+    public enum Tab
+    {
+        General = 0,
+        Hardware = 1,
+        Placement = 2,
+        Acoustics = 3,
+        HCDFoci = 4,
+        Debug = 5
+    }
 
-    private SerializedProperty holoAlgorithmProp = null!;
-    private SerializedProperty focusIntensityPascalProp = null!;
+    private const string PrefKeyTab = "HAP_AUTDHapticsControllerEditor_CurrentTab";
+    private static Tab _currentTab = Tab.General;
 
-    private SerializedProperty stmModeProp = null!;
-    private SerializedProperty stmFrequencyProp = null!;
-    private SerializedProperty gainStmModeProp = null!;
-
-    private SerializedProperty enableDirectionalGroupingProp = null!;
-    private SerializedProperty directionalAngleThresholdProp = null!;
-
-    private SerializedProperty visualizeDevicesProp = null!;
-    private SerializedProperty enableProfilingProp = null!;
-    private SerializedProperty synchronousSendProp = null!;
-    private SerializedProperty profilingLogIntervalProp = null!;
-
-    private SerializedProperty activeObjectControllerIndexProp = null!;
+    private HAP_EditorContext _ctx = null!;
 
     private void OnEnable()
     {
-        hardwareControllerProp = serializedObject.FindProperty("hardwareController");
-        transformLoaderProp = serializedObject.FindProperty("transformLoader");
-        sourceModeProp = serializedObject.FindProperty("sourceMode");
-        hcdPipelineProp = serializedObject.FindProperty("hcdPipeline");
-        hcdFociSettingsProp = serializedObject.FindProperty("hcdFociSettings");
-        objectHapticsControllersProp = serializedObject.FindProperty("objectHapticsControllers");
-        activeObjectControllerIndexProp = serializedObject.FindProperty("activeObjectControllerIndex");
+        _currentTab = (Tab)EditorPrefs.GetInt(PrefKeyTab, (int)Tab.General);
+        _ctx = new HAP_EditorContext((HAP_AUTDHapticsController)target, serializedObject);
+    }
 
-        holoAlgorithmProp = serializedObject.FindProperty("holoAlgorithm");
-        focusIntensityPascalProp = serializedObject.FindProperty("focusIntensityPascal");
-
-        stmModeProp = serializedObject.FindProperty("stmMode");
-        stmFrequencyProp = serializedObject.FindProperty("stmFrequency");
-        gainStmModeProp = serializedObject.FindProperty("gainStmMode");
-
-        enableDirectionalGroupingProp = serializedObject.FindProperty("enableDirectionalGrouping");
-        directionalAngleThresholdProp = serializedObject.FindProperty("directionalAngleThreshold");
-
-        visualizeDevicesProp = serializedObject.FindProperty("visualizeDevices");
-        enableProfilingProp = serializedObject.FindProperty("enableProfiling");
-        synchronousSendProp = serializedObject.FindProperty("synchronousSend");
-        profilingLogIntervalProp = serializedObject.FindProperty("profilingLogInterval");
+    private void OnDisable()
+    {
+        EditorPrefs.SetInt(PrefKeyTab, (int)_currentTab);
     }
 
     public override void OnInspectorGUI()
     {
-        serializedObject.Update();
+        _ctx.UpdateAll();
 
-        // Hardware Component References
-        EditorGUILayout.PropertyField(hardwareControllerProp);
-        if (hardwareControllerProp.objectReferenceValue == null)
+        // Script Reference (Read-only)
+        if (_ctx.ScriptProp != null)
         {
-            EditorGUILayout.HelpBox("HardwareController is not assigned. It will be auto-detected or created on Awake.", MessageType.Info);
+            GUI.enabled = false;
+            EditorGUILayout.PropertyField(_ctx.ScriptProp);
+            GUI.enabled = true;
         }
 
-        EditorGUILayout.PropertyField(transformLoaderProp);
-        if (transformLoaderProp.objectReferenceValue == null)
+        // ─── PlayMode ステータスバナー ───
+        if (Application.isPlaying)
         {
-            EditorGUILayout.HelpBox("TransformLoader is not assigned. It will be auto-detected on Awake.", MessageType.Info);
+            DrawRuntimeStatusBanner();
+            EditorGUILayout.Space(4);
         }
-        EditorGUILayout.Space();
 
-        // Target Source & Dependencies
-        EditorGUILayout.PropertyField(sourceModeProp);
-        HapticsSourceMode sourceMode = (HapticsSourceMode)sourceModeProp.enumValueIndex;
+        // ─── タブ切り替えツールバー ───
+        DrawTabToolbar();
 
-        EditorGUI.indentLevel++;
-        if (sourceMode == HapticsSourceMode.AutoHCD)
+        EditorGUILayout.Space(8);
+
+        // ─── タブコンテンツ描画 ───
+        using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
         {
-            EditorGUILayout.PropertyField(hcdPipelineProp);
-            EditorGUILayout.PropertyField(hcdFociSettingsProp);
-        }
-        else if (sourceMode == HapticsSourceMode.ObjectTarget)
-        {
-            EditorGUILayout.PropertyField(objectHapticsControllersProp, new GUIContent("Object Target Controllers"), true);
-
-            var controller = (HAP_AUTDHapticsController)target;
-            if (controller.objectHapticsControllers != null && controller.objectHapticsControllers.Count > 0)
+            EditorGUILayout.Space(4);
+            switch (_currentTab)
             {
-                var list = controller.objectHapticsControllers;
-                string[] displayOptions = new string[list.Count];
-
-                for (int i = 0; i < list.Count; i++)
-                {
-                    var ctrl = list[i];
-                    if (ctrl != null)
-                    {
-                        displayOptions[i] = ctrl.gameObject.name;
-                    }
-                    else
-                    {
-                        displayOptions[i] = "Unassigned Object";
-                    }
-                }
-
-                int currentIndex = Mathf.Clamp(controller.activeObjectControllerIndex, 0, list.Count - 1);
-                int selectedIndex = EditorGUILayout.Popup("Active Controller Target", currentIndex, displayOptions);
-
-                if (selectedIndex != controller.activeObjectControllerIndex)
-                {
-                    controller.SetActiveControllerIndex(selectedIndex);
-                    EditorUtility.SetDirty(target);
-                }
+                case Tab.General:
+                    HAP_GeneralTabDrawer.Draw(_ctx);
+                    break;
+                case Tab.Hardware:
+                    HAP_HardwareTabDrawer.Draw(_ctx);
+                    break;
+                case Tab.Placement:
+                    HAP_PlacementTabDrawer.Draw(_ctx);
+                    break;
+                case Tab.Acoustics:
+                    HAP_AcousticTabDrawer.Draw(_ctx);
+                    break;
+                case Tab.HCDFoci:
+                    HAP_HCDFociTabDrawer.Draw(_ctx);
+                    break;
+                case Tab.Debug:
+                    HAP_DebugTabDrawer.Draw(_ctx);
+                    break;
             }
-
-            EditorGUILayout.PropertyField(hcdPipelineProp, new GUIContent("HCD Pipeline (Optional)"));
+            EditorGUILayout.Space(4);
         }
-        else if (sourceMode == HapticsSourceMode.Manual)
+
+        _ctx.ApplyAll();
+    }
+
+    private void DrawTabToolbar()
+    {
+        bool hwMissing = _ctx.Controller.hardwareController == null;
+
+        var row1Labels = new[]
         {
-            EditorGUILayout.HelpBox("Manual Mode: Automatic Update outputs are disabled. Control ultrasound outputs via API calls (SetFocus, SetFocusStm, etc.).", MessageType.Info);
-        }
-        EditorGUI.indentLevel--;
-        EditorGUILayout.Space();
+            new GUIContent("⚙️ General", "動作モード・照射対象オブジェクト選択・パイプライン連携"),
+            new GUIContent(hwMissing ? "📡 Hardware ⚠️" : "📡 Hardware", "通信リンク種別・変調・サイレンサー・温度/ファン"),
+            new GUIContent("📐 Placement", "デバイス配置データ(JSON)・プレハブ生成・焦点オフセット")
+        };
 
-        // Acoustic Holography
-        EditorGUILayout.PropertyField(holoAlgorithmProp);
-        EditorGUILayout.PropertyField(focusIntensityPascalProp, new GUIContent("Focus Intensity (Pa)"));
-        EditorGUILayout.Space();
-
-        // STM Settings
-        EditorGUILayout.PropertyField(stmModeProp);
-        EditorGUI.indentLevel++;
-        EditorGUILayout.PropertyField(stmFrequencyProp, new GUIContent("STM Frequency (Hz)"));
-
-        HapticsSTMMode stmMode = (HapticsSTMMode)stmModeProp.enumValueIndex;
-
-        if (stmMode == HapticsSTMMode.FociSTM)
+        var row2Labels = new[]
         {
-            EditorGUILayout.HelpBox("FociSTM uses hardware single-focus (Naive) calculation at the specified frequency.", MessageType.Info);
-        }
-        else if (stmMode == HapticsSTMMode.GainSTM)
-        {
-            if (gainStmModeProp != null)
-            {
-                EditorGUILayout.PropertyField(gainStmModeProp, new GUIContent("Gain STM Mode"));
-            }
-        }
-        EditorGUI.indentLevel--;
-        EditorGUILayout.Space();
+            new GUIContent("🔊 Acoustics", "ホログラフィアルゴリズム・音圧強度・GSPAT反復回数・STM"),
+            new GUIContent("🎯 HCD Foci", "手指接触領域に対する焦点生成方式(Simplified/Precision)・ソース設定"),
+            new GUIContent("⏱️ Debug", "処理時間プロファイリング・Gizmos・特定デバイス強制ミュート")
+        };
 
-        // Directional Grouping
-        EditorGUILayout.PropertyField(enableDirectionalGroupingProp);
-        if (enableDirectionalGroupingProp.boolValue)
-        {
-            EditorGUI.indentLevel++;
-            EditorGUILayout.PropertyField(directionalAngleThresholdProp);
-            EditorGUI.indentLevel--;
-        }
-        EditorGUILayout.Space();
+        int currentInt = (int)_currentTab;
+        int row1Selected = (currentInt < 3) ? currentInt : -1;
+        int row2Selected = (currentInt >= 3) ? currentInt - 3 : -1;
 
-        // Debug & Profiling
-        EditorGUILayout.PropertyField(visualizeDevicesProp);
-        EditorGUILayout.PropertyField(enableProfilingProp);
-        if (enableProfilingProp.boolValue)
+        int newRow1 = GUILayout.Toolbar(row1Selected, row1Labels, GUILayout.Height(26));
+        if (newRow1 != -1 && newRow1 != row1Selected)
         {
-            EditorGUI.indentLevel++;
-            EditorGUILayout.PropertyField(synchronousSendProp);
-            EditorGUILayout.PropertyField(profilingLogIntervalProp);
-            EditorGUI.indentLevel--;
+            _currentTab = (Tab)newRow1;
         }
 
-        serializedObject.ApplyModifiedProperties();
+        EditorGUILayout.Space(2);
+
+        int newRow2 = GUILayout.Toolbar(row2Selected, row2Labels, GUILayout.Height(26));
+        if (newRow2 != -1 && newRow2 != row2Selected)
+        {
+            _currentTab = (Tab)(newRow2 + 3);
+        }
+    }
+
+    private void DrawRuntimeStatusBanner()
+    {
+        var ctrl = _ctx.Controller;
+        bool isHwConnected = ctrl.hardwareController != null && ctrl.hardwareController.IsConnected;
+        string connStr = isHwConnected ? "● Hardware Connected" : "○ Hardware Disconnected";
+
+        EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+        EditorGUILayout.BeginHorizontal();
+        EditorGUILayout.LabelField(connStr, EditorStyles.boldLabel);
+        EditorGUILayout.LabelField($"Mode: {ctrl.sourceMode} | Output: {ctrl.focusIntensityPascal:F0} Pa", EditorStyles.miniLabel);
+        EditorGUILayout.EndHorizontal();
+        EditorGUILayout.EndVertical();
     }
 }
 #endif

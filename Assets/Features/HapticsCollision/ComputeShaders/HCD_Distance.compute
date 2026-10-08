@@ -67,11 +67,15 @@ float FootPlaneDepthThreshold;
 float FootPlaneUpperMargin;
 float3 FootPlaneNormal;
 
+#define GRID_CELL_STRIDE 128
+#define MAX_TRIS_PER_CELL 127
+
 [numthreads(256, 1, 1)]
 void ClearMeshGrid (uint3 id : SV_DispatchThreadID)
 {
-    if (id.x >= 512) return; // 8x8x8
-    GridBuffer[id.x * 32] = 0;
+    uint totalCells = (uint)(GridResolution.x * GridResolution.y * GridResolution.z);
+    if (id.x >= totalCells) return;
+    GridBuffer[id.x * GRID_CELL_STRIDE] = 0;
 }
 
 [numthreads(256, 1, 1)]
@@ -106,10 +110,10 @@ void BuildMeshGrid (uint3 id : SV_DispatchThreadID)
             {
                 int cellIdx = x + y * GridResolution.x + z * GridResolution.x * GridResolution.y;
                 int count;
-                InterlockedAdd(GridBuffer[cellIdx * 32], 1, count);
-                if (count < 31)
+                InterlockedAdd(GridBuffer[cellIdx * GRID_CELL_STRIDE], 1, count);
+                if (count < MAX_TRIS_PER_CELL)
                 {
-                    GridBuffer[cellIdx * 32 + 1 + count] = triIdx;
+                    GridBuffer[cellIdx * GRID_CELL_STRIDE + 1 + count] = triIdx;
                 }
             }
         }
@@ -350,11 +354,11 @@ void CheckCollisionMesh (uint3 id : SV_DispatchThreadID)
             for (int x = minCell.x; x <= maxCell.x; x++)
             {
                 int cellIdx = x + y * GridResolution.x + z * GridResolution.x * GridResolution.y;
-                int count = min(31, GridBuffer[cellIdx * 32]);
+                int count = min(MAX_TRIS_PER_CELL, GridBuffer[cellIdx * GRID_CELL_STRIDE]);
                 
                 for (int i = 0; i < count; i++)
                 {
-                    uint triIdx = GridBuffer[cellIdx * 32 + 1 + i];
+                    uint triIdx = GridBuffer[cellIdx * GRID_CELL_STRIDE + 1 + i];
                     
                     int idxA = MeshIndicesBuffer[triIdx*3];
                     int idxB = MeshIndicesBuffer[triIdx*3+1];
@@ -416,41 +420,23 @@ void CheckCollisionMesh (uint3 id : SV_DispatchThreadID)
 
     float calculatedDist = (minDistSqr < 9999999.0) ? sqrt(minDistSqr) : 0.0;
 
-    // Surface contact: point is outside/near the mesh and within activeSurfaceThresh
-    if (minDistSqr < 9999999.0 && bestSignedDist > 0.0 && bestSignedDist <= activeSurfaceThresh)
+    if (minDistSqr < 9999999.0)
     {
-        res.isColliding = 1;
-        res.distance   = calculatedDist;
-        res.hitPoint   = bestClosestP;
-        res.hitNormal  = bestNormal;
-    }
-
-    // InsideMesh: X+ ray cast (parity test).
-    if (res.isColliding == 0)
-    {
-        uint insideHits = 0u;
-
-        for (uint triIdx2 = 0u; triIdx2 < MeshTrianglesCount; triIdx2++)
+        // 表側接触: 法線に対して外側/手前（bestSignedDist >= 0）かつ surfaceDistance 閾値以内
+        if (bestSignedDist >= 0.0 && calculatedDist <= activeSurfaceThresh)
         {
-            int idxA2 = MeshIndicesBuffer[triIdx2 * 3u];
-            int idxB2 = MeshIndicesBuffer[triIdx2 * 3u + 1u];
-            int idxC2 = MeshIndicesBuffer[triIdx2 * 3u + 2u];
-            float3 wA2 = mul(LocalToWorldMatrix, float4(MeshVerticesBuffer[idxA2], 1.0)).xyz;
-            float3 wB2 = mul(LocalToWorldMatrix, float4(MeshVerticesBuffer[idxB2], 1.0)).xyz;
-            float3 wC2 = mul(LocalToWorldMatrix, float4(MeshVerticesBuffer[idxC2], 1.0)).xyz;
-            insideHits += (uint)RayTriangleHit(p, float3(1, 0, 0), wA2, wB2, wC2);
+            res.isColliding = 1;
+            res.distance   = calculatedDist;
+            res.hitPoint   = bestClosestP;
+            res.hitNormal  = bestNormal;
         }
-
-        // Odd intersection count → point is inside the mesh
-        if ((insideHits & 1u) == 1u)
+        // 裏側・めり込み接触: 法線に対して内側/めり込み（bestSignedDist < 0）かつ backfaceDistance 閾値以内
+        else if (bestSignedDist < 0.0 && calculatedDist <= activeBackfaceThresh)
         {
-            if (minDistSqr < 9999999.0 && (bestSignedDist <= 0.0 ? -bestSignedDist : sqrt(minDistSqr)) <= activeBackfaceThresh)
-            {
-                res.isColliding = 2;
-                res.distance  = calculatedDist;
-                res.hitPoint  = bestClosestP;
-                res.hitNormal = bestNormal;
-            }
+            res.isColliding = 2;
+            res.distance   = calculatedDist;
+            res.hitPoint   = bestClosestP;
+            res.hitNormal  = bestNormal;
         }
     }
 

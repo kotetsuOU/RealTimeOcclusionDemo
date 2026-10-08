@@ -254,7 +254,17 @@ if (AppLogger.IsEnabled(this, SRDMirrorDebugLogger.TagProjDetCheck) && Time.fram
 | `SICESI` | `[SICESI] Capture & Camera` | `SICESI_StereoEvaluationController` | GT撮影、条件撮影、カメラ姿勢ロック、マテリアル・Transform ログ |
 | `SICESI` | `[SICESI] Stereo Sweep` | `SICESI_StereoEvaluationController` | 点群密度・セクター数・連続非占有・閾値スイープ進行ログ |
 | `SICESI` | `[SICESI] Sector Mask Collector` | `SICESI_SectorMaskCollector` | 8セクター画面保存マスクスイープ、256パターンスイープ、Readback ログ |
+| `Haptics` | `[HAP_Controller] Main Controller & Dispatcher` | `HAP_LogTriggers` | 触覚パイプライン統括・照射ターゲット選定ログ |
+| `Haptics` | `[HAP_LinkService] AUTD3 Link Connection` | `HAP_LogTriggers` | 物理デバイス接続・通信・切断ログ |
+| `Haptics` | `[HAP_ModulationService] Modulation & Silencer` | `HAP_LogTriggers` | 振幅変調・サイレンサー設定ログ |
+| `Haptics` | `[HAP_TransformLoader] Transform & Snapshot` | `HAP_LogTriggers` | デバイス配置 JSON 保存・ロード・オフセット同期ログ |
+| `Haptics` | `[HAP_Calibration] Device Alignment Calibration` | `HAP_LogTriggers` | アレイ位置キャリブレーションログ |
+| `Haptics` | `[HAP_PerformanceProfiler] Performance Profiler` | `HAP_LogTriggers` | 送信・計算フレームレートおよび遅延計測プロファイル |
+| `Haptics` | `[HAP_SDKSetup] AUTD3 SDK Symbol & Build` | `HAP_LogTriggers` | 新旧 SDK バックエンド切り替えログ |
+| `Haptics` | `[クラス名] 診断レポート (手動/イベント)` | `HAP_LogTriggers` | オブジェクト触覚コントローラー（FoxBody, FoxFoot 等）の診断ログ (初期ON) |
+| `Haptics` | `[クラス名] 定期自動ログ (5秒間隔)` | `HAP_LogTriggers` | オブジェクト触覚コントローラーの 5 秒周期定期監視ログ (初期OFF) |
 
+> 📎 `Haptics` の各パラメータおよび仕様詳細は [Haptics.md](./Haptics.md), [FoxBodyHaptics.md](./FoxBodyHaptics.md), [FoxFootHaptics.md](./FoxFootHaptics.md) を参照してください。  
 > 📎 `PhysicalResponse` の各パラメータおよび仕様詳細は [PhysicalResponse.md](./PhysicalResponse.md) を参照してください。  
 > 📎 `SICESI` の各スイープ・撮影仕様詳細は [SICESI2026.md](./SICESI2026.md) を参照してください。
 

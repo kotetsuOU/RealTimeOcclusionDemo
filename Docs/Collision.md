@@ -151,13 +151,37 @@ $$
 | $\mathbf{v}_0, \mathbf{v}_1, \mathbf{v}_2$ | 三角形メッシュの頂点座標 | `Vector3` |
 | $u, v$ | 三角形平面上の重心座標 ($u \ge 0, v \ge 0, u+v \le 1$) | `float` |
 
-#### B. GPU ボクセル格子 (Voxel Grid) インデックス計算
+#### B. GPU 16×16×16 空間グリッド (4,096セル) & セル容量 128面モデル
 
-バウンディングボックス最小点 $\mathbf{b}_{\min}$ およびボクセルサイズ $S_{\text{cell}}$ に対し、点群 $\mathbf{p}_i$ のボクセル座標 $\mathbf{g}_i$ と 1 次元格子インデックス $\text{CellIndex}$ は次式で算出されます。
+複雑な非凸メッシュ（狐の頭部、耳、細い手足など）に対してセルオーバーフローや判定抜けを防ぐため、グリッド解像度を **16×16×16（計 4,096 セル）**、各セルの格納容量を **128 int（最大 127 面＋要素数カウンタ 1）** に拡大しています。
+
+バウンディングボックス最小点 $\mathbf{b}_{\min}$ およびセル幅 $\mathbf{s}_{\text{cell}} = (\mathbf{b}_{\max} - \mathbf{b}_{\min}) / 16$ に対し、点群 $\mathbf{p}_i$ のグリッド座標 $\mathbf{g}_i = (g_x, g_y, g_z)$ と 1 次元セルインデックス $\text{CellIndex}$ は次式で算出されます。
 
 $$
-\mathbf{g}_i = \left\lfloor \frac{\mathbf{p}_i - \mathbf{b}_{\min}}{S_{\text{cell}}} \right\rfloor
+\mathbf{g}_i = \text{clamp}\left(\left\lfloor \frac{\mathbf{p}_i - \mathbf{b}_{\min}}{\mathbf{s}_{\text{cell}}} \right\rfloor, 0, 15\right)
 $$
+
+$$
+\text{CellIndex} = g_x + g_y \times 16 + g_z \times 256
+$$
+
+#### C. `DistanceMode.MeshSurface` (メッシュ表面近傍距離判定モデル)
+
+非凸メッシュにおける全三角形 Raycast の内外判定の不安定性を解消するため、点 $\mathbf{p}$ と三角形の最短距離 $d_{\text{min}}$ および三角形法線 $\mathbf{n}$ に基づく表裏距離判定を採用しています。
+
+$$
+\mathbf{q} = \text{ClosestPointOnTriangle}(\mathbf{p}, \mathbf{v}_0, \mathbf{v}_1, \mathbf{v}_2)
+$$
+
+$$
+d = \|\mathbf{p} - \mathbf{q}\|, \quad \text{dot} = (\mathbf{p} - \mathbf{q}) \cdot \mathbf{n}
+$$
+
+* **表面近傍（外側）判定**: $\text{dot} \ge 0$ かつ $d \le \text{surfaceDistanceThreshold}$ (既定: `0.02m`)
+* **めり込み（内側）判定**: $\text{dot} < 0$ かつ $d \le \text{backfaceDistanceThreshold}$ (既定: `0.05m`)
+
+上記条件のいずれかを満たす点を接触点（Contact Point）として抽出し、後段の空間ハッシュクラスタリングへ渡します。
+
 
 $$
 \text{CellIndex}(\mathbf{g}_i) = g_{x,i} + g_{y,i} \cdot N_x + g_{z,i} \cdot N_x N_y

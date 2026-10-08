@@ -1,0 +1,27 @@
+{
+    "name": "Haptics.Backend.Legacy",
+    "rootNamespace": "",
+    "references": [
+        "Haptics",
+        "HapticsCollision",
+        "Core",
+        "autd3"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "AUTD3_SDK_LEGACY"
+    ],
+    "versionDefines": [
+        {
+            "name": "com.shinolab.autd3",
+            "expression": "",
+            "define": "AUTD3_SDK_LEGACY"
+        }
+    ],
+    "noEngineReferences": false
+}

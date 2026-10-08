@@ -132,6 +132,31 @@ namespace Features.HapticsCollision.Processors
             Normals = _bakedMesh.normals;
             Triangles = _bakedMesh.triangles;
 
+            // smr.bounds の遅延・キャッシュ狂いによる判定欠落を防ぐため、実際のBake頂点から真のワールドBoundsを補正
+            if (Vertices != null && Vertices.Length > 0 && TargetTransform != null)
+            {
+                Vector3 firstWp = TargetTransform.TransformPoint(Vertices[0]);
+                Vector3 min = firstWp;
+                Vector3 max = firstWp;
+                int step = Mathf.Max(1, Vertices.Length / 128);
+                for (int v = 0; v < Vertices.Length; v += step)
+                {
+                    Vector3 wp = TargetTransform.TransformPoint(Vertices[v]);
+                    min = Vector3.Min(min, wp);
+                    max = Vector3.Max(max, wp);
+                }
+                Vector3 lastWp = TargetTransform.TransformPoint(Vertices[Vertices.Length - 1]);
+                min = Vector3.Min(min, lastWp);
+                max = Vector3.Max(max, lastWp);
+
+                Bounds calculatedWorldBounds = new Bounds((min + max) * 0.5f, max - min);
+                if (boundsInitialized)
+                {
+                    calculatedWorldBounds.Encapsulate(MeshBounds);
+                }
+                MeshBounds = calculatedWorldBounds;
+            }
+
             return HasValidMeshData;
         }
 

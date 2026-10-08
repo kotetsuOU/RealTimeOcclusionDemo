@@ -17,16 +17,20 @@ namespace Features.HapticsCollision.Processors
         public ComputeBuffer MeshIndicesBuffer => _meshIndicesBuffer;
         public ComputeBuffer GridBuffer => _gridBuffer;
 
+        public const int CellResolution = 16;
+        public const int TotalCells = CellResolution * CellResolution * CellResolution; // 4096 cells
+        public const int CellCapacity = 128; // 1 count + 127 triangle indices
+
         public Vector3 GridMin { get; private set; }
         public Vector3 CellSize { get; private set; }
-        public int[] GridResolution { get; } = new int[] { 8, 8, 8 };
+        public int[] GridResolution { get; } = new int[] { CellResolution, CellResolution, CellResolution };
         public float TotalPadding { get; private set; }
 
         public void Setup()
         {
             if (_gridBuffer == null)
             {
-                _gridBuffer = new ComputeBuffer(512 * 32, sizeof(int));
+                _gridBuffer = new ComputeBuffer(TotalCells * CellCapacity, sizeof(int));
             }
         }
 
@@ -66,17 +70,19 @@ namespace Features.HapticsCollision.Processors
             }
             _meshIndicesBuffer.SetData(triangles);
 
-            TotalPadding = maxThreshold + 0.1f;
+            // メッシュの Bounds に対して過度な巨大セル化を防ぎつつ、閾値範囲の接触点を確実にカバーする適正パディング
+            TotalPadding = Mathf.Max(0.03f, maxThreshold + 0.015f);
             Vector3 gridMin = bounds.min - new Vector3(TotalPadding, TotalPadding, TotalPadding);
             Vector3 gridMax = bounds.max + new Vector3(TotalPadding, TotalPadding, TotalPadding);
             Vector3 gridSize = gridMax - gridMin;
 
             GridMin = gridMin;
-            CellSize = new Vector3(gridSize.x / 8f, gridSize.y / 8f, gridSize.z / 8f);
+            CellSize = new Vector3(gridSize.x / (float)CellResolution, gridSize.y / (float)CellResolution, gridSize.z / (float)CellResolution);
 
             // 1. Clear Grid
             computeShader.SetBuffer(kernelClearGrid, "GridBuffer", _gridBuffer);
-            computeShader.Dispatch(kernelClearGrid, Mathf.CeilToInt(512 / 256.0f), 1, 1);
+            computeShader.SetInts("GridResolution", GridResolution);
+            computeShader.Dispatch(kernelClearGrid, Mathf.CeilToInt(TotalCells / 256.0f), 1, 1);
 
             // 2. Build Grid
             computeShader.SetBuffer(kernelBuildGrid, "GridBuffer", _gridBuffer);

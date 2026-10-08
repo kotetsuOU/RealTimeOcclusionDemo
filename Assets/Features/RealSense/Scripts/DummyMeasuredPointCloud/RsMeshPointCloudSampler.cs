@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using Core.Logging;
 
 namespace RealSense.DummyPointCloud
 {
@@ -202,6 +203,12 @@ namespace RealSense.DummyPointCloud
 
                 if (mesh != null)
                 {
+                    if (!mesh.isReadable)
+                    {
+                        AppLogger.LogWarning(renderer, "DummyPointCloudProvider",
+                            $"[RsMeshPointCloudSampler] Mesh '{mesh.name}' on '{renderer.gameObject.name}' is not readable (Read/Write disabled). Skipping point sampling.");
+                        continue;
+                    }
                     float area = CalculateMeshArea(mesh, localToWorld);
                     rendererInfoList.Add((renderer, mesh, localToWorld, area));
                     totalSurfaceArea += area;
@@ -296,6 +303,8 @@ namespace RealSense.DummyPointCloud
             List<Color> outColors,
             int maxPointLimit)
         {
+            if (mesh == null || !mesh.isReadable) return;
+
             Vector3[] vertices = mesh.vertices;
             Vector3[] meshNormals = mesh.normals;
             int[] triangles = mesh.triangles;
@@ -421,7 +430,7 @@ namespace RealSense.DummyPointCloud
 
         private float CalculateMeshArea(Mesh mesh, Matrix4x4 localToWorld)
         {
-            if (mesh == null) return 0f;
+            if (mesh == null || !mesh.isReadable) return 0f;
             Vector3[] vertices = mesh.vertices;
             int[] triangles = mesh.triangles;
             if (vertices == null || vertices.Length == 0 || triangles == null || triangles.Length == 0) return 0f;

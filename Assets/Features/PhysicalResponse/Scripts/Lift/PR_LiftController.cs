@@ -59,8 +59,8 @@ namespace Features.PhysicalResponse
         [Tooltip("平面より上部への微小許容マージン（m）。体側ノイズを防ぐため通常は0〜0.005mにします。")]
         public float upperPlaneMargin = 0.005f;
 
-        [Tooltip("HCD_Pipeline の DetectionMode を自動的に FootPlane モードに切り替えて同期するか")]
-        public bool syncWithHcd = true;
+        [HideInInspector, System.Obsolete("Lift は Transform 移動のみを担当し、HCD パイプライン設定には関与しません。")]
+        public bool syncWithHcd = false;
 
         [Header("Lift Calculation Mode")]
         [Tooltip("持ち上げ計算モード。\n・InitialPositionPlusLift: 初期位置 + 手の持ち上げ変位（静止時に下がらず最も安定）\n・IncrementalDelta: フレーム間差分を相対加算（従来の方式）")]
@@ -174,10 +174,7 @@ namespace Features.PhysicalResponse
             );
             if (!plane.IsValid) return;
 
-            // 3. HCD_Pipeline との同期
-            SyncWithHcdPipeline(plane);
-
-            // 4. 点群クラスタの評価と重心選定
+            // 3. 点群クラスタの評価と重心選定（HCDパイプラインには関与せず、クラスタ読み取りとTransform移動のみ実行）
             var clusters = HCD_Pipeline.Instance.GetTrackedClusters();
             bool wasContacting = _clusterFilter.IsContacting;
             Vector3 previousCentroid = _clusterFilter.PreviousCentroid;
@@ -265,23 +262,6 @@ namespace Features.PhysicalResponse
             frontRightFoot = _boneProvider.FrontRightFoot;
             backLeftFoot   = _boneProvider.BackLeftFoot;
             backRightFoot  = _boneProvider.BackRightFoot;
-        }
-
-        // --- Internal ---
-
-        private void SyncWithHcdPipeline(in PR_LiftPlaneCalculator.FootPlaneData plane)
-        {
-            if (!syncWithHcd || HCD_Pipeline.Instance.distanceProcessor == null) return;
-
-            var dp = HCD_Pipeline.Instance.distanceProcessor;
-            dp.detectionMode          = HCD_DistanceProcessor.DetectionMode.FootPlane;
-            dp.footPlaneTarget        = targetTransform;
-            dp.footPlaneBoundsMin     = new Vector3(plane.MinX, 0, plane.MinZ);
-            dp.footPlaneBoundsMax     = new Vector3(plane.MaxX, 0, plane.MaxZ);
-            dp.footPlaneRefY          = plane.RefY;
-            dp.footPlaneDepthThreshold = underPlaneDepthThreshold;
-            dp.footPlaneUpperMargin   = upperPlaneMargin;
-            dp.footPlaneNormal        = plane.Normal;
         }
 
         // Editor Gizmos 描画用に接触状態を公開（型を漏洩させない）

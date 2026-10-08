@@ -95,8 +95,8 @@ graph TD
 | | 🔬 | └── [CollisionAlgorithmComparison.md](./CollisionAlgorithmComparison.md) | Native C++ vs GPU の数理モデル比較 |
 | **4** | 🏗️ | [Haptics.md](./Haptics.md) | AUTD3 超音波ハプティクス出力制御 |
 | | 🔬 | └── [HapticsAlgorithmComparison.md](./HapticsAlgorithmComparison.md) | 提示アルゴリズム・STM 軌道比較 |
-| | 🏗️ | └── [FoxFootHaptics.md](./FoxFootHaptics.md) | キツネ足先・尻尾ハプティクス仕様 + カスタム拡張 |
-| | 🏗️ | └── [FoxBodyHaptics.md](./FoxBodyHaptics.md) | キツネ胴体表面ハプティクス仕様 |
+| | 🏗️ | └── [FoxFootHaptics.md](./FoxFootHaptics.md) | キツネ4足・尻尾ハプティクス仕様 (神クラス解消済み) |
+| | 🏗️ | └── [FoxBodyHaptics.md](./FoxBodyHaptics.md) | キツネ全身8部位（頭・耳・足・尻尾）ハプティクス仕様 (神クラス解消済み) |
 | | 🔬 | └── [HapticsIllusion.md](./HapticsIllusion.md) | 触覚錯覚 (Apparent Movement / Phantom Sensation) モジュール |
 | | 📖 | └── [HowToUseHaptics.md](./HowToUseHaptics.md) | ハプティクスの初回セットアップ〜使い方ガイド |
 | | 🔧 | └── [AUTD3_SDK_Transition.md](./AUTD3_SDK_Transition.md) | AUTD3 SDK 新旧仕様比較と切り替え方法 |

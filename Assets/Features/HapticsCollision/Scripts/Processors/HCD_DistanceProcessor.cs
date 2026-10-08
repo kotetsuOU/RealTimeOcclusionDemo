@@ -58,6 +58,11 @@ public class HCD_DistanceProcessor : IHCD_Processor
         public float surfaceDistanceThreshold => distanceMode == DistanceMode.ViewDirection ? visibleSurfaceDistanceThreshold : meshSurfaceDistanceThreshold;
         public float backfaceDistanceThreshold => distanceMode == DistanceMode.ViewDirection ? visibleBackfaceDistanceThreshold : meshBackfaceDistanceThreshold;
 
+        public Bounds MeshBounds => _meshBaker.MeshBounds;
+        public int BakedVerticesCount => _meshBaker.Vertices?.Length ?? 0;
+        public int BakedTrianglesCount => _meshBaker.TrianglesCount;
+        public Transform TargetTransform => _meshBaker.TargetTransform;
+
         public ComputeShader collisionComputeShader;
         public const string ResultBufferName = "CollisionResultBuffer";
 
@@ -250,7 +255,7 @@ public class HCD_DistanceProcessor : IHCD_Processor
                     $"  Combined Instances  : {_meshBaker.ValidInstanceCount}\n" +
                     $"  Vertices / Triangles: {_meshBaker.Vertices?.Length ?? 0} / {_meshBaker.TrianglesCount}\n" +
                     $"  World Bounds        : min={bounds.min:F3} max={bounds.max:F3} size={bounds.size:F3}\n" +
-                    $"  Grid Cell Size      : {_gridBuilder.CellSize:F4}  (8x8x8 grid, 31 tris/cell max)\n" +
+                    $"  Grid Cell Size      : {_gridBuilder.CellSize:F4}  (16x16x16 grid, 127 tris/cell max)\n" +
                     $"  Total Padding       : {totalPadding:F4}m  (thresh={maxThresh:F4})");
             }
 #endif

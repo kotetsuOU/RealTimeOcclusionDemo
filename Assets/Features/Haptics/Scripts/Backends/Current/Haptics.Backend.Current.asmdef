@@ -1,0 +1,33 @@
+{
+    "name": "Haptics.Backend.Current",
+    "rootNamespace": "",
+    "references": [
+        "Haptics",
+        "HapticsCollision",
+        "Core",
+        "AUTD3",
+        "AUTD3.Core",
+        "AUTD3.Pattern",
+        "AUTD3.Pattern.Holo",
+        "AUTD3.Modulation",
+        "AUTD3.Link.TwinCAT",
+        "AUTD3.Link.Remote"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "AUTD3_SDK_CURRENT"
+    ],
+    "versionDefines": [
+        {
+            "name": "com.shinolab.autd3-sdk",
+            "expression": "0.9.0",
+            "define": "AUTD3_SDK_CURRENT"
+        }
+    ],
+    "noEngineReferences": false
+}
