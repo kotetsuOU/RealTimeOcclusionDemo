@@ -71,7 +71,7 @@ namespace SICESI
 
                             if (_controller.occlusionPipelineController != null)
                             {
-                                _controller.occlusionPipelineController.minOccludedSectors = sector;
+                                _controller.occlusionPipelineController.minOccludedSectorsMode20 = sector;
                                 _controller.occlusionPipelineController.maxConsecutiveEmptySectors = maxZero;
                             }
 
@@ -99,7 +99,7 @@ namespace SICESI
 
                         if (_controller.occlusionPipelineController != null)
                         {
-                            _controller.occlusionPipelineController.minOccludedSectors = sector;
+                            _controller.occlusionPipelineController.minOccludedSectorsMode20 = sector;
                             _controller.occlusionPipelineController.maxConsecutiveEmptySectors = maxZero;
                         }
 

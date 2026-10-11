@@ -58,9 +58,28 @@ public class PCDOcclusionPipelineController : MonoBehaviour, IAppLoggable
     [Tooltip("オクルージョン判定モード (Mode 8: 占有数判定, Mode 20: 連続非占有規則, Mode 36: 36クラスLUT, Mode 256: 256パターンLUT [デフォルト・推奨])")]
     public PCD_OcclusionEvaluationMode evaluationMode = PCD_OcclusionEvaluationMode.PatternLUT256;
 
-    [Tooltip("【Mode 8 / 20 用】オクルージョン判定となるために必要な最小占有セクター数 R_th (1〜8。Mode 8 最適値: 7, Mode 20 最適値: 4)")]
+    [Tooltip("【Mode 8 用】オクルージョン判定となるために必要な最小占有セクター数 R_th (1〜8。最適値: 7)")]
     [Range(1, 8)]
-    public int minOccludedSectors = 7;
+    public int minOccludedSectorsMode8 = 7;
+
+    [Tooltip("【Mode 20 用】オクルージョン判定となるために必要な最小占有セクター数 R_th (1〜8。最適値: 4)")]
+    [Range(1, 8)]
+    public int minOccludedSectorsMode20 = 4;
+
+    /// <summary>
+    /// 後方互換性プロパティ。現在の評価モードに応じた R_th を取得・設定します。
+    /// </summary>
+    public int minOccludedSectors
+    {
+        get => evaluationMode == PCD_OcclusionEvaluationMode.SectorThreshold ? minOccludedSectorsMode8 : minOccludedSectorsMode20;
+        set
+        {
+            if (evaluationMode == PCD_OcclusionEvaluationMode.SectorThreshold)
+                minOccludedSectorsMode8 = value;
+            else
+                minOccludedSectorsMode20 = value;
+        }
+    }
 
     [Tooltip("【Mode 20 用】許容最大連続非占有セクター数 L_th (0〜8。Mode 20 最適値: 1, 8で方向制限無効)")]
     [Range(0, 8)]
@@ -265,11 +284,11 @@ public class PCDOcclusionPipelineController : MonoBehaviour, IAppLoggable
         }
         else if (evaluationMode == PCD_OcclusionEvaluationMode.SectorThreshold) // Mode 8
         {
-            // N_occ < minOccludedSectors を満たすパターンを可視 (1) にセット
+            // N_occ < minOccludedSectorsMode8 を満たすパターンを可視 (1) にセット
             for (int m = 0; m < 256; m++)
             {
                 int occ = CountBits((byte)m);
-                if (occ < minOccludedSectors)
+                if (occ < minOccludedSectorsMode8)
                 {
                     words[m >> 5] |= (1u << (m & 31));
                 }
@@ -278,12 +297,12 @@ public class PCDOcclusionPipelineController : MonoBehaviour, IAppLoggable
         }
         else if (evaluationMode == PCD_OcclusionEvaluationMode.SectorConsecutiveZeros) // Mode 20
         {
-            // N_occ >= minOccludedSectors && L_max <= maxConsecutiveEmptySectors で遮蔽 (可視は反転)
+            // N_occ >= minOccludedSectorsMode20 && L_max <= maxConsecutiveEmptySectors で遮蔽 (可視は反転)
             for (int m = 0; m < 256; m++)
             {
                 int occ = CountBits((byte)m);
                 int lMax = ComputeLMax((byte)m);
-                bool isOccluded = (occ >= minOccludedSectors) && (lMax <= maxConsecutiveEmptySectors);
+                bool isOccluded = (occ >= minOccludedSectorsMode20) && (lMax <= maxConsecutiveEmptySectors);
                 if (!isOccluded)
                 {
                     words[m >> 5] |= (1u << (m & 31));

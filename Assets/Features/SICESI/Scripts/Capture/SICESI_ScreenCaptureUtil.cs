@@ -7,73 +7,18 @@ using Core.Logging;
 namespace SICESI
 {
     /// <summary>
-    /// SICE SI 評価実験において、カメラ映像のキャプチャ（PNG保存）、
-    /// およびシーンの Transform / 評価パラメータの JSON 出力を担当するユーティリティクラス。
+    /// SICE SI 評価実験において、カメラ映像のキャプチャ（PNG保存）およびステレオ視点保存を担当する専任ユーティリティクラス。
+    /// （※ Transform や評価パラメータの JSON 入出力は SICESI_SceneMetadataSerializer に分離されています）
     /// </summary>
     public static class SICESI_ScreenCaptureUtil
     {
-        [System.Serializable]
-        public class SerializableTransformData
-        {
-            public Vector3 position;
-            public Vector3 rotationEuler;
-            public Quaternion rotationQuaternion;
-            public Vector3 localScale;
+        #region 後方互換性エイリアス (SICESI_SceneMetadataSerializer)
 
-            public static SerializableTransformData FromTransform(Transform t)
-            {
-                if (t == null) return null;
-                return new SerializableTransformData
-                {
-                    position = t.position,
-                    rotationEuler = t.eulerAngles,
-                    rotationQuaternion = t.rotation,
-                    localScale = t.localScale
-                };
-            }
+        public class SerializableTransformData : SICESI_SceneMetadataSerializer.SerializableTransformData { }
+        public class SceneTransformsData : SICESI_SceneMetadataSerializer.SceneTransformsData { }
+        public class EvaluationParamsData : SICESI_SceneMetadataSerializer.EvaluationParamsData { }
 
-            public void ApplyToTransform(Transform t)
-            {
-                if (t == null) return;
-                t.position = position;
-                if (rotationQuaternion.x != 0f || rotationQuaternion.y != 0f || rotationQuaternion.z != 0f || rotationQuaternion.w != 0f)
-                {
-                    t.rotation = rotationQuaternion;
-                }
-                else
-                {
-                    t.eulerAngles = rotationEuler;
-                }
-                t.localScale = localScale;
-            }
-        }
-
-        [System.Serializable]
-        public class SceneTransformsData
-        {
-            public string timestamp;
-            public string conditionName;
-            public SerializableTransformData handMesh;
-            public SerializableTransformData virtualObject;
-            public SerializableTransformData leftCamera;
-            public SerializableTransformData rightCamera;
-            public SerializableTransformData sceneCamera;
-        }
-
-        [System.Serializable]
-        public class EvaluationParamsData
-        {
-            public string conditionName;
-            public float densityValue;
-            public string densityUnit;
-            public float occlusionThreshold;
-            public string evaluationMode;
-            public int minOccludedSectors;
-            public int maxConsecutiveEmptySectors;
-            public string timestamp;
-            public SerializableTransformData handMeshTransform;
-            public SerializableTransformData virtualObjectTransform;
-        }
+        #endregion
 
         /// <summary>
         /// 指定カメラの描画結果からピクセルを読み出してPNG保存します。
@@ -137,6 +82,62 @@ namespace SICESI
         }
 
         /// <summary>
+        /// 俯瞰カメラなどの通常 URP カメラから、3DDisplay や画面表示に依存せず独立してレンダリング結果を取得・PNG 保存します。
+        /// オクルージョンや 3DDisplay 投影を介さず、純粋な Unity 空間の配置を単一の通常画像として出力します。
+        /// </summary>
+        public static void SaveCameraViewDirect(Camera cam, string destinationPath, int defaultWidth = 3840, int defaultHeight = 2160)
+        {
+            if (cam == null) return;
+
+            int width = cam.targetTexture != null ? cam.targetTexture.width : (cam.pixelWidth > 0 ? cam.pixelWidth : defaultWidth);
+            int height = cam.targetTexture != null ? cam.targetTexture.height : (cam.pixelHeight > 0 ? cam.pixelHeight : defaultHeight);
+            if (width <= 0) width = defaultWidth;
+            if (height <= 0) height = defaultHeight;
+
+            RenderTexture prevTarget = cam.targetTexture;
+            RenderTexture prevActive = RenderTexture.active;
+
+            RenderTexture tempRt = null;
+            RenderTexture renderTarget = prevTarget;
+
+            if (renderTarget == null)
+            {
+                tempRt = RenderTexture.GetTemporary(width, height, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
+                cam.targetTexture = tempRt;
+                cam.Render();
+                renderTarget = tempRt;
+            }
+
+            RenderTexture.active = renderTarget;
+            Texture2D screenshot = new Texture2D(renderTarget.width, renderTarget.height, TextureFormat.RGB24, false);
+            screenshot.ReadPixels(new Rect(0, 0, renderTarget.width, renderTarget.height), 0, 0);
+            screenshot.Apply();
+
+            RenderTexture.active = prevActive;
+            if (tempRt != null)
+            {
+                cam.targetTexture = prevTarget;
+                RenderTexture.ReleaseTemporary(tempRt);
+            }
+
+            Directory.CreateDirectory(Path.GetDirectoryName(destinationPath));
+            byte[] pngBytes = screenshot.EncodeToPNG();
+            UnityEngine.Object.Destroy(screenshot);
+
+            Task.Run(() =>
+            {
+                try
+                {
+                    File.WriteAllBytes(destinationPath, pngBytes);
+                }
+                catch (Exception ex)
+                {
+                    AppLogger.LogWarning(SICESI_StereoEvaluationController.TagCapture, $"[SICESI] 非同期画像保存エラー ({destinationPath}): {ex.Message}");
+                }
+            });
+        }
+
+        /// <summary>
         /// 左右目線カメラの映像を指定ディレクトリに保存します。
         /// </summary>
         public static void CaptureStereoViews(Camera leftCam, Camera rightCam, string targetDir, string filePrefix, bool applySRGB, bool bypassSRGBConversion = false)
@@ -179,102 +180,26 @@ namespace SICESI
             }
         }
 
+        #region 後方互換用 JSON 委譲メソッド (SICESI_SceneMetadataSerializer への委譲)
+
         /// <summary>
         /// 手メッシュ、仮想オブジェクト、およびカメラの Transform 情報を JSON に保存します。
         /// </summary>
         public static void SaveSceneTransformsJson(string targetDir, string conditionName, GameObject gtObj, GameObject voObj, Camera leftCam, Camera rightCam, Camera sceneCam)
-        {
-            try
-            {
-                var data = new SceneTransformsData
-                {
-                    timestamp = DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss"),
-                    conditionName = conditionName,
-                    handMesh = SerializableTransformData.FromTransform(gtObj != null ? gtObj.transform : null),
-                    virtualObject = SerializableTransformData.FromTransform(voObj != null ? voObj.transform : null),
-                    leftCamera = SerializableTransformData.FromTransform(leftCam != null ? leftCam.transform : null),
-                    rightCamera = SerializableTransformData.FromTransform(rightCam != null ? rightCam.transform : null),
-                    sceneCamera = SerializableTransformData.FromTransform(sceneCam != null ? sceneCam.transform : null)
-                };
-
-                string json = JsonUtility.ToJson(data, true);
-                Directory.CreateDirectory(targetDir);
-                string savePath = Path.Combine(targetDir, "scene_transforms.json");
-                File.WriteAllText(savePath, json);
-                AppLogger.Log(SICESI_StereoEvaluationController.TagCapture, $"[SICESI] Transform 情報を保存しました: {savePath}");
-            }
-            catch (Exception ex)
-            {
-                AppLogger.LogWarning(SICESI_StereoEvaluationController.TagCapture, $"[SICESI] scene_transforms.json 保存失敗: {ex.Message}");
-            }
-        }
+            => SICESI_SceneMetadataSerializer.SaveSceneTransformsJson(targetDir, conditionName, gtObj, voObj, leftCam, rightCam, sceneCam);
 
         /// <summary>
         /// JSON から Transform 情報を復元・適用します。
         /// </summary>
         public static bool LoadAndApplySceneTransformsJson(string jsonPath, GameObject gtObj, GameObject voObj, Camera leftCam, Camera rightCam, Camera sceneCam, out string outConditionName)
-        {
-            outConditionName = "";
-            try
-            {
-                if (!File.Exists(jsonPath))
-                {
-                    AppLogger.LogWarning(SICESI_StereoEvaluationController.TagCapture, $"[SICESI] scene_transforms.json が見つかりません: {jsonPath}");
-                    return false;
-                }
-                string json = File.ReadAllText(jsonPath);
-                var data = JsonUtility.FromJson<SceneTransformsData>(json);
-                if (data == null) return false;
-
-                if (data.handMesh != null && gtObj != null) data.handMesh.ApplyToTransform(gtObj.transform);
-                if (data.virtualObject != null && voObj != null) data.virtualObject.ApplyToTransform(voObj.transform);
-                if (data.leftCamera != null && leftCam != null) data.leftCamera.ApplyToTransform(leftCam.transform);
-                if (data.rightCamera != null && rightCam != null) data.rightCamera.ApplyToTransform(rightCam.transform);
-                if (data.sceneCamera != null && sceneCam != null) data.sceneCamera.ApplyToTransform(sceneCam.transform);
-
-                if (!string.IsNullOrEmpty(data.conditionName))
-                {
-                    outConditionName = data.conditionName;
-                }
-
-                AppLogger.Log(SICESI_StereoEvaluationController.TagCapture, $"[SICESI] Transform 情報を復元適用しました: {jsonPath}");
-                return true;
-            }
-            catch (Exception ex)
-            {
-                AppLogger.LogWarning(SICESI_StereoEvaluationController.TagCapture, $"[SICESI] scene_transforms.json 適用失敗: {ex.Message}");
-                return false;
-            }
-        }
+            => SICESI_SceneMetadataSerializer.LoadAndApplySceneTransformsJson(jsonPath, gtObj, voObj, leftCam, rightCam, sceneCam, out outConditionName);
 
         /// <summary>
         /// 撮影時の正確な評価設定値を JSON として記録します。
         /// </summary>
         public static void SaveEvaluationParamsJson(string targetDir, string conditionName, float density, string densityUnit, float threshold, string mode, int sectors, int maxZeros, GameObject gtObj, GameObject voObj)
-        {
-            try
-            {
-                var data = new EvaluationParamsData
-                {
-                    conditionName = conditionName,
-                    densityValue = density,
-                    densityUnit = densityUnit,
-                    occlusionThreshold = threshold,
-                    evaluationMode = mode,
-                    minOccludedSectors = sectors,
-                    maxConsecutiveEmptySectors = maxZeros,
-                    timestamp = DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss"),
-                    handMeshTransform = SerializableTransformData.FromTransform(gtObj != null ? gtObj.transform : null),
-                    virtualObjectTransform = SerializableTransformData.FromTransform(voObj != null ? voObj.transform : null)
-                };
-                string json = JsonUtility.ToJson(data, true);
-                Directory.CreateDirectory(targetDir);
-                File.WriteAllText(Path.Combine(targetDir, "evaluation_params.json"), json);
-            }
-            catch (Exception ex)
-            {
-                AppLogger.LogWarning(SICESI_StereoEvaluationController.TagCapture, $"[SICESI] evaluation_params.json 保存失敗: {ex.Message}");
-            }
-        }
+            => SICESI_SceneMetadataSerializer.SaveEvaluationParamsJson(targetDir, conditionName, density, densityUnit, threshold, mode, sectors, maxZeros, gtObj, voObj);
+
+        #endregion
     }
 }

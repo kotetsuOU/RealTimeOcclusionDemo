@@ -52,8 +52,16 @@ Assets/Features/SICESI/
 │   ├── pattern_VO.csv                # 全48条件合算 256パターンの V, O 画素数テーブル
 │   └── figures/                      # 論文・報告書用図表データ
 ├── Editor/
-│   ├── SICESI_StereoEvaluationEditor.cs # Inspector 3タブ構成操作パネル
-│   └── SICESI_ReCaptureTrigger.cs       # 再撮影用トリガー
+│   ├── SICESI_StereoEvaluationEditor.cs # Inspector タブ構成統括エディタ
+│   ├── SICESI_ReCaptureTrigger.cs       # 再撮影用トリガー
+│   └── Tabs/                            # 【責務分離】Inspector タブ描画クラス群
+│       ├── SICESI_TabGeneralizationDrawer.cs # 汎化ベンチマーク (ペア全探索) タブ
+│       ├── SICESI_TabPresetsDrawer.cs        # 配置プリセット管理 & 一括ベンチマークタブ
+│       ├── SICESI_TabSweepsDrawer.cs         # 各種スイープ撮影 (密度・セクター・マスク) タブ
+│       ├── SICESI_TabCaptureDrawer.cs        # 単発撮影・GT撮影・俯瞰撮影タブ
+│       ├── SICESI_TabDatasetConfigDrawer.cs  # データセット仮想オブジェクト・手設定タブ
+│       ├── SICESI_TabSettingsDrawer.cs       # カメラ・ディレクトリ・パイプライン設定タブ
+│       └── SICESI_PresetSaveSectionDrawer.cs # シーン配置プリセット JSON 保存セクション
 ├── Python/                           # Python 解析・最適化・可視化スイート
 │   ├── sicesi_core/                  # 【共通コアパッケージ】
 │   │   ├── constants.py              # 配色定義 (TP/TN/FN/FP), 二値化閾値 (128)
@@ -61,14 +69,14 @@ Assets/Features/SICESI/
 │   │   ├── metrics.py                # IoU, PSNR, SSIM, FN/FP, evaluate_lut_extended
 │   │   ├── visualizer.py             # 差分マスク (diff_mask), オーバーレイ, モンタージュ描画
 │   │   ├── dataset_loader.py         # 画像探索, GT解決, pattern_counts_256 & pattern_VO 集計
-│   │   ├── report_exporter.py        # 【新規】CSV レポート群 (サマリー, 評価一覧, GAP分析, LUT) 出力クラス
-│   │   ├── validator.py              # 【新規】包含関係不等式 (J*8<=J*20<=J*36<=J*256) 数学的整合性検証
+│   │   ├── report_exporter.py        # CSV レポート群 (サマリー, 評価一覧, GAP分析, LUT) 出力クラス
+│   │   ├── validator.py              # 包含関係不等式 (J*8<=J*20<=J*36<=J*256) 数学的整合性検証
 │   │   └── optimizers/               # 数理最適化モジュール群
 │   │       ├── fixed_candidates.py   # 固定8候補 (最低占有数) & 固定20候補 (連続非占有) 最適化
 │   │       ├── milp_optimizer.py     # McCormick 緩和 MILP ソルバー & 個別最適探索
 │   │       ├── local_search.py       # 最急上昇局所探索 (Steepest Ascent)
-│   │       └── pipeline.py           # 【新規】多段階最適化パイプライン (PatternOptimizationPipeline)
-│   ├── optimize_pattern_rules.py     # 【主役 Facade】引数解析・パイプライン統括 (155行へスリム化)
+│   │       └── pipeline.py           # 多段階最適化パイプライン (PatternOptimizationPipeline)
+│   ├── optimize_pattern_rules.py     # 【主役 Facade】引数解析・パイプライン統括
 │   ├── export_occlusion_diff_maps.py # 【可視化 CLI】GT vs Test 差分マップ・4ペインモンタージュ生成
 │   ├── calc_stereoMaskedValue.py     # 【定量評価 CLI】IoU, PSNR, SSIM, FN/FP 一括算出
 │   ├── verify_sector_masks.py        # 【検証 GUI/CLI】GPU真値マスクと実測画像の一致度検証
@@ -76,9 +84,21 @@ Assets/Features/SICESI/
 │   ├── make_pattern_figure_data.py   # 【図表】論文用 LaTeX 表・グラフ用データ抽出
 │   └── evaluate_whole_vo.py          # 【研究用】評価領域全体でのパターン別集計
 └── Scripts/
+    ├── AdditionalExperiments/        # 【新規】汎化ベンチマーク & 配置プリセット統合基盤
+    │   ├── SICESI_EvaluationDatasetConfig.cs     # 3-Objects & 汎化セット構成定義
+    │   ├── SICESI_PresetPoseManager.cs           # 配置プリセット走査・管理・エントリ抽出
+    │   ├── SICESI_PresetSceneApplier.cs          # プリセットJSONのシーンオブジェクト適用
+    │   ├── SICESI_GeneralizationBenchmarkRunner.cs # 汎化&プリセットベンチマーク実行 (Unlit維持)
+    │   ├── SICESI_BenchmarkGroundTruthCapturer.cs # 最終出力GT撮影制御 (手黒化+点群オフ)
+    │   ├── SICESI_BenchmarkMethodRegistry.cs     # 5手法設定レジストリ (Average, 8, 20, 36, 256)
+    │   ├── SICESI_BenchmarkReporter.cs           # サマリーCSV出力 & ステレオテクスチャ解決
+    │   ├── SICESI_IoUCalculator.cs               # ステレオ画像 IoU・過剰遮蔽・遮蔽漏れ高速計算
+    │   └── SICESI_DatasetSyncService.cs          # シーンとデータセット構成の自動同期
     ├── Capture/
     │   ├── SICESI_MaterialSwapper.cs         # GT・仮想物体のマテリアル/Layer 一時変更・復元
-    │   ├── SICESI_ScreenCaptureUtil.cs       # カメラPNG保存・JSONメタデータ出力
+    │   ├── SICESI_SceneOverviewCapturer.cs   # 通常URP俯瞰・ステレオ配置撮影 & JSON保存
+    │   ├── SICESI_SceneMetadataSerializer.cs # Transform & 評価パラメータのJSONシリアライズ・保存・復元
+    │   ├── SICESI_ScreenCaptureUtil.cs       # カメラPNG保存・URP直接レンダリング・ステレオ視点保存
     │   ├── SICESI_CameraPoseLock.cs          # カメラ姿勢(Pos/Rot/Proj)固定ヘルパー (IDisposable)
     │   └── SICESI_GpuMaskReadbackHandler.cs  # GPU AsyncReadback & マスクデータ保存
     ├── Sweepers/
@@ -116,6 +136,7 @@ classDiagram
         +GameObject groundTruthObject
         +GameObject virtualObject
         +RsDummyPointCloudProvider dummyPointCloudProvider
+        +RsMaterialController materialController
         +PCDOcclusionPipelineController occlusionPipelineController
         +SICESI_MaterialSwapper MaterialSwapper
         +SICESI_SnapshotRunner SnapshotRunner
@@ -126,6 +147,12 @@ classDiagram
         +RunSectorSweep()
         +RunConsecutiveSectorSweep()
         +CaptureSceneOverview()
+    }
+
+    class SICESI_SnapshotRunner {
+        +CaptureGroundTruthRoutine()
+        +CaptureCurrentConditionRoutine()
+        +CaptureSceneOverviewRoutine()
     }
 
     class SICESI_SectorMaskCollector {
@@ -148,11 +175,59 @@ classDiagram
         +SectorMaskDensitySweepRoutine()
     }
 
+    class SICESI_GeneralizationBenchmarkRunner {
+        +RunGeneralizationBenchmarkRoutine()
+        +RunBenchmarkFromPresetsRoutine()
+    }
+
+    class SICESI_SceneOverviewCapturer {
+        +CaptureSceneOverviewRoutine(controller, targetDir)
+    }
+
+    class SICESI_SceneMetadataSerializer {
+        +SaveSceneTransformsJson(targetDir, condition, objects...)
+        +LoadAndApplySceneTransformsJson(path, objects...)
+        +SaveEvaluationParamsJson(targetDir, condition, params...)
+    }
+
+    class SICESI_ScreenCaptureUtil {
+        +SaveCameraView(camera, path, applySRGB)
+        +SaveCameraViewDirect(camera, path)
+        +CaptureStereoViews(leftCam, rightCam, targetDir, prefix, applySRGB)
+        +SaveEyeViewsForScene(leftCam, rightCam, sceneDir, applySRGB)
+    }
+
+    class SICESI_PresetPoseManager {
+        +LoadAvailablePresets()
+        +ApplyPresetToScene()
+    }
+
+    class SICESI_BenchmarkMethodRegistry {
+        +GetEvaluationMethods()
+        +ApplyMethodSettings()
+    }
+
+    class SICESI_IoUCalculator {
+        +Calculate(gt, test, threshold) MetricsResult
+    }
+
     SICESI_StereoEvaluationController *-- SICESI_MaterialSwapper : 委譲
     SICESI_StereoEvaluationController *-- SICESI_SnapshotRunner : 委譲
     SICESI_StereoEvaluationController *-- SICESI_StereoSweepRunner : 委譲
+    SICESI_StereoEvaluationController *-- SICESI_GeneralizationBenchmarkRunner : 委譲
     SICESI_SectorMaskCollector *-- SICESI_SectorMaskSweepRunner : 委譲
     SICESI_SectorMaskCollector *-- SICESI_Pattern256SweepRunner : 委譲
+
+    SICESI_SnapshotRunner ..> SICESI_SceneOverviewCapturer : 俯瞰撮影委譲
+    SICESI_GeneralizationBenchmarkRunner ..> SICESI_SceneOverviewCapturer : シーン配置記録委譲
+    SICESI_GeneralizationBenchmarkRunner ..> SICESI_PresetPoseManager : プリセット取得・適用
+    SICESI_GeneralizationBenchmarkRunner ..> SICESI_BenchmarkGroundTruthCapturer : 最終出力GT撮影
+    SICESI_GeneralizationBenchmarkRunner ..> SICESI_BenchmarkMethodRegistry : 5手法適用
+    SICESI_GeneralizationBenchmarkRunner ..> SICESI_IoUCalculator : リアルタイムIoU計測 (threshold=128)
+    SICESI_GeneralizationBenchmarkRunner ..> SICESI_BenchmarkReporter : CSV出力 & 画像ロード
+    SICESI_GeneralizationBenchmarkRunner ..> RsMaterialController : テスト撮影時Black化・復元
+    SICESI_SceneOverviewCapturer ..> SICESI_ScreenCaptureUtil : 通常URP直接レンダリング (SaveCameraViewDirect)
+    SICESI_SceneOverviewCapturer ..> SICESI_SceneMetadataSerializer : Transform保存 (SaveSceneTransformsJson)
 
     SICESI_StereoSweepRunner *-- SICESI_DensitySweepRunner : 委譲
     SICESI_StereoSweepRunner *-- SICESI_SectorSweepRunner : 委譲
@@ -227,27 +302,90 @@ sequenceDiagram
     Shader->>Shader: _PatternLUT_256_Optimized に反映 (シェーダー即時適用)
 ```
 
+#### 汎化・配置プリセット一括ベンチマーク実行シーケンス
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Unity as Unity (SICESI Editor)
+    participant Overview as SICESI_SceneOverviewCapturer
+    participant Swapper as SICESI_MaterialSwapper
+    participant GTCapturer as SICESI_BenchmarkGroundTruthCapturer
+    participant MatCtrl as RsMaterialController
+    participant MethodReg as SICESI_BenchmarkMethodRegistry
+    participant IoU as SICESI_IoUCalculator
+    participant Disk as データセット / PresetBenchmark
+
+    Note over Unity, Disk: 各評価ケースのベンチマーク実行サイクル
+    Unity->>Unity: プリセット Transform 復元 & サンプラー同期
+    Unity->>Overview: シーン配置記録要求 (CaptureOverviewAndTransforms)
+    Overview->>Disk: 通常URP直接レンダリング (scene_overview.png, scene_left.png, scene_right.png, scene_transforms.json)
+    
+    Unity->>Swapper: 仮想物体白化 (Unlit White 一貫維持開始)
+    Unity->>GTCapturer: 最終出力GTステレオ撮影 (手黒化 + 点群非表示)
+    GTCapturer->>Disk: gt_left.png, gt_right.png 保存
+    
+    Unity->>MatCtrl: 点群一時 Black 化 (ChangeColorMode(Black))
+    loop 5手法 (Average, 8, 20, 36, 256) × 各点群密度
+        Unity->>MethodReg: 手法パラメータ適用
+        Unity->>Disk: 点群オクルージョンテスト撮影 (test_left.png, test_right.png)
+        Unity->>IoU: IoU・過剰遮蔽(FN)・遮蔽漏れ(FP) 計算 (threshold=128)
+        Unity->>Disk: 4色差分マップ (diff_left.png, diff_right.png) 保存
+    end
+    Unity->>MatCtrl: 点群カラーモード安全復元 (Skin等)
+    Unity->>Swapper: 仮想物体マテリアル安全復元
+    Unity->>Disk: preset_benchmark_summary.csv 自動追記
+```
+
 ---
 
 ## 3. セットアップ・使用方法
 
-### 3.1 Unity での自動撮影手順
+### 3.1 Unity での自動撮影 & ベンチマーク実行手順
 
 #### Step 1: 評価コントローラーの配置 & 自動検出
 
-1. シーン内の管理 GameObject（または新規空 GameObject）に [`SICESI_StereoEvaluationController.cs`](file:///c:/Users/hongo/Documents/tsutsumi/RealTimeOcclusion/Assets/Features/SICESI/Scripts/SICESI_StereoEvaluationController.cs) および [`SICESI_SectorMaskCollector.cs`](file:///c:/Users/hongo/Documents/tsutsumi/RealTimeOcclusion/Assets/Features/SICESI/Scripts/SICESI_SectorMaskCollector.cs) をアタッチします。
+1. シーン内の管理 GameObject に [`SICESI_StereoEvaluationController.cs`](file:///c:/Users/hongo/Documents/tsutsumi/RealTimeOcclusion/Assets/Features/SICESI/Scripts/SICESI_StereoEvaluationController.cs) および [`SICESI_SectorMaskCollector.cs`](file:///c:/Users/hongo/Documents/tsutsumi/RealTimeOcclusion/Assets/Features/SICESI/Scripts/SICESI_SectorMaskCollector.cs) をアタッチします。
 2. Inspector 上部の **「🔍 シーンからカメラ・点群プロバイダーを自動検出」** ボタンをクリックし、左右眼カメラ、シーン俯瞰カメラ、点群プロバイダー、手メッシュ、仮想物体を自動検出・アサインします。
 
-#### Step 2: 実験条件名・出力パス設定
+#### Step 2: Inspector タブ構成と機能選択
 
-1. `outputDirectory` にデータセットの保存先ルートパス（例: `C:\...\SICESI_Dataset`）を設定します。
-2. `conditionName` に現在の実験ケース名（例: `RawTest_case1`）を設定します。
+[`SICESI_StereoEvaluationEditor.cs`](file:///c:/Users/hongo/Documents/tsutsumi/RealTimeOcclusion/Assets/Features/SICESI/Editor/SICESI_StereoEvaluationEditor.cs) は神クラス化を防止するため 6 つの独立タブ描画クラスに分割されています。用途に応じてタブを切り替えて操作します。
 
-#### Step 3: 自動撮影の実行
+| タブ名 | 担当クラス | 主な機能 |
+| :--- | :--- | :--- |
+| **汎化ベンチマーク** | `SICESI_TabGeneralizationDrawer` | 登録された仮想オブジェクト群 × 手メッシュ群の全ペア網羅ベンチマーク実行 |
+| **配置プリセット** | `SICESI_TabPresetsDrawer` | JSON 保存された配置プリセットの走査・シーン復元適用・一括ベンチマーク実行 |
+| **各種スイープ** | `SICESI_TabSweepsDrawer` | 点群密度、セクター閾値、連続非占有、8セクターマスク等の各種スイープ撮影 |
+| **単発キャプチャ** | `SICESI_TabCaptureDrawer` | 最終出力 GT 単発撮影、現在の条件撮影、シーン全体俯瞰撮影 |
+| **データセット設定** | `SICESI_TabDatasetConfigDrawer` | 評価対象の 3-Objects（最適化用）および汎化用仮想オブジェクト・手メッシュ登録 |
+| **共通設定** | `SICESI_TabSettingsDrawer` | 出力ディレクトリ、カメラ参照、待機フレーム数、sRGB変換設定 |
+
+#### Step 3: シーン配置プリセットの保存と適用
+
+手メッシュと仮想物体の様々な配置関係を再現・評価するため、現在のシーン配置（手・仮想物体・左右カメラ・シーンカメラの Transform）をプリセット JSON として保存・管理できます。
+
+1. **プリセットの保存**:
+   - Inspector 下部の **「配置プリセットの保存」** セクションを展開します。
+   - プリセット名（例: `AdditionalCase_1`）を入力し、**「💾 現在の配置をプリセット保存」** をクリックします。
+   - `AdditionalExperiments/Presets/Generalization/<プリセット名>/scene_transforms.json` に完全な姿勢データが保存されます。
+2. **プリセットの適用**:
+   - **「配置プリセット」** タブを開き、一覧から目的のプリセットを選択して **「適用」** をクリックします。
+   - `SICESI_PresetSceneApplier` により、該当オブジェクトのアクティブ切替、Transform 復元、および点群サンプラーの即時同期（`SyncDummyPointCloudWithGroundTruth`）が実行されます。
+
+#### Step 4: 汎化性能ベンチマークの実行 & GT 撮影プロトコル
 
 1. Unity エディタを Play モードにします。
-2. Inspector の **「🪐 メイン実行」** タブにある **「🪐 【推奨】8セクター二値マスク画面保存スイープ」** をクリックします。
-   - カメラ姿勢がロックされ、GT 画像、仮想物体シルエット、実測テスト画像、直接投影マスク、および 8 方向セクターマスクが一括自動撮影されます。
+2. **「配置プリセット」** タブで **「🚀 プリセット一括ベンチマーク実行」**（または **「汎化ベンチマーク」** タブで **「🚀 汎化ベンチマーク実行」**）をクリックします。
+3. **ベンチマーク実行プロトコル（状態維持と完全可逆性）**:
+   - **シーン配置の自動記録（左・右・俯瞰の計 3 枚）**:
+     各評価ケースの開始時、新設された [`SICESI_SceneOverviewCapturer.cs`](file:///c:/Users/hongo/Documents/tsutsumi/RealTimeOcclusion/Assets/Features/SICESI/Scripts/Capture/SICESI_SceneOverviewCapturer.cs) が手メッシュ通常表示（肌色マテリアル）、点群非表示、仮想物体通常マテリアルの状態で通常 URP レンダリングを行い、`scene_overview.png`（俯瞰カメラ）、`scene_left.png`（左眼カメラ）、`scene_right.png`（右眼カメラ）、および `scene_transforms.json` を保存します。重複していた `scene.png` を完全廃止し、オクルージョン表示や 3DDisplay 補正の影響を受けないクリーンな通常 URP 配置記録を一元的に提供します。
+   - **Unlit White 一貫維持**: 各評価ケースの開始時に仮想物体を完全な白（`Unlit White`）に設定し、**最終出力 GT 撮影から 5 手法のテスト撮影完了まで一貫して白化状態を維持**します。テスト完了後に元のカラーマテリアルへ安全に復元（`try-finally` 構造）されます。
+   - **GT 撮影**: `SICESI_BenchmarkGroundTruthCapturer` が手メッシュを黒化（`Unlit Black`）かつ点群を非表示にしてステレオ撮影（手による真の幾何学的オクルージョン）を行います。
+   - **点群一時 Black 化プロトコル（Python 完全互換 IoU 計算）**:
+     テスト画像撮影時、点群カラーモードを [`RsMaterialController.cs`](file:///c:/Users/hongo/Documents/tsutsumi/RealTimeOcclusion/Assets/Features/PCD/Scripts/PointCloud/RsMaterialController.cs) により `PointCloudColorMode.Black`（完全な黒: RGB 0,0,0）に一時変更します。肌色点群（RGB 各成分 > 128）が白（仮想物体）と誤判定されて発生していた「遮蔽漏れ (FP)」の激増を完全に排除し、撮影完了後は `try-finally` で元のカラーモード（Skin 等）へ安全に復元されます。
+   - **5 手法のテスト撮影 & リアルタイム計測**: `SICESI_BenchmarkMethodRegistry` が 5 手法（Mode_Average, Mode 8, Mode 20, Mode 36, Mode 256）を順次適用し、点群オクルージョン画像をキャプチャします。
+   - **完全可逆 PNG & 二値化閾値 128 統一による高精度 IoU 算出**: すべての画像は `Texture2D.EncodeToPNG()` によるロスレス可逆形式で保存され、[`SICESI_IoUCalculator.cs`](file:///c:/Users/hongo/Documents/tsutsumi/RealTimeOcclusion/Assets/Features/SICESI/Scripts/AdditionalExperiments/SICESI_IoUCalculator.cs) が Python 側（`sicesi_core/metrics.py`）と同一の判定閾値 `threshold = 128`（`c.r > 128 || c.g > 128 || c.b > 128`）で即座にピクセル単位の IoU、過剰遮蔽 (FN)、遮蔽漏れ (FP) を算出して `preset_benchmark_summary.csv` に自動追記します。
 
 ---
 
@@ -315,8 +453,10 @@ python Assets/Features/SICESI/Python/calc_stereoMaskedValue.py -c Bouchiba --exp
 | :--- | :--- | :--- | :--- |
 | `leftEyeCamera` | `Camera` | (自動検出) | 左目用カメラ (`SRDisplay LeftEyeCamera` 等) |
 | `rightEyeCamera` | `Camera` | (自動検出) | 右目用カメラ (`SRDisplay RightEyeCamera` 等) |
+| `sceneCaptureCamera` | `Camera` | (自動検出) | 通常 URP 俯瞰撮影用カメラ（オクルージョン表示の影響を受けずに独立レンダリング） |
 | `groundTruthObject` | `GameObject` | (設定) | 正解手メッシュオブジェクト |
 | `virtualObject` | `GameObject` | (設定) | オクルージョン対象の仮想 3D オブジェクト |
+| `materialController` | `RsMaterialController` | (自動検出) | 点群マテリアルコントローラー（テスト撮影時の点群 Black 化・復元用） |
 | `sweepDensities` | `float[]` | `[0.25, 0.5, 1.0, 2.0, 4.0]` | スイープする点群密度のリスト |
 | `densityUnit` | `PointDensityUnit` | `PointSpacingMm` | 密度の物理単位（点間隔 mm, 点/cm² など） |
 | `sweepSectors` | `int[]` | `[1..8]` | Bouchiba スイープで評価するセクター閾値リスト |
@@ -426,6 +566,73 @@ $$V_m = \sum_{p \in M, \mathrm{mask}(p) = m} \mathbf{1}_{\{\mathrm{GT}(p) = 0\}}
 | `individual_gap_analysis.csv` | `RuleOptimizationResults/` | 個別最適からの性能低下幅（汎化ギャップ）分析表 |
 | `diff_metrics_summary.csv` | `RuleOptimizationResults/DiffMaps/` | 全条件・全手法の差分マップ集計メトリクス（TP, FN, FP, IoU） |
 | `comparison_*.png` | `RuleOptimizationResults/DiffMaps/` | 4 手法（8候補, 20候補, 36クラス, 256パターン）の横連結比較モンタージュ画像 |
+| `preset_benchmark_summary.csv` | `AdditionalExperiments/PresetBenchmark/` | プリセット一括ベンチマークの全ケース・全手法・全密度 IoU 集計サマリー |
+| `scene_overview.png` | `AdditionalExperiments/Presets/.../<Case>/` | 俯瞰カメラ (`sceneCaptureCamera`) による通常 URP レンダリング配置画像 |
+| `scene_left.png`, `scene_right.png` | `AdditionalExperiments/Presets/.../<Case>/` | 左眼・右眼カメラによる手・仮想物体の初期シーン配置画像 |
+| `scene_transforms.json` | `AdditionalExperiments/Presets/.../<Case>/` | 手・仮想物体・左右カメラ・俯瞰カメラの Transform 姿勢 JSON |
+
+---
+
+### 4.7 汎化ベンチマーク 5 手法設定仕様
+
+[`SICESI_BenchmarkMethodRegistry.cs`](file:///c:/Users/hongo/Documents/tsutsumi/RealTimeOcclusion/Assets/Features/SICESI/Scripts/AdditionalExperiments/SICESI_BenchmarkMethodRegistry.cs) にて一元管理される、学術比較用の 5 手法パラメータ定義です。
+
+| 手法名 | 評価モード (`mode`) | 最低占有数 $R_{\mathrm{th}}$ | 最大連続非占有 $L_{\mathrm{th}}$ | LUT 定義 |
+| :--- | :--- | :---: | :---: | :--- |
+| **Mode_Average (Baseline)** | `Average` | 1 | 8 | (なし・内積平均) |
+| **Mode_8 (SectorThreshold_R7)** | `SectorThreshold` | 7 | 8 | (なし・占有数のみ) |
+| **Mode_20 (Consecutive_R4_L1)** | `SectorConsecutiveZeros` | 4 | 1 | (なし・連続性複合) |
+| **Mode_36 (RotationLUT36)** | `RotationLUT36` | 1 | 8 | `0x131F12EF...` (36クラス回転不変) |
+| **Mode_256 (PatternLUT256)** | `PatternLUT256` | 1 | 8 | `0x014FDA4F...` (256パターン最適) |
+
+---
+
+### 4.8 プリセットベンチマーク出力スキーマ (`preset_benchmark_summary.csv`)
+
+#### ディレクトリ階層構造
+
+各プリセットケースの実行により、以下の構造で撮影画像・メタデータ・評価サマリーが出力されます。
+
+```text
+AdditionalExperiments/PresetBenchmark/
+├── preset_benchmark_summary.csv     # 全ケース・全手法・全密度合算 IoU 集計サマリー
+└── <PresetCaseName>/                # 例: AdditionalCase_1
+    ├── scene_overview.png           # 俯瞰カメラによる通常 URP レンダリング配置画像
+    ├── scene_left.png               # 左眼カメラによるシーン配置画像 (手肌色・点群非表示)
+    ├── scene_right.png              # 右眼カメラによるシーン配置画像 (手肌色・点群非表示)
+    ├── scene_transforms.json        # 手・仮想物体・カメラの姿勢 Transform JSON
+    ├── GT/                          # 幾何学的オクルージョン真値画像
+    │   ├── gt_left.png
+    │   └── gt_right.png
+    └── Density_0.30/                # 各点群密度ディレクトリ
+        ├── Mode_Average/
+        │   ├── test_left.png        # 点群オクルージョンテスト画像
+        │   ├── test_right.png
+        │   ├── diff_left.png        # TP/TN/FN/FP 4色差分マップ (threshold=128)
+        │   └── diff_right.png
+        ├── Mode_8/
+        ├── Mode_20/
+        ├── Mode_36/
+        └── Mode_256/
+```
+
+#### CSV カラム定義 (`preset_benchmark_summary.csv`)
+
+プリセット一括実行時に [`SICESI_BenchmarkReporter.cs`](file:///c:/Users/hongo/Documents/tsutsumi/RealTimeOcclusion/Assets/Features/SICESI/Scripts/AdditionalExperiments/SICESI_BenchmarkReporter.cs) から出力される CSV の列構成です。
+
+| 列名 | 型 | 説明 |
+| :--- | :--- | :--- |
+| `Timestamp` | `string` | 測定実行日時 (`yyyy-MM-dd HH:mm:ss`) |
+| `VirtualObject` | `string` | 評価対象の仮想 3D オブジェクト名 |
+| `HandMesh` | `string` | 評価対象の正解手メッシュ名 |
+| `Density` | `float` | 点群密度数値（既定単位: $\mathrm{pts/mm^2}$） |
+| `Method` | `string` | 評価手法名（`Mode_Average`, `Mode_8`, `Mode_20`, `Mode_36`, `Mode_256`） |
+| `Mean_IoU` | `float` | 左右眼の平均 IoU ($(\mathrm{Left\_IoU} + \mathrm{Right\_IoU}) / 2$) |
+| `Total_IoU` | `float` | 左右眼合算画素による全体 IoU ($\sum \mathrm{TP} / \sum (\mathrm{TP} + \mathrm{FP} + \mathrm{FN})$) |
+| `Left_IoU`, `Right_IoU` | `float` | 左眼 / 右眼それぞれの個別 IoU |
+| `Left_TP`, `Right_TP` | `int` | 正しく可視と判定された画素数 (True Positive) |
+| `Left_FP`, `Right_FP` | `int` | 遮蔽漏れ・透過ゴースト画素数 (False Positive: 本来遮蔽されるべき領域) |
+| `Left_FN`, `Right_FN` | `int` | 過剰遮蔽画素数 (False Negative: 本来可視であるべき領域の欠損) |
 
 ---
 
@@ -456,4 +663,43 @@ SICESI 関連のすべてのログは `AppLogger.Log("SICESI", ...)` を経由�
 | `SICESI_StereoSweep` | `SICESI_StereoEvaluationController` | 密度・セクター数・連続非占有・閾値スイープの進行ログ |
 | `SICESI_MaskSweep` | `SICESI_SectorMaskCollector` | 8 セクター画面保存マスクスイープ、256 パターンスイープ、Readback 処理 |
 
-統制ログ仕様の詳細については [Logging.md](./Logging.md) を参照してください。
+### 5.4 最終出力 Ground Truth 撮影プロトコルと完全可逆マスク比較
+
+* **Unlit White 一貫維持プロトコル**:
+  ステレオ評価（`SICESI_IoUCalculator` / `calc_stereoMaskedValue.py`）では、ピクセル値（RGB）を閾値 `128` で二値化して IoU を算出します。
+  GT 撮影直後に仮想物体が通常カラーマテリアル（暗い羽やテクスチャの影など）に戻ってしまうと、テスト画像側でテクスチャ陰影部がすべて「遮蔽された背景」と誤判定され、大量の False Negative（偽陰性）が発生して IoU が不当に暴落します。
+  そのため、各ケースの評価ループでは **GT 撮影から 5 手法のテスト撮影完了まで一貫して仮想物体を `Unlit White`（白 255）に維持** し、全テスト完了後に `finally` 節で確実に元のマテリアルへ復元するプロトコルを採用しています。
+* **点群カラーモード一時 Black 化と Python 完全互換 IoU 計算**:
+  テスト画像撮影時、点群マテリアルの描画色が肌色（Skin: RGB 約 244, 203, 179）のままだと、各カラーチャンネルが二値化閾値 `128` を超えているため、点群によって遮蔽された領域（本来隠れるべき手領域）が二値化時に「白（仮想物体）」と誤認識され、膨大な False Positive（遮蔽漏れ）と判定されて IoU が約 5% 不当に低下する問題が生じていました。
+  これを解決するため、テスト画像撮影時のみ [`RsMaterialController.cs`](file:///c:/Users/hongo/Documents/tsutsumi/RealTimeOcclusion/Assets/Features/PCD/Scripts/PointCloud/RsMaterialController.cs) を経由して点群カラーモードを `PointCloudColorMode.Black`（完全な黒: RGB 0,0,0）に一時変更し、撮影完了後に `try-finally` 構造により元のカラーモード（Skin 等）へ安全復元するプロトコルを確立しました。
+  これにより、閾値を `threshold = 128` のまま Python 側（`sicesi_core/metrics.py`）と数学的・ビット単位で完全一致させ、真値幾何メッシュ（GT）に対する点群オクルージョンの一致度（IoU）を正確に測定できます。
+* **完全可逆（ロスレス）PNG 保存**:
+  すべての画像は `Texture2D.EncodeToPNG()` を用いて **PNG 形式（完全可逆圧縮・ロスレス）** で保存されます。JPEG のような不可逆圧縮ブロックノイズや色のにじみは一切発生せず、GPU の出力ピクセル値がそのままビット完全で保持されます。
+
+### 5.5 高解像度・超高密度時における動的 LOD と探索半径の特性
+
+PCD オクルージョンパイプラインの動的 LOD（`enableDensityBasedLOD`）では、局所密度に応じて探索半径（Level）が決定されます：
+
+$$L = \frac{p'}{\sqrt{\text{density}}}$$
+
+* **低密度時 (0.25〜1.0 $\mathrm{pts/mm^2}$)**:
+  点の間隙を埋めるために探索半径が自動的に Level 2〜6 に拡大し、手の輪郭や間隙が確実にカバーされて **IoU 94%〜96.6%** の高い一致率が得られます。
+* **超高密度時 (4.0〜16.0 $\mathrm{pts/mm^2}$)**:
+  4K 解像度（3840×2160）において点群が密集すると、数式に基づき探索半径が **Level 0（半径わずか 1 ピクセル）** まで極小化されます。
+  この極小半径下では、手と仮想物体が近接・接触している境界領域で点群が探索範囲外となり、点群をすり抜けて仮想物体が描画される「遮蔽漏れ (FP)」が急増するため、IoU が約 **80%〜85%** に低下する現象が発生します。
+* **下限探索半径の保証 (`minSearchLevel`)**:
+  超高密度時でも 95% 以上のスコアを維持したい場合は、インスペクター上で `minSearchLevel` を `2` または `3`（数ピクセル以上の探索半径を下限として保証）に設定することで、輪郭のすり抜けを効果的に防止できます。
+
+### 5.6 俯瞰カメラ通常 URP レンダリングキャプチャ (SaveCameraViewDirect) の技術的背景
+
+* **3DDisplay 投影と通常 URP レンダリングの完全分離**:
+  本プロジェクトのメイン GameView は、Spatial Reality Display (SRDisplay) 等の裸眼 3D ディスプレイへのステレオ投影や HalfMirror 反転、ホモグラフィ補正パイプラインが組み込まれています。
+  しかし、シーン配置記録用の俯瞰カメラ (`sceneCaptureCamera`) は、実験環境内の 3D 空間配置（手・仮想物体・ステレオカメラの幾何学的相対位置）を客観的に記録するための通常 URP カメラ画像です。
+* **`SaveCameraViewDirect` による直接レンダリング**:
+  従来の `ScreenCapture.CaptureScreenshot` や GameView キャプチャでは、3DDisplay の歪み補正や画面解像度に依存してしまい、さらに同一画像（`scene.png` と `scene_overview.png`）が重複生成される冗長性がありました。
+  [`SICESI_ScreenCaptureUtil.SaveCameraViewDirect`](file:///c:/Users/hongo/Documents/tsutsumi/RealTimeOcclusion/Assets/Features/SICESI/Scripts/Capture/SICESI_ScreenCaptureUtil.cs) では、指定カメラの画角・アスペクト比に合わせた一時 `RenderTexture` を `cam.targetTexture` に割り当て、`cam.Render()` を明示的に直接呼び出します。
+  これにより、GameView の表示状態やディスプレイ投影に一切影響されることなく、歪みのない通常 2D 画角によるロスレス PNG 画像を直接生成・保存できます。
+* **独立クラス [`SICESI_SceneOverviewCapturer.cs`](file:///c:/Users/hongo/Documents/tsutsumi/RealTimeOcclusion/Assets/Features/SICESI/Scripts/Capture/SICESI_SceneOverviewCapturer.cs) による責務集約**:
+  俯瞰撮影・ステレオ配置撮影（`scene_left.png`, `scene_right.png`）・Transform シリアライズ（`scene_transforms.json`）の全処理を新設された本クラスに集約し、[`SICESI_SnapshotRunner.cs`](file:///c:/Users/hongo/Documents/tsutsumi/RealTimeOcclusion/Assets/Features/SICESI/Scripts/Sweepers/SICESI_SnapshotRunner.cs) および [`SICESI_GeneralizationBenchmarkRunner.cs`](file:///c:/Users/hongo/Documents/tsutsumi/RealTimeOcclusion/Assets/Features/SICESI/Scripts/AdditionalExperiments/SICESI_GeneralizationBenchmarkRunner.cs) から委譲呼び出しとすることで、コードの重複・冗長性を完全に解消しました。
+
+詳細なログ仕様については [Logging.md](./Logging.md) を参照してください。

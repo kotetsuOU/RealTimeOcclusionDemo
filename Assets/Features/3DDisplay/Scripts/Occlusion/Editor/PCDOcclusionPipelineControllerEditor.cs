@@ -18,7 +18,8 @@ public class PCDOcclusionPipelineControllerEditor : Editor
     // オクルージョンコア設定
     private SerializedProperty _kernelType;
     private SerializedProperty _evaluationMode;
-    private SerializedProperty _minOccludedSectors;
+    private SerializedProperty _minOccludedSectorsMode8;
+    private SerializedProperty _minOccludedSectorsMode20;
     private SerializedProperty _maxConsecutiveEmptySectors;
     private SerializedProperty _customPatternLutHex;
     private SerializedProperty _minSearchLevel;
@@ -84,7 +85,8 @@ public class PCDOcclusionPipelineControllerEditor : Editor
 
         _kernelType = serializedObject.FindProperty("kernelType");
         _evaluationMode = serializedObject.FindProperty("evaluationMode");
-        _minOccludedSectors = serializedObject.FindProperty("minOccludedSectors");
+        _minOccludedSectorsMode8 = serializedObject.FindProperty("minOccludedSectorsMode8");
+        _minOccludedSectorsMode20 = serializedObject.FindProperty("minOccludedSectorsMode20");
         _maxConsecutiveEmptySectors = serializedObject.FindProperty("maxConsecutiveEmptySectors");
         _customPatternLutHex = serializedObject.FindProperty("customPatternLutHex");
         _minSearchLevel = serializedObject.FindProperty("minSearchLevel");
@@ -317,11 +319,11 @@ public class PCDOcclusionPipelineControllerEditor : Editor
             case PCD_OcclusionEvaluationMode.SectorConsecutiveZeros:
                 EditorGUILayout.LabelField("Mode 20 (連続非占有規則: 占有数 R_th + 最大連続非占有 L_th)", EditorStyles.boldLabel);
                 EditorGUILayout.HelpBox("平均 IoU: 95.93% (最適設定: R_th = 4, L_th = 1)\n遮蔽条件: 占有数 N_occ >= R_th かつ 最大連続非占有セクタ数 L_max <= L_th", MessageType.Info);
-                EditorGUILayout.PropertyField(_minOccludedSectors, new GUIContent("R_th (最低占有セクタ数)"));
+                EditorGUILayout.PropertyField(_minOccludedSectorsMode20, new GUIContent("R_th (最低占有セクタ数)"));
                 EditorGUILayout.PropertyField(_maxConsecutiveEmptySectors, new GUIContent("L_th (許容最大連続非占有)"));
                 if (GUILayout.Button("最適設定 (R_th=4, L_th=1) にリセット", EditorStyles.miniButton))
                 {
-                    _minOccludedSectors.intValue = 4;
+                    _minOccludedSectorsMode20.intValue = 4;
                     _maxConsecutiveEmptySectors.intValue = 1;
                 }
                 break;
@@ -329,10 +331,10 @@ public class PCDOcclusionPipelineControllerEditor : Editor
             case PCD_OcclusionEvaluationMode.SectorThreshold:
                 EditorGUILayout.LabelField("Mode 8 (固定8候補 占有数判定)", EditorStyles.boldLabel);
                 EditorGUILayout.HelpBox("平均 IoU: 95.92% (最適設定: N_occ < 7 で可視)\n遮蔽条件: 占有セクタ数 N_occ >= R_th", MessageType.Info);
-                EditorGUILayout.PropertyField(_minOccludedSectors, new GUIContent("R_th (最低遮蔽セクタ数)"));
+                EditorGUILayout.PropertyField(_minOccludedSectorsMode8, new GUIContent("R_th (最低遮蔽セクタ数)"));
                 if (GUILayout.Button("最適設定 (R_th=7) にリセット", EditorStyles.miniButton))
                 {
-                    _minOccludedSectors.intValue = 7;
+                    _minOccludedSectorsMode8.intValue = 7;
                 }
                 break;
 

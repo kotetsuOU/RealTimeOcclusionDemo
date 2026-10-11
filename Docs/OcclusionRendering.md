@@ -83,7 +83,8 @@ classDiagram
 
     class PCDOcclusionPipelineController {
         +PCD_OcclusionEvaluationMode evaluationMode
-        +int minOccludedSectors
+        +int minOccludedSectorsMode8
+        +int minOccludedSectorsMode20
         +int maxConsecutiveEmptySectors
         +string customPatternLutHex
         +PCDOcclusionDebugSettings debugSettings
@@ -182,8 +183,9 @@ sequenceDiagram
 | 設定項目 | 型 | 既定値 | 説明 |
 |---|---|---|---|
 | `evaluationMode` | `PCD_OcclusionEvaluationMode` | `PatternLUT256` | オクルージョン評価モード（`PatternLUT256`, `RotationLUT36`, `SectorConsecutiveZeros`, `SectorThreshold`, `Average`） |
-| `minOccludedSectors` | `int` | `7` | 【Mode 8 / 20 用】最低占有セクター数 $R_{\mathrm{th}}$（Mode 8 最適値: 7, Mode 20 最適値: 4） |
-| `maxConsecutiveEmptySectors` | `int` | `1` | 【Mode 20 用】許容最大連続非占有セクター数 $L_{\mathrm{th}}$（Mode 20 最適値: 1） |
+| `minOccludedSectorsMode8` | `int` | `7` | 【Mode 8 専用】最低占有セクター数 $R_{\mathrm{th}}$（最適値: 7） |
+| `minOccludedSectorsMode20` | `int` | `4` | 【Mode 20 専用】最低占有セクター数 $R_{\mathrm{th}}$（最適値: 4） |
+| `maxConsecutiveEmptySectors` | `int` | `1` | 【Mode 20 専用】許容最大連続非占有セクター数 $L_{\mathrm{th}}$（最適値: 1） |
 | `customPatternLutHex` | `string` | `""` | 【Mode 36 / 256 用】カスタム 64 文字 HEX 文字列（空欄時は最適解を自動適用） |
 | `minSearchLevel` | `int` | `6` | 近傍探索の最小ピラミッドレベル（0〜6） |
 | `enableDensityBasedLOD` | `bool` | `true` | 点群密度に応じた動的 LOD 探索の有効化 |

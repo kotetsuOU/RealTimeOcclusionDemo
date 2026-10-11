@@ -45,11 +45,16 @@ namespace SICESI
             ref RsDummyPointCloudProvider dummyPointCloudProvider,
             ref GameObject pointCloudObject,
             ref PCDOcclusionPipelineController occlusionPipelineController,
-            ref GameObject virtualObject)
+            ref GameObject virtualObject,
+            ref RsMaterialController materialController)
         {
 #if UNITY_2023_1_OR_NEWER
             dummyPointCloudProvider = Object.FindFirstObjectByType<RsDummyPointCloudProvider>();
             var renderer = Object.FindFirstObjectByType<RsDummyPointCloudRenderer>();
+            if (materialController == null)
+            {
+                materialController = Object.FindFirstObjectByType<RsMaterialController>();
+            }
             if (occlusionPipelineController == null)
             {
                 occlusionPipelineController = Object.FindFirstObjectByType<PCDOcclusionPipelineController>();
@@ -57,6 +62,10 @@ namespace SICESI
 #else
             dummyPointCloudProvider = Object.FindObjectOfType<RsDummyPointCloudProvider>();
             var renderer = Object.FindObjectOfType<RsDummyPointCloudRenderer>();
+            if (materialController == null)
+            {
+                materialController = Object.FindObjectOfType<RsMaterialController>();
+            }
             if (occlusionPipelineController == null)
             {
                 occlusionPipelineController = Object.FindObjectOfType<PCDOcclusionPipelineController>();

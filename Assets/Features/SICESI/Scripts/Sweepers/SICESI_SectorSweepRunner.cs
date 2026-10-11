@@ -83,7 +83,7 @@ namespace SICESI
                             _controller.statusMessage = $"Density {densityStr} ({d + 1}/{_controller.sweepDensities.Length}) | Sector {sector}/8";
                             if (_controller.occlusionPipelineController != null)
                             {
-                                _controller.occlusionPipelineController.minOccludedSectors = sector;
+                                _controller.occlusionPipelineController.minOccludedSectorsMode8 = sector;
                             }
 
                             for (int f = 0; f < 2; f++) yield return null;
@@ -123,7 +123,7 @@ namespace SICESI
                         _controller.statusMessage = $"Sector {sector}/8 ({s + 1}/{_controller.sweepSectors.Length})";
                         if (_controller.occlusionPipelineController != null)
                         {
-                            _controller.occlusionPipelineController.minOccludedSectors = sector;
+                            _controller.occlusionPipelineController.minOccludedSectorsMode8 = sector;
                         }
 
                         for (int f = 0; f < 2; f++) yield return null;

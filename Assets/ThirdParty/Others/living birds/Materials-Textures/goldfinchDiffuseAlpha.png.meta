@@ -1,5 +1,12 @@
 fileFormatVersion: 2
 guid: e952706f1d3bc0749b7065ea3b892d8d
+AssetOrigin:
+  serializedVersion: 1
+  productId: 15649
+  packageName: Living Birds
+  packageVersion: v1.2
+  assetPath: Assets/living birds/Materials-Textures/goldfinchDiffuseAlpha.png
+  uploadId: 22984
 TextureImporter:
   internalIDToNameTable: []
   externalObjects: {}
@@ -81,7 +88,7 @@ TextureImporter:
     androidETC2FallbackOverride: 0
     forceMaximumCompressionQuality_BC6H_BC7: 0
   - serializedVersion: 4
-    buildTarget: Web
+    buildTarget: WebGL
     maxTextureSize: 512
     resizeAlgorithm: 0
     textureFormat: -1
@@ -141,10 +148,3 @@ TextureImporter:
   userData: 
   assetBundleName: 
   assetBundleVariant: 
-AssetOrigin:
-  serializedVersion: 1
-  productId: 15649
-  packageName: Living Birds
-  packageVersion: v1.2
-  assetPath: Assets/living birds/Materials-Textures/goldfinchDiffuseAlpha.png
-  uploadId: 22984

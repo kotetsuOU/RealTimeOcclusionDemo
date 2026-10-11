@@ -1,5 +1,4 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using Core.Logging;
 using Intel.RealSense;
@@ -11,6 +10,7 @@ namespace RealSense.DummyPointCloud
     /// Unityの3D Object (MeshFilter / SkinnedMeshRenderer) のリストから
     /// 物理密度や色を指定してダミーの実測点群を生成し、
     /// RsProcessingPipe / RsDummyProcessingPipe の Source (RsFrameProvider) として供給するコンポーネント。
+    /// 内部の責務は ChangeTracker, MaterialColorPresenter, SamplingProcessor, StreamingBridge に分離委譲されています。
     /// </summary>
     [AppLoggable("DPC (Dummy Point Cloud)")]
     [DisallowMultipleComponent]
@@ -69,11 +69,16 @@ namespace RealSense.DummyPointCloud
         public override event Action OnStop;
         public override event Action<Frame> OnNewSample;
 
-        private RsMeshPointCloudSampler _sampler;
-        private RsPointCloudNoiseProcessor _noiseProcessor;
-        private RsDummySoftwareDevice _softwareDevice;
-        private Coroutine _streamingCoroutine;
-        private MaterialPropertyBlock _materialPropertyBlock;
+        // 分割された責務クラス群 (MonoBehaviour コンストラクタ実行時エラー防止のため遅延初期化)
+        private RsDummyChangeTracker _changeTracker;
+        private RsDummyMaterialColorPresenter _materialColorPresenter;
+        private RsDummySamplingProcessor _samplingProcessor;
+        private RsDummyStreamingBridge _streamingBridge;
+
+        private RsDummyChangeTracker ChangeTracker => _changeTracker ?? (_changeTracker = new RsDummyChangeTracker());
+        private RsDummyMaterialColorPresenter MaterialColorPresenter => _materialColorPresenter ?? (_materialColorPresenter = new RsDummyMaterialColorPresenter());
+        private RsDummySamplingProcessor SamplingProcessor => _samplingProcessor ?? (_samplingProcessor = new RsDummySamplingProcessor());
+        private RsDummyStreamingBridge StreamingBridge => _streamingBridge ?? (_streamingBridge = new RsDummyStreamingBridge());
 
         public SampledPointCloudData LastSampledData { get; private set; }
         
@@ -90,9 +95,6 @@ namespace RealSense.DummyPointCloud
 
         private void Awake()
         {
-            _sampler = new RsMeshPointCloudSampler();
-            _noiseProcessor = new RsPointCloudNoiseProcessor();
-            _materialPropertyBlock = new MaterialPropertyBlock();
             if (simulatedCameraTransform == null)
             {
                 simulatedCameraTransform = transform;
@@ -113,51 +115,10 @@ namespace RealSense.DummyPointCloud
         private void OnDestroy()
         {
             StopStreaming();
-            _sampler = null;
-            _noiseProcessor = null;
-        }
-
-        private struct TransformSnapshot
-        {
-            public Transform transform;
-            public Vector3 position;
-            public Quaternion rotation;
-            public Vector3 scale;
-        }
-
-        private List<TransformSnapshot> _trackedTransforms = new List<TransformSnapshot>();
-
-        // パラメータ変更検知用スナップショット
-        private PointDensityUnit _cachedDensityUnit;
-        private float _cachedDensityValue = -1f;
-        private int _cachedMaxPointLimit = -1;
-        private PointColorMode _cachedColorMode;
-        private Color _cachedSolidColor;
-        private bool _cachedIncludeChildren;
-        private bool _cachedUseCameraPerspective;
-        private Transform _cachedSimulatedCameraTransform;
-        private int _cachedTargetObjectsCount = -1;
-
-        // ノイズ設定変更検知用スナップショット
-        private bool _cachedNoiseEnabled;
-        private float _cachedNoiseAmountMm = -1f;
-        private float _cachedNoiseRatio = -1f;
-        private NoiseDistributionType _cachedNoiseType;
-        private bool _cachedOutliersEnabled;
-        private float _cachedOutlierRatio = -1f;
-        private float _cachedOutlierDistanceMm = -1f;
-        private NoiseUpdateMode _cachedNoiseUpdateMode;
-
-        private bool _isDirty = true;
-        private float _lastDynamicUpdateTime = 0f;
-
-        /// <summary>
-        /// 外部からダーティフラグを立て、次フレームの Update で強制的に再計算を行わせます。
-        /// </summary>
-        public void SetDirty()
-        {
-            _isDirty = true;
-            if (_sampler != null) _sampler.InvalidateCache();
+            _samplingProcessor?.Dispose();
+            _streamingBridge?.Dispose();
+            _samplingProcessor = null;
+            _streamingBridge = null;
         }
 
         private void OnValidate()
@@ -166,157 +127,73 @@ namespace RealSense.DummyPointCloud
             UpdateMaterialAndRendererColors();
         }
 
+        /// <summary>
+        /// 外部からダーティフラグを立て、次フレームの Update で強制的に再計算を行わせます。
+        /// </summary>
+        public void SetDirty()
+        {
+            ChangeTracker.SetDirty();
+            SamplingProcessor.InvalidateCache();
+        }
+
+        /// <summary>
+        /// 単一のターゲットオブジェクトを設定し、必要に応じて即時サンプリング更新します。
+        /// </summary>
+        public void SetTargetObject(GameObject target, bool forceUpdateNow = true)
+        {
+            if (targetObjects == null) targetObjects = new List<GameObject>();
+            targetObjects.Clear();
+            if (target != null)
+            {
+                targetObjects.Add(target);
+            }
+            SetDirty();
+            if (forceUpdateNow)
+            {
+                ForceUpdateSampling();
+            }
+        }
+
+        /// <summary>
+        /// 複数のターゲットオブジェクトを設定し、必要に応じて即時サンプリング更新します。
+        /// </summary>
+        public void SetTargetObjects(IEnumerable<GameObject> targets, bool forceUpdateNow = true)
+        {
+            if (targetObjects == null) targetObjects = new List<GameObject>();
+            targetObjects.Clear();
+            if (targets != null)
+            {
+                foreach (var t in targets)
+                {
+                    if (t != null) targetObjects.Add(t);
+                }
+            }
+            SetDirty();
+            if (forceUpdateNow)
+            {
+                ForceUpdateSampling();
+            }
+        }
+
         private void Update()
         {
             if (!Streaming) return;
 
-            bool isDynamicNoise = noiseSettings != null &&
-                                  (noiseSettings.enableNoise || noiseSettings.enableOutliers) &&
-                                  noiseSettings.updateMode == NoiseUpdateMode.Dynamic;
-
-            bool shouldUpdate = false;
-
-            if (_isDirty)
+            if (ChangeTracker.CheckShouldUpdate(this, noiseSettings, out bool isDynamicNoise, out bool requiresCacheInvalidation))
             {
-                shouldUpdate = true;
-            }
-            else if (HasSettingsChanged())
-            {
-                shouldUpdate = true;
-                if (_sampler != null) _sampler.InvalidateCache();
-            }
-            else if (HasTransformsChanged())
-            {
-                shouldUpdate = true;
-            }
-            else if (isDynamicNoise)
-            {
-                float interval = 1.0f / Mathf.Max(1, updateFPS);
-                if (Time.time - _lastDynamicUpdateTime >= interval)
+                if (requiresCacheInvalidation)
                 {
-                    shouldUpdate = true;
-                    _lastDynamicUpdateTime = Time.time;
+                    SamplingProcessor.InvalidateCache();
                 }
-            }
 
-            if (shouldUpdate)
-            {
                 int prevVersion = DataVersion;
-                ExecuteSampling(isDynamicNoise || _isDirty);
-                UpdateSnapshots();
-                _isDirty = false;
+                ExecuteSampling(isDynamicNoise);
+                ChangeTracker.UpdateSnapshots(this, noiseSettings);
 
                 if (DataVersion != prevVersion)
                 {
                     AppLogger.Log(DPC_LogTriggers.TagProvider,
                         $"[Update] 点群データを更新しました (DataVersion: {DataVersion}, {LastSampledData.PointCount} 点)", this);
-                }
-            }
-        }
-
-        private bool HasSettingsChanged()
-        {
-            if (_cachedDensityUnit != densityUnit) return true;
-            if (!Mathf.Approximately(_cachedDensityValue, densityValue)) return true;
-            if (_cachedMaxPointLimit != maxPointLimit) return true;
-            if (_cachedColorMode != colorMode) return true;
-            if (_cachedSolidColor != solidColor) return true;
-            if (_cachedIncludeChildren != includeChildren) return true;
-            if (_cachedUseCameraPerspective != useCameraPerspective) return true;
-            if (_cachedSimulatedCameraTransform != simulatedCameraTransform) return true;
-
-            int targetCount = targetObjects != null ? targetObjects.Count : 0;
-            if (_cachedTargetObjectsCount != targetCount) return true;
-
-            if (noiseSettings != null)
-            {
-                if (_cachedNoiseEnabled != noiseSettings.enableNoise) return true;
-                if (!Mathf.Approximately(_cachedNoiseAmountMm, noiseSettings.noiseAmountMm)) return true;
-                if (!Mathf.Approximately(_cachedNoiseRatio, noiseSettings.noiseRatio)) return true;
-                if (_cachedNoiseType != noiseSettings.noiseType) return true;
-                if (_cachedOutliersEnabled != noiseSettings.enableOutliers) return true;
-                if (!Mathf.Approximately(_cachedOutlierRatio, noiseSettings.outlierRatio)) return true;
-                if (!Mathf.Approximately(_cachedOutlierDistanceMm, noiseSettings.outlierDistanceMm)) return true;
-                if (_cachedNoiseUpdateMode != noiseSettings.updateMode) return true;
-            }
-
-            return false;
-        }
-
-        private bool HasTransformsChanged()
-        {
-            Transform camXform = simulatedCameraTransform != null ? simulatedCameraTransform : transform;
-            if (camXform != null && camXform.hasChanged)
-            {
-                camXform.hasChanged = false;
-                return true;
-            }
-
-            if (_trackedTransforms.Count == 0 && targetObjects != null && targetObjects.Count > 0)
-            {
-                return true;
-            }
-
-            for (int i = 0; i < _trackedTransforms.Count; i++)
-            {
-                var snap = _trackedTransforms[i];
-                if (snap.transform == null) return true;
-                if (snap.transform.hasChanged ||
-                    snap.transform.position != snap.position ||
-                    snap.transform.rotation != snap.rotation ||
-                    snap.transform.lossyScale != snap.scale)
-                {
-                    snap.transform.hasChanged = false;
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        private void UpdateSnapshots()
-        {
-            _cachedDensityUnit = densityUnit;
-            _cachedDensityValue = densityValue;
-            _cachedMaxPointLimit = maxPointLimit;
-            _cachedColorMode = colorMode;
-            _cachedSolidColor = solidColor;
-            _cachedIncludeChildren = includeChildren;
-            _cachedUseCameraPerspective = useCameraPerspective;
-            _cachedSimulatedCameraTransform = simulatedCameraTransform;
-            _cachedTargetObjectsCount = targetObjects != null ? targetObjects.Count : 0;
-
-            if (noiseSettings != null)
-            {
-                _cachedNoiseEnabled = noiseSettings.enableNoise;
-                _cachedNoiseAmountMm = noiseSettings.noiseAmountMm;
-                _cachedNoiseRatio = noiseSettings.noiseRatio;
-                _cachedNoiseType = noiseSettings.noiseType;
-                _cachedOutliersEnabled = noiseSettings.enableOutliers;
-                _cachedOutlierRatio = noiseSettings.outlierRatio;
-                _cachedOutlierDistanceMm = noiseSettings.outlierDistanceMm;
-                _cachedNoiseUpdateMode = noiseSettings.updateMode;
-            }
-
-            _trackedTransforms.Clear();
-            if (targetObjects != null)
-            {
-                foreach (var obj in targetObjects)
-                {
-                    if (obj == null || !obj.activeInHierarchy) continue;
-                    var renderers = includeChildren ? obj.GetComponentsInChildren<Renderer>() : obj.GetComponents<Renderer>();
-                    foreach (var r in renderers)
-                    {
-                        if (r == null || !RsMeshPointCloudSampler.IsRendererActiveForSampling(r, obj)) continue;
-                        r.transform.hasChanged = false;
-                        _trackedTransforms.Add(new TransformSnapshot
-                        {
-                            transform = r.transform,
-                            position = r.transform.position,
-                            rotation = r.transform.rotation,
-                            scale = r.transform.lossyScale
-                        });
-                    }
                 }
             }
         }
@@ -327,15 +204,10 @@ namespace RealSense.DummyPointCloud
 
             AppLogger.Log(DPC_LogTriggers.TagProvider, "Starting dummy point cloud streaming...", this);
 
-            _softwareDevice = new RsDummySoftwareDevice();
-            _softwareDevice.Initialize(depthWidth, depthHeight, updateFPS);
-            _softwareDevice.OnFrameAvailable += HandleNewFrame;
-
-            ActiveProfile = _softwareDevice.ActiveProfile;
+            ActiveProfile = StreamingBridge.StartStreaming(depthWidth, depthHeight, updateFPS, HandleNewFrame);
             Streaming = true;
 
             OnStart?.Invoke(ActiveProfile);
-
             SetDirty();
 
             AppLogger.Log(DPC_LogTriggers.TagProvider, $"Streaming started successfully. (CameraPerspective: {useCameraPerspective}, FPS: {updateFPS})", this);
@@ -347,13 +219,7 @@ namespace RealSense.DummyPointCloud
 
             AppLogger.Log(DPC_LogTriggers.TagProvider, "Stopping dummy point cloud streaming...", this);
 
-            if (_softwareDevice != null)
-            {
-                _softwareDevice.OnFrameAvailable -= HandleNewFrame;
-                _softwareDevice.Dispose();
-                _softwareDevice = null;
-            }
-
+            _streamingBridge?.StopStreaming(HandleNewFrame);
             Streaming = false;
             OnStop?.Invoke();
 
@@ -366,13 +232,9 @@ namespace RealSense.DummyPointCloud
         /// </summary>
         public void ForceUpdateSampling()
         {
-            _isDirty = true;
-            if (_sampler == null) _sampler = new RsMeshPointCloudSampler();
-            _sampler.InvalidateCache();
-
+            SamplingProcessor.InvalidateCache();
             ExecuteSampling(true);
-            UpdateSnapshots();
-            _isDirty = false;
+            ChangeTracker.UpdateSnapshots(this, noiseSettings);
 
             // 描画レンダラーのGPUバッファを即時反映
 #if UNITY_2023_1_OR_NEWER
@@ -389,89 +251,65 @@ namespace RealSense.DummyPointCloud
                 $"[ForceUpdateSampling] 強制再サンプリング完了: {LastSampledData.PointCount} 点 (密度: {densityValue} {densityUnit}, DataVersion: {DataVersion})", this);
         }
 
+        /// <summary>
+        /// ターゲットオブジェクトのマテリアルカラーを同期・更新します。
+        /// </summary>
         public void UpdateMaterialAndRendererColors()
         {
             if (!applyColorToMaterialAndRenderer || colorMode != PointColorMode.SolidColor) return;
-
-            if (targetObjects != null)
-            {
-                if (_materialPropertyBlock == null) _materialPropertyBlock = new MaterialPropertyBlock();
-
-                foreach (var obj in targetObjects)
-                {
-                    if (obj == null || !obj.activeInHierarchy) continue;
-
-                    var renderers = includeChildren
-                        ? obj.GetComponentsInChildren<Renderer>()
-                        : obj.GetComponents<Renderer>();
-
-                    foreach (var r in renderers)
-                    {
-                        if (r == null || !RsMeshPointCloudSampler.IsRendererActiveForSampling(r, obj)) continue;
-
-                        r.GetPropertyBlock(_materialPropertyBlock);
-                        _materialPropertyBlock.SetColor("_Color", solidColor);
-                        _materialPropertyBlock.SetColor("_BaseColor", solidColor);
-                        r.SetPropertyBlock(_materialPropertyBlock);
-                    }
-                }
-            }
+            MaterialColorPresenter.ApplySolidColor(targetObjects, includeChildren, solidColor);
         }
 
+        /// <summary>
+        /// 点群サンプリングパイプラインを実行し、結果を更新します。
+        /// </summary>
         private void ExecuteSampling(bool forceDataVersionAdvance)
         {
             UpdateMaterialAndRendererColors();
 
+            var prevData = LastSampledData;
+            SampledPointCloudData sampledData;
+
             if (targetObjects != null && targetObjects.Count > 0)
             {
-                var prevData = LastSampledData;
-
-                if (_sampler == null) _sampler = new RsMeshPointCloudSampler();
-                if (_noiseProcessor == null) _noiseProcessor = new RsPointCloudNoiseProcessor();
-
-                // 1. Mesh / SkinnedMesh リストから物理密度・色に応じた点群をサンプリング
-                var sampledData = _sampler.SamplePointCloud(
+                sampledData = SamplingProcessor.ProcessSampling(
                     targetObjects,
                     includeChildren,
                     densityUnit,
                     densityValue,
                     colorMode,
                     solidColor,
-                    maxPointLimit);
-
-                bool isNoiseActive = _noiseProcessor != null && noiseSettings != null && (noiseSettings.enableNoise || noiseSettings.enableOutliers);
-                bool isDynamicNoise = isNoiseActive && noiseSettings.updateMode == NoiseUpdateMode.Dynamic;
-
-                // 2. ノイズ・外れ値の適用
-                Vector3[] finalPositions = sampledData.Positions;
-                if (isNoiseActive && sampledData.PointCount > 0)
+                    maxPointLimit,
+                    noiseSettings,
+                    out _);
+            }
+            else
+            {
+                sampledData = new SampledPointCloudData
                 {
-                    finalPositions = _noiseProcessor.ProcessPointCloud(
-                        sampledData.Positions,
-                        sampledData.Normals,
-                        sampledData.PointCount,
-                        noiseSettings);
-                }
+                    Positions = Array.Empty<Vector3>(),
+                    Colors = Array.Empty<Color>(),
+                    Normals = Array.Empty<Vector3>(),
+                    PointCount = 0
+                };
+            }
 
-                // 3. Positions を更新
-                sampledData.Positions = finalPositions;
-                LastSampledData = sampledData;
+            bool isNoiseActive = noiseSettings != null && (noiseSettings.enableNoise || noiseSettings.enableOutliers);
+            bool isDynamicNoise = isNoiseActive && noiseSettings.updateMode == NoiseUpdateMode.Dynamic;
 
-                // 4. データ更新判定
-                if (forceDataVersionAdvance || isDynamicNoise || prevData.Positions != LastSampledData.Positions || prevData.PointCount != LastSampledData.PointCount)
-                {
-                    DataVersion++;
-                }
+            LastSampledData = sampledData;
 
-                // 5. SoftwareDevice 経由で RealSense DepthFrame / FrameSet として発行
-                if (_softwareDevice != null && LastSampledData.PointCount > 0)
-                {
-                    Transform camXform = simulatedCameraTransform != null ? simulatedCameraTransform : transform;
-                    _softwareDevice.PublishPointCloudAsDepthFrame(
-                        finalPositions,
-                        camXform,
-                        useCameraPerspective);
-                }
+            // データ更新判定 (DataVersion インクリメント)
+            if (forceDataVersionAdvance || isDynamicNoise || prevData.Positions != LastSampledData.Positions || prevData.PointCount != LastSampledData.PointCount)
+            {
+                DataVersion++;
+            }
+
+            // ソフトウェアデバイス経由で RealSense DepthFrame / FrameSet を発行
+            if (StreamingBridge.IsStreaming && LastSampledData.PointCount > 0)
+            {
+                Transform camXform = simulatedCameraTransform != null ? simulatedCameraTransform : transform;
+                StreamingBridge.PublishPointCloudAsDepthFrame(LastSampledData.Positions, camXform, useCameraPerspective);
             }
         }
 

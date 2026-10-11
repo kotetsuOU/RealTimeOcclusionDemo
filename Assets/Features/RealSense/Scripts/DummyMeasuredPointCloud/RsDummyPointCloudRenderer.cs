@@ -128,11 +128,11 @@ namespace RealSense.DummyPointCloud
             if (dummyProvider != null && dummyProvider.DataVersion != _appliedDataVersion)
             {
                 var sampledData = dummyProvider.LastSampledData;
-                if (sampledData.Positions != null && sampledData.PointCount > 0)
-                {
-                    int count = sampledData.PointCount;
-                    _cachedValidPointCount = count;
+                int count = (sampledData.Positions != null) ? sampledData.PointCount : 0;
+                _cachedValidPointCount = count;
 
+                if (count > 0)
+                {
                     // _verticesBuffer は常に元のワールド座標（接触判定・描画用）
                     if (_verticesBuffer == null || _verticesBuffer.count < count)
                     {
@@ -154,10 +154,19 @@ namespace RealSense.DummyPointCloud
                         _argsBuffer = new ComputeBuffer(1, sizeof(uint) * 4, ComputeBufferType.IndirectArguments);
                     }
                     _argsBuffer.SetData(_argsData);
-
-                    _appliedDataVersion = dummyProvider.DataVersion;
-                    Log($"Updated GPU buffer for DataVersion {_appliedDataVersion} ({count} points).");
                 }
+                else
+                {
+                    // 点数が 0 の場合: 描画引数の点数を 0 にリセットして描画を即座に停止
+                    if (_argsBuffer != null && _argsBuffer.IsValid())
+                    {
+                        _argsData[0] = 0;
+                        _argsBuffer.SetData(_argsData);
+                    }
+                }
+
+                _appliedDataVersion = dummyProvider.DataVersion;
+                Log($"Updated GPU buffer for DataVersion {_appliedDataVersion} ({count} points).");
             }
         }
 

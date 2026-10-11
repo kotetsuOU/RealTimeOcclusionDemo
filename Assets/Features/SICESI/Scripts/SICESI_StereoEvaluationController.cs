@@ -76,6 +76,25 @@ namespace SICESI
         [Tooltip("点群密度を制御するプロバイダー")]
         public RsDummyPointCloudProvider dummyPointCloudProvider;
 
+        [Tooltip("点群マテリアルおよびカラーを制御するコントローラー")]
+        public RsMaterialController materialController;
+
+        public RsMaterialController MaterialController
+        {
+            get
+            {
+                if (materialController == null)
+                {
+#if UNITY_2023_1_OR_NEWER
+                    materialController = FindFirstObjectByType<RsMaterialController>();
+#else
+                    materialController = FindObjectOfType<RsMaterialController>();
+#endif
+                }
+                return materialController;
+            }
+        }
+
         [Header("Ground Truth Layer & Material Settings")]
         [Tooltip("GT撮影時に手メッシュに一時的に割り当てるLayer名 (カメラのCullingMaskで弾かれないようにPCDなどに設定)")]
         public string groundTruthCaptureLayer = "PCD";
@@ -158,6 +177,10 @@ namespace SICESI
             }
         }
 
+        [Header("Dataset Configuration (Training 3-Objects & Generalization Sets)")]
+        [Tooltip("最適化・ルール導出用 (3オブジェクト等) および新規評価用の仮想オブジェクト & 手メッシュ設定")]
+        public SICESI_EvaluationDatasetConfig datasetConfig = new SICESI_EvaluationDatasetConfig();
+
         [Header("Capture Status")]
         public bool isCapturing = false;
         public string statusMessage = "Ready";
@@ -170,11 +193,15 @@ namespace SICESI
         private SICESI_SnapshotRunner _snapshotRunner;
         private SICESI_StereoSweepRunner _stereoSweepRunner;
         private SICESI_EvaluationDispatcher _dispatcher;
+        private SICESI_BatchReSweepRunner _batchReSweepRunner;
+        private SICESI_GeneralizationBenchmarkRunner _generalizationRunner;
 
         public SICESI_MaterialSwapper MaterialSwapper => _materialSwapper ?? (_materialSwapper = new SICESI_MaterialSwapper());
         public SICESI_SnapshotRunner SnapshotRunner => _snapshotRunner ?? (_snapshotRunner = new SICESI_SnapshotRunner(this, MaterialSwapper));
         public SICESI_StereoSweepRunner StereoSweepRunner => _stereoSweepRunner ?? (_stereoSweepRunner = new SICESI_StereoSweepRunner(this, MaterialSwapper));
         public SICESI_EvaluationDispatcher Dispatcher => _dispatcher ?? (_dispatcher = new SICESI_EvaluationDispatcher(this));
+        public SICESI_BatchReSweepRunner BatchReSweepRunner => _batchReSweepRunner ?? (_batchReSweepRunner = new SICESI_BatchReSweepRunner(this));
+        public SICESI_GeneralizationBenchmarkRunner GeneralizationRunner => _generalizationRunner ?? (_generalizationRunner = new SICESI_GeneralizationBenchmarkRunner(this));
 
         // 後方互換性エイリアス
         public SICESI_StereoSweepRunner SweepRunner => StereoSweepRunner;
@@ -186,8 +213,8 @@ namespace SICESI
         public class GroundTruthStateBackup : SICESI_MaterialSwapper.GroundTruthStateBackup { }
         public class GroundTruthSkinColorBackup : SICESI_MaterialSwapper.GroundTruthSkinColorBackup { }
         public class VirtualObjectStateBackup : SICESI_MaterialSwapper.VirtualObjectStateBackup { }
-        public class SerializableTransformData : SICESI_ScreenCaptureUtil.SerializableTransformData { }
-        public class SceneTransformsData : SICESI_ScreenCaptureUtil.SceneTransformsData { }
+        public class SerializableTransformData : SICESI_SceneMetadataSerializer.SerializableTransformData { }
+        public class SceneTransformsData : SICESI_SceneMetadataSerializer.SceneTransformsData { }
 
         #endregion
 
@@ -218,13 +245,44 @@ namespace SICESI
 
         #endregion
 
-        #region コンポーネント自動検索
+        #region コンポーネント自動検索 & 点群ターゲット同期
 
         public void FindCameras()
             => SICESI_SceneComponentLocator.LocateCameras(ref leftEyeCamera, ref rightEyeCamera, ref sceneCaptureCamera);
 
         public void FindDummyComponents()
-            => SICESI_SceneComponentLocator.LocateDummyComponents(ref dummyPointCloudProvider, ref pointCloudObject, ref occlusionPipelineController, ref virtualObject);
+            => SICESI_SceneComponentLocator.LocateDummyComponents(ref dummyPointCloudProvider, ref pointCloudObject, ref occlusionPipelineController, ref virtualObject, ref materialController);
+
+        /// <summary>
+        /// groundTruthObject を dummyPointCloudProvider の targetObjects に自動同期し、点群を即時更新します。
+        /// </summary>
+        public void SyncDummyPointCloudWithGroundTruth(bool forceUpdateNow = true)
+        {
+            if (dummyPointCloudProvider == null)
+            {
+                FindDummyComponents();
+            }
+
+            if (dummyPointCloudProvider == null || groundTruthObject == null) return;
+
+            bool needUpdate = false;
+            if (dummyPointCloudProvider.targetObjects == null ||
+                dummyPointCloudProvider.targetObjects.Count != 1 ||
+                dummyPointCloudProvider.targetObjects[0] != groundTruthObject)
+            {
+                needUpdate = true;
+            }
+
+            if (needUpdate)
+            {
+                dummyPointCloudProvider.SetTargetObject(groundTruthObject, forceUpdateNow);
+                AppLogger.Log(this, $"[SICESI] dummyPointCloudProvider のターゲットを groundTruthObject [{groundTruthObject.name}] に自動同期しました。", TagCore);
+            }
+            else if (forceUpdateNow)
+            {
+                dummyPointCloudProvider.ForceUpdateSampling();
+            }
+        }
 
         #endregion
 
@@ -238,8 +296,24 @@ namespace SICESI
         public void RunDensityOcclusionThresholdSweep() => Dispatcher.RunDensityOcclusionThresholdSweep();
         public void CaptureSceneOverview() => Dispatcher.CaptureSceneOverview();
 
-        public IEnumerator CaptureSceneViewRoutine(string primaryPath, string[] duplicatePaths = null)
-            => SnapshotRunner.CaptureSceneViewToPathsRoutine(primaryPath, duplicatePaths);
+        public void RunBatchReSweep(string parentDirectory = "")
+        {
+            if (string.IsNullOrEmpty(parentDirectory))
+            {
+                parentDirectory = Path.Combine(outputDirectory, casesParentFolder);
+            }
+            StartCoroutine(BatchReSweepRunner.RunBatchReSweepRoutine(parentDirectory));
+        }
+
+        public void RunGeneralizationBenchmark()
+        {
+            StartCoroutine(GeneralizationRunner.RunGeneralizationBenchmarkRoutine());
+        }
+
+        public void RunPresetBenchmark(List<SICESI_PresetPoseManager.PresetEntry> presets)
+        {
+            StartCoroutine(GeneralizationRunner.RunBenchmarkFromPresetsRoutine(presets));
+        }
 
         #endregion
 
@@ -265,7 +339,7 @@ namespace SICESI
 
         #endregion
 
-        #region キャプチャ・JSON 委譲メソッド (ScreenCaptureUtil 委譲)
+        #region キャプチャ・JSON 委譲メソッド (ScreenCaptureUtil & SceneMetadataSerializer 委譲)
 
         public void SaveCameraView(Camera cam, string destinationPath, bool bypassSRGBConversion = false)
             => SICESI_ScreenCaptureUtil.SaveCameraView(cam, destinationPath, applySRGBConversion, bypassSRGBConversion);
@@ -277,10 +351,10 @@ namespace SICESI
             => SICESI_ScreenCaptureUtil.SaveEyeViewsForScene(leftEyeCamera, rightEyeCamera, sceneDir, applySRGBConversion);
 
         public void SaveSceneTransformsJson(string targetDir)
-            => SICESI_ScreenCaptureUtil.SaveSceneTransformsJson(targetDir, conditionName, groundTruthObject, virtualObject, leftEyeCamera, rightEyeCamera, sceneCaptureCamera);
+            => SICESI_SceneMetadataSerializer.SaveSceneTransformsJson(targetDir, conditionName, groundTruthObject, virtualObject, leftEyeCamera, rightEyeCamera, sceneCaptureCamera);
 
         public bool LoadAndApplySceneTransformsJson(string jsonPath)
-            => SICESI_ScreenCaptureUtil.LoadAndApplySceneTransformsJson(jsonPath, groundTruthObject, virtualObject, leftEyeCamera, rightEyeCamera, sceneCaptureCamera, out conditionName);
+            => SICESI_SceneMetadataSerializer.LoadAndApplySceneTransformsJson(jsonPath, groundTruthObject, virtualObject, leftEyeCamera, rightEyeCamera, sceneCaptureCamera, out conditionName);
 
         #endregion
 
