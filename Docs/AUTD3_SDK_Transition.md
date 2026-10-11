@@ -32,10 +32,15 @@ Assets/Features/Haptics/Scripts/
 ├── Backends/                                  # SDKバックエンド実装
 │   ├── Current/
 │   │   ├── Haptics.Backend.Current.asmdef     # defineConstraints: AUTD3_SDK_CURRENT
-│   │   └── HAP_CurrentAUTDBackend.cs          # autd3-sdk v0.9.0 実装
+│   │   ├── HAP_CurrentAUTDBackend.cs          # autd3-sdk v0.9.0 ライフサイクル・通信ファサード
+│   │   ├── HAP_CurrentHardwareConfigurator.cs # 変調・サイレンサー・ファン・温度設定コンフィグレーター
+│   │   ├── HAP_CurrentHoloBuilder.cs          # 静的ホログラフィ (Naive/GSPAT) 専任ビルダー
+│   │   ├── HAP_CurrentSTMBuilder.cs           # 時空間変調 STM (GainSTM/FociSTM) 専任ビルダー
+│   │   └── HAP_CurrentPatternBuilder.cs       # パターン構築統括オーケストレーター
 │   └── Legacy/
 │       ├── Haptics.Backend.Legacy.asmdef      # defineConstraints: AUTD3_SDK_LEGACY
-│       └── HAP_LegacyAUTDBackend.cs           # AUTD3Sharp v3.x 実装
+│       ├── HAP_LegacyAUTDBackend.cs           # AUTD3Sharp v3.x ライフサイクル・通信実装
+│       └── HAP_LegacyDatagramBuilder.cs       # Legacy データグラム/グループ構築専任ビルダー
 ├── Config/                                    # 責務分離された純粋データ設定クラス (Pure C#)
 │   ├── HAP_AcousticConfig.cs                  # 音響・ホログラフィ・指向性設定
 │   ├── HAP_ProfilingConfig.cs                 # プロファイラ・同期送信設定

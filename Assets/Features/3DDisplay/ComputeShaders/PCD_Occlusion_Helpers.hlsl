@@ -58,7 +58,12 @@ float4 ZMinPositionDownsample(Texture2D<float4> inputTex, uint2 uv)
 // ==========================================
 float4 FetchPyramidPosition(int level, uint2 uv_base, int2 offset)
 {
-    uint2 uv_mip = (uv_base >> (uint)level) + (uint2)offset;
+    int2 base_signed = int2(uv_base >> (uint)level);
+    int2 target_uv = base_signed + offset;
+    if (target_uv.x < 0 || target_uv.y < 0)
+        return float4(0, 0, 0, 1e9);
+
+    uint2 uv_mip = (uint2)target_uv;
     
     float4 result = float4(0, 0, 0, 1e9);
     
@@ -68,7 +73,13 @@ float4 FetchPyramidPosition(int level, uint2 uv_base, int2 offset)
     else if (level == 4) result = _DepthPyramidL4[uv_mip];
     else if (level == 5) result = _DepthPyramidL5[uv_mip];
     else if (level == 6) result = _DepthPyramidL6[uv_mip];
-    else result = _ViewPositionMap[uv_base + (uint2)offset];
+    else
+    {
+        int2 full_target = int2(uv_base) + offset;
+        if (full_target.x < 0 || full_target.y < 0)
+            return float4(0, 0, 0, 1e9);
+        result = _ViewPositionMap[(uint2)full_target];
+    }
     
     return result;
 }

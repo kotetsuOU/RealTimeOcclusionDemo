@@ -7,7 +7,7 @@ namespace Core.Logging
     /// </summary>
     public static class AppLogGroupModifier
     {
-        public static void SetAllEnabled(List<LogCategoryGroup> categoryGroups, bool enable, AppLogLevel? targetLevel = null)
+        public static void SetAllLevelEnabled(List<LogCategoryGroup> categoryGroups, AppLogLevel level, bool enable)
         {
             if (categoryGroups == null) return;
             foreach (var group in categoryGroups)
@@ -15,7 +15,7 @@ namespace Core.Logging
                 if (group?.entries == null) continue;
                 foreach (var entry in group.entries)
                 {
-                    if (entry != null) SetEntryEnabled(entry, enable, targetLevel);
+                    if (entry != null) SetEntryEnabled(entry, enable, level);
                 }
             }
         }

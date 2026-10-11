@@ -251,6 +251,14 @@ public class HAP_AUTDHapticsController : MonoBehaviour, IAppLoggable, ISerializa
             currentOffset);
     }
 
+    private void OnDisable()
+    {
+        if (hardwareController != null && hardwareController.IsConnected)
+        {
+            _pipelineExecutor.StopOutput(hardwareController);
+        }
+    }
+
     private void OnDrawGizmos()
     {
         HAP_GizmoVisualizer.DrawControllerGizmos(this);

@@ -30,8 +30,8 @@
 Assets/Features/Haptics/Scripts/
 ├── Haptics.asmdef                             # SDK非依存の共通アセンブリ
 ├── Backends/                                  # 新旧SDKバックエンド実装
-│   ├── Current/                               # autd3-sdk v0.9.0 実装
-│   └── Legacy/                                # AUTD3Sharp v3.x 実装
+│   ├── Current/                               # autd3-sdk v0.9.0 実装 (Backend, HardwareConfigurator, HoloBuilder, STMBuilder, PatternBuilder)
+│   └── Legacy/                                # AUTD3Sharp v3.x 実装 (HAP_LegacyAUTDBackend, HAP_LegacyDatagramBuilder)
 ├── Config/                                    # Pure C# 設定クラス
 │   ├── HAP_AcousticConfig.cs                  # 音響・ホログラフィ設定
 │   ├── HAP_STMConfig.cs                       # STM変調設定

@@ -111,10 +111,8 @@ void InitFromCamera(uint3 id : SV_DispatchThreadID, uint groupIndex : SV_GroupIn
             float4 viewPos = mul(_InverseProjectionMatrix, clipPos);
             viewPos /= viewPos.w;
 
-            // Unity のカメラビュー空間は右手系 (前方が -Z) のため、逆投影結果の Z を反転
-            // これにより、点群側の mul(_ViewMatrix, worldPos) とXYZ座標系が完全に一致する
-            viewPos.z = -viewPos.z;
-
+            // 逆投影結果の viewPos は Unity のカメラビュー空間 (右手系: 前方が -Z) と一致しており、
+            // 点群側の mul(_ViewMatrix, worldPos) とXYZ座標系が同一定義となるためそのまま格納
             _ViewPositionMap_RW[writeUV] = float4(viewPos.xyz, cameraDepth);
             _OriginTypeMap_RW[writeUV] = 1u;
 
@@ -206,6 +204,16 @@ void VisualizeOcclusionDebug(uint3 id : SV_DispatchThreadID)
     // 更新: mode 分岐を増やさず、_DebugSectorId の指定により 8bit 占有パターン直接出力 (8) および GPU 実判定マスク直接出力 (9) を統合サポート
     if (_DebugDisplayMode == 4)
     {
+        // _DebugSectorId == 10: 実測点群の手前直接投影マスク (点群画素なら白, 他は黒)
+        // 実測点群 (OriginType == 0u) は仮想メッシュの isEvaluated 対象外のため、isEvaluated チェックより前に評価
+        if (_DebugSectorId == 10)
+        {
+            uint originType = _OriginTypeMap[id.xy];
+            float p = (originType == 0u) ? 1.0 : 0.0;
+            _OriginMap_RW[id.xy] = float4(p, p, p, 1.0);
+            return;
+        }
+
         uint val = _NeighborCountMap_RW[id.xy];
         uint isEvaluated = (val >> 12) & 1u;
         if (isEvaluated == 0u)
@@ -229,15 +237,6 @@ void VisualizeOcclusionDebug(uint3 id : SV_DispatchThreadID)
         {
             uint isGpuOccluded = (val >> 13) & 1u;
             float p = (isGpuOccluded != 0u) ? 1.0 : 0.0;
-            _OriginMap_RW[id.xy] = float4(p, p, p, 1.0);
-            return;
-        }
-
-        // _DebugSectorId == 10: 実測点群の手前直接投影マスク (点群画素なら白, 他は黒)
-        if (_DebugSectorId == 10)
-        {
-            uint originType = _OriginTypeMap[id.xy];
-            float p = (originType == 0u) ? 1.0 : 0.0;
             _OriginMap_RW[id.xy] = float4(p, p, p, 1.0);
             return;
         }

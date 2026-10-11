@@ -35,6 +35,7 @@ Assets/Core/Scripts/
 │   ├── AppLogLookupEngine.cs          # 高速ルックアップ（ターゲット別・タグ別・名前別）および有効判定エンジン (Pure C#)
 │   ├── AppLogSceneScanner.cs          # シーン・メモリ走査、実在要素検出、残骸パージ、設定復元スキャナー (Pure C#)
 │   ├── AppLogGroupModifier.cs         # 全ON/OFF、グループ別ON/OFF等の状態一括操作ユーティリティ (Pure C#)
+│   ├── AppLogProfile.cs              # ログ配置プロファイル（通常用、バグ調査用等）データモデル & 状態同期サービス (Pure C#)
 │   └── AppLogCategoryGroup.cs         # カテゴリグループおよびログエントリーのデータモデル (Serializable)
 └── Debug/
     ├── URP_LogTriggers.cs             # [AppLoggable("URP / RenderPipelines")] URP モジュール用一元ログトリガー
@@ -66,12 +67,16 @@ graph TD
         AppLogLookupEngine["AppLogLookupEngine<br/>(高速検索・判定エンジン)"]
         AppLogSceneScanner["AppLogSceneScanner<br/>(スキャン・同期・残骸パージ)"]
         AppLogGroupModifier["AppLogGroupModifier<br/>(一括操作ユーティリティ)"]
+        AppLogProfileService["AppLogProfileService<br/>(プロファイル保存・復元サービス)"]
         LogModels["LogCategoryGroup / LogInstanceEntry<br/>(データモデル)"]
+        ProfileModels["LogProfile / LogEntryState<br/>(プロファイルモデル)"]
 
         AppLogManager --> AppLogLookupEngine
         AppLogManager --> AppLogSceneScanner
         AppLogManager --> AppLogGroupModifier
+        AppLogManager --> AppLogProfileService
         AppLogManager --> LogModels
+        AppLogManager --> ProfileModels
         AppLogger <--> AppLogManager
     end
 
@@ -180,6 +185,18 @@ namespace Features.MyFeature.Debug
 }
 ```
 
+### 3.3 ログプロファイル（通常用/バグ調査用プリセット）の保存とタブ切り替え
+
+`AppLogManager` の Inspector 上部には、ログ設定状態をプリセットとして保存・切り替えできる **Log Profiles** タブ機能が備わっています。
+
+* **タブでの即時切り替え**: `[通常用]` `[バグ調査 1]` `[バグ調査 2]` 等のタブをクリックするだけで、各カテゴリー・各コンポーネントの ON/OFF 状態が即座に切り替わります。
+* **状態の自動保存**: トグルや一括ボタン（`Log ON/OFF` 等）を変更すると、現在選択中のアクティブプロファイルに最新状態が自動記録されます。タブを行き来しても設定が失われません。
+* **プロファイルの新規追加・複製・削除**:
+  * **`＋ 新規プロファイル`**: 現在の設定を引き継いだ新しいプロファイルを追加します。
+  * **`名前変更`**: Inspector 上でプロファイル名を自由にリネーム可能です。
+  * **`複製`**: 既存のプロファイルをベースに別設定を作成できます。
+  * **`削除`**: 不要になった調査用プロファイルを安全に削除します（最低1つは維持されます）。
+
 ---
 
 ## 4. 仕様・パラメータ詳細
@@ -204,7 +221,8 @@ namespace Features.MyFeature.Debug
 | パラメータ名 | 型 | 既定値 | 説明 |
 |---|---|---|---|
 | `DefaultExecutionOrder` | `int` | `-1000` | 他の各種 Manager (`SRDManager` 等) の `Awake()` より優先起動を保証 |
-| `globalEnableLogging` | `bool` | `true` | アプリケーション全体のログ出力を統括するマスター切替トグル |
+| `profiles` | `List<LogProfile>` | `-` | 保存されたログ設定プロファイル一覧（通常用、バグ調査用など） |
+| `activeProfileIndex` | `int` | `0` | 現在アクティブに選択・同期されているプロファイルインデックス |
 | `categoryGroups` | `List<LogCategoryGroup>` | `-` | モジュールカテゴリー別にグループ化された各ログエントリーのリスト |
 
 ### 4.3 内部構成クラス仕様 (責務分離)
@@ -216,7 +234,9 @@ namespace Features.MyFeature.Debug
 | `AppLogManager` | MonoBehaviour (Facade) | インスペクター公開、Unity ライフサイクル管理、外部公開 API の窓口 |
 | `AppLogLookupEngine` | Pure C# | 高速ルックアップ（ターゲット別・タグ別・名前別辞書）の構築および `IsLogEnabled` 判定 |
 | `AppLogSceneScanner` | Pure C# (Static) | 非アクティブを含む実在要素の検出、残骸エントリのパージ、既存トグル設定の自動復元 |
-| `AppLogGroupModifier` | Pure C# (Static) | `SetAllEnabled`, `SetGroupEnabled` 等の一括状態操作 |
+| `AppLogGroupModifier` | Pure C# (Static) | `SetAllLevelEnabled`, `SetGroupEnabled` 等の一括状態操作 |
+| `AppLogProfileService`<br>(`AppLogProfile.cs`) | Pure C# (Static) | プロファイル（「通常用」「バグ調査1」など）の状態キャプチャおよび各エントリへの反映・同期 |
+| `LogProfile` / `LogEntryState`<br>(`AppLogProfile.cs`) | Data Model (`[Serializable]`) | プリセットプロファイル名および各エントリのキー別 ON/OFF 状態の保持 |
 | `LogCategoryGroup` / `LogInstanceEntry`<br>(`AppLogCategoryGroup.cs`) | Data Model (`[Serializable]`) | モジュール別グループ階層および各ログトリガーのデータ保持 |
 
 ---

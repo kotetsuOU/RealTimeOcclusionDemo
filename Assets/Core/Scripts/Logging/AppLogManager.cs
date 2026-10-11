@@ -15,9 +15,12 @@ namespace Core.Logging
     {
         public static AppLogManager Instance { get; private set; }
 
-        [Header("Global Control")]
-        [Tooltip("全体的なログ出力の有効/無効トグル")]
-        public bool globalEnableLogging = true;
+        [Header("Log Profiles")]
+        [Tooltip("保存されたログ設定プロファイル一覧（通常用、バグ調査用など）")]
+        public List<LogProfile> profiles = new List<LogProfile>();
+
+        [Tooltip("現在アクティブなプロファイルのインデックス")]
+        public int activeProfileIndex = 0;
 
         [Header("Category Groups")]
         [Tooltip("モジュール機能ごとにグループ化されたコンポーネントターゲット")]
@@ -40,6 +43,11 @@ namespace Core.Logging
             }
             DontDestroyOnLoad(gameObject);
 
+            EnsureDefaultProfiles();
+            if (profiles.Count > 0 && activeProfileIndex >= 0 && activeProfileIndex < profiles.Count)
+            {
+                AppLogProfileService.ApplyStates(categoryGroups, profiles[activeProfileIndex]);
+            }
             BuildLookup();
         }
 
@@ -47,6 +55,7 @@ namespace Core.Logging
         {
             AppLogger.RegisterMainThread();
             if (Instance == null) Instance = this;
+            EnsureDefaultProfiles();
             BuildLookup();
         }
 
@@ -62,12 +71,12 @@ namespace Core.Logging
 
         public bool IsLogEnabled(UnityEngine.Object targetObject, string subTag = null)
         {
-            return _lookupEngine.IsLogEnabled(targetObject, AppLogLevel.Info, subTag, globalEnableLogging);
+            return _lookupEngine.IsLogEnabled(targetObject, AppLogLevel.Info, subTag);
         }
 
         public bool IsLogEnabled(UnityEngine.Object targetObject, AppLogLevel level, string subTag = null)
         {
-            return _lookupEngine.IsLogEnabled(targetObject, level, subTag, globalEnableLogging);
+            return _lookupEngine.IsLogEnabled(targetObject, level, subTag);
         }
 
         public bool IsTagRegistered(string tag)
@@ -77,12 +86,12 @@ namespace Core.Logging
 
         public bool IsLogEnabled(string nameTag)
         {
-            return _lookupEngine.IsLogEnabled(nameTag, AppLogLevel.Info, globalEnableLogging);
+            return _lookupEngine.IsLogEnabled(nameTag, AppLogLevel.Info);
         }
 
         public bool IsLogEnabled(string nameTag, AppLogLevel level)
         {
-            return _lookupEngine.IsLogEnabled(nameTag, level, globalEnableLogging);
+            return _lookupEngine.IsLogEnabled(nameTag, level);
         }
 
         /// <summary>
@@ -94,9 +103,9 @@ namespace Core.Logging
             BuildLookup();
         }
 
-        public void SetAllEnabled(bool enable, AppLogLevel? targetLevel = null)
+        public void SetAllLevelEnabled(AppLogLevel level, bool enable)
         {
-            AppLogGroupModifier.SetAllEnabled(categoryGroups, enable, targetLevel);
+            AppLogGroupModifier.SetAllLevelEnabled(categoryGroups, level, enable);
             BuildLookup();
         }
 
@@ -105,5 +114,84 @@ namespace Core.Logging
             AppLogGroupModifier.SetGroupEnabled(categoryGroups, categoryName, enable, targetLevel);
             BuildLookup();
         }
+
+        #region Profile Operations
+
+        public void EnsureDefaultProfiles()
+        {
+            if (profiles == null) profiles = new List<LogProfile>();
+            if (profiles.Count == 0)
+            {
+                var defaultProfile = new LogProfile { profileName = "通常用" };
+                AppLogProfileService.CaptureStates(categoryGroups, defaultProfile);
+                profiles.Add(defaultProfile);
+                activeProfileIndex = 0;
+            }
+        }
+
+        public void SwitchProfile(int newIndex)
+        {
+            EnsureDefaultProfiles();
+            if (newIndex < 0 || newIndex >= profiles.Count) return;
+
+            // 切り替え前に現在プロファイルを最新状態に保存
+            SaveCurrentProfile();
+
+            activeProfileIndex = newIndex;
+            AppLogProfileService.ApplyStates(categoryGroups, profiles[activeProfileIndex]);
+            BuildLookup();
+        }
+
+        public void SaveCurrentProfile()
+        {
+            EnsureDefaultProfiles();
+            if (activeProfileIndex >= 0 && activeProfileIndex < profiles.Count)
+            {
+                AppLogProfileService.CaptureStates(categoryGroups, profiles[activeProfileIndex]);
+            }
+        }
+
+        public void AddNewProfile(string profileName)
+        {
+            EnsureDefaultProfiles();
+            SaveCurrentProfile();
+
+            var newProfile = new LogProfile { profileName = profileName };
+            AppLogProfileService.CaptureStates(categoryGroups, newProfile);
+            profiles.Add(newProfile);
+            activeProfileIndex = profiles.Count - 1;
+        }
+
+        public void DuplicateProfile(int index)
+        {
+            EnsureDefaultProfiles();
+            if (index < 0 || index >= profiles.Count) return;
+            SaveCurrentProfile();
+
+            var source = profiles[index];
+            var duplicated = new LogProfile
+            {
+                profileName = $"{source.profileName} (コピー)"
+            };
+            AppLogProfileService.CaptureStates(categoryGroups, duplicated);
+            profiles.Add(duplicated);
+            activeProfileIndex = profiles.Count - 1;
+        }
+
+        public void RemoveProfile(int index)
+        {
+            if (profiles == null || profiles.Count <= 1) return;
+            if (index < 0 || index >= profiles.Count) return;
+
+            profiles.RemoveAt(index);
+            if (activeProfileIndex >= profiles.Count)
+            {
+                activeProfileIndex = profiles.Count - 1;
+            }
+            AppLogProfileService.ApplyStates(categoryGroups, profiles[activeProfileIndex]);
+            BuildLookup();
+        }
+
+        #endregion
     }
 }

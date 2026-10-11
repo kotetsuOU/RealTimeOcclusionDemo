@@ -64,10 +64,8 @@ namespace Core.Logging
             }
         }
 
-        public bool IsLogEnabled(UnityEngine.Object targetObject, AppLogLevel level, string subTag, bool globalEnabled)
+        public bool IsLogEnabled(UnityEngine.Object targetObject, AppLogLevel level, string subTag)
         {
-            if (!globalEnabled) return false;
-
             lock (_lock)
             {
                 try
@@ -105,9 +103,8 @@ namespace Core.Logging
             }
         }
 
-        public bool IsLogEnabled(string nameTag, AppLogLevel level, bool globalEnabled)
+        public bool IsLogEnabled(string nameTag, AppLogLevel level)
         {
-            if (!globalEnabled) return false;
             if (string.IsNullOrEmpty(nameTag)) return true;
 
             lock (_lock)

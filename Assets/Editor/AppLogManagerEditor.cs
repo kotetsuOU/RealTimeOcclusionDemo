@@ -19,43 +19,105 @@ namespace Core.Editor
                 "本マネージャー上でモジュール機能ごとにフォルダ階層化してログを集中コントロールします。",
                 MessageType.Info);
 
-            EditorGUILayout.Space();
-            SerializedProperty globalEnableProp = serializedObject.FindProperty("globalEnableLogging");
-            EditorGUILayout.PropertyField(globalEnableProp, new GUIContent("Global Enable Logging"));
+            manager.EnsureDefaultProfiles();
 
             EditorGUILayout.Space();
-            EditorGUILayout.BeginHorizontal();
             if (GUILayout.Button("🔍 Scan Scene Components", GUILayout.Height(30)))
             {
                 Undo.RecordObject(manager, "Scan Components");
                 manager.ScanSceneComponents();
+                manager.SaveCurrentProfile();
+                EditorUtility.SetDirty(manager);
+            }
+
+            EditorGUILayout.Space(4);
+
+            // --- Profile Tabs Section ---
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField("📁 Log Profiles (タブ切り替え)", EditorStyles.boldLabel);
+            if (GUILayout.Button("＋ 新規プロファイル", EditorStyles.miniButton, GUILayout.Width(120)))
+            {
+                Undo.RecordObject(manager, "Add Log Profile");
+                manager.AddNewProfile($"バグ調査 {manager.profiles.Count}");
                 EditorUtility.SetDirty(manager);
             }
             EditorGUILayout.EndHorizontal();
 
-            EditorGUILayout.BeginHorizontal();
-            if (GUILayout.Button("Enable All"))
+            if (manager.profiles != null && manager.profiles.Count > 0)
             {
-                Undo.RecordObject(manager, "Enable All");
-                manager.SetAllEnabled(true);
-                EditorUtility.SetDirty(manager);
-            }
-            if (GUILayout.Button("Disable All"))
-            {
-                Undo.RecordObject(manager, "Disable All");
-                manager.SetAllEnabled(false);
-                EditorUtility.SetDirty(manager);
-            }
-            EditorGUILayout.EndHorizontal();
+                string[] tabTitles = new string[manager.profiles.Count];
+                for (int p = 0; p < manager.profiles.Count; p++)
+                {
+                    tabTitles[p] = string.IsNullOrEmpty(manager.profiles[p].profileName)
+                        ? $"Profile {p + 1}"
+                        : manager.profiles[p].profileName;
+                }
 
+                EditorGUI.BeginChangeCheck();
+                int currentTabIndex = Mathf.Clamp(manager.activeProfileIndex, 0, manager.profiles.Count - 1);
+                int selectedTab = GUILayout.Toolbar(currentTabIndex, tabTitles);
+                if (EditorGUI.EndChangeCheck())
+                {
+                    Undo.RecordObject(manager, "Switch Profile");
+                    manager.SwitchProfile(selectedTab);
+                    EditorUtility.SetDirty(manager);
+                }
+
+                // 現在のプロファイル操作ツールバー
+                if (manager.activeProfileIndex >= 0 && manager.activeProfileIndex < manager.profiles.Count)
+                {
+                    var curProfile = manager.profiles[manager.activeProfileIndex];
+                    EditorGUILayout.Space(2);
+                    EditorGUILayout.BeginHorizontal();
+                    EditorGUILayout.LabelField("名前変更:", GUILayout.Width(55));
+                    EditorGUI.BeginChangeCheck();
+                    string editedName = EditorGUILayout.TextField(curProfile.profileName);
+                    if (EditorGUI.EndChangeCheck())
+                    {
+                        Undo.RecordObject(manager, "Rename Profile");
+                        curProfile.profileName = editedName;
+                        EditorUtility.SetDirty(manager);
+                    }
+
+                    if (GUILayout.Button("複製", EditorStyles.miniButton, GUILayout.Width(45)))
+                    {
+                        Undo.RecordObject(manager, "Duplicate Profile");
+                        manager.DuplicateProfile(manager.activeProfileIndex);
+                        EditorUtility.SetDirty(manager);
+                    }
+
+                    if (manager.profiles.Count > 1)
+                    {
+                        if (GUILayout.Button("削除", EditorStyles.miniButton, GUILayout.Width(45)))
+                        {
+                            if (EditorUtility.DisplayDialog("プロファイル削除", $"プロファイル「{curProfile.profileName}」を削除しますか？", "削除", "キャンセル"))
+                            {
+                                Undo.RecordObject(manager, "Remove Profile");
+                                manager.RemoveProfile(manager.activeProfileIndex);
+                                EditorUtility.SetDirty(manager);
+                            }
+                        }
+                    }
+                    EditorGUILayout.EndHorizontal();
+                }
+            }
+            EditorGUILayout.EndVertical();
+
+            EditorGUILayout.Space(4);
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+            EditorGUILayout.LabelField("All Categories Level Control", EditorStyles.boldLabel);
             EditorGUILayout.BeginHorizontal();
-            if (GUILayout.Button("Log ON", EditorStyles.miniButton)) { Undo.RecordObject(manager, "Log All ON"); manager.SetAllEnabled(true, AppLogLevel.Info); EditorUtility.SetDirty(manager); }
-            if (GUILayout.Button("Log OFF", EditorStyles.miniButton)) { Undo.RecordObject(manager, "Log All OFF"); manager.SetAllEnabled(false, AppLogLevel.Info); EditorUtility.SetDirty(manager); }
-            if (GUILayout.Button("Warn ON", EditorStyles.miniButton)) { Undo.RecordObject(manager, "Warn All ON"); manager.SetAllEnabled(true, AppLogLevel.Warning); EditorUtility.SetDirty(manager); }
-            if (GUILayout.Button("Warn OFF", EditorStyles.miniButton)) { Undo.RecordObject(manager, "Warn All OFF"); manager.SetAllEnabled(false, AppLogLevel.Warning); EditorUtility.SetDirty(manager); }
-            if (GUILayout.Button("Err ON", EditorStyles.miniButton)) { Undo.RecordObject(manager, "Err All ON"); manager.SetAllEnabled(true, AppLogLevel.Error); EditorUtility.SetDirty(manager); }
-            if (GUILayout.Button("Err OFF", EditorStyles.miniButton)) { Undo.RecordObject(manager, "Err All OFF"); manager.SetAllEnabled(false, AppLogLevel.Error); EditorUtility.SetDirty(manager); }
+            if (GUILayout.Button("Log ON", EditorStyles.miniButtonLeft)) { Undo.RecordObject(manager, "Log All ON"); manager.SetAllLevelEnabled(AppLogLevel.Info, true); manager.SaveCurrentProfile(); EditorUtility.SetDirty(manager); }
+            if (GUILayout.Button("Log OFF", EditorStyles.miniButtonRight)) { Undo.RecordObject(manager, "Log All OFF"); manager.SetAllLevelEnabled(AppLogLevel.Info, false); manager.SaveCurrentProfile(); EditorUtility.SetDirty(manager); }
+            GUILayout.Space(6);
+            if (GUILayout.Button("Warn ON", EditorStyles.miniButtonLeft)) { Undo.RecordObject(manager, "Warn All ON"); manager.SetAllLevelEnabled(AppLogLevel.Warning, true); manager.SaveCurrentProfile(); EditorUtility.SetDirty(manager); }
+            if (GUILayout.Button("Warn OFF", EditorStyles.miniButtonRight)) { Undo.RecordObject(manager, "Warn All OFF"); manager.SetAllLevelEnabled(AppLogLevel.Warning, false); manager.SaveCurrentProfile(); EditorUtility.SetDirty(manager); }
+            GUILayout.Space(6);
+            if (GUILayout.Button("Err ON", EditorStyles.miniButtonLeft)) { Undo.RecordObject(manager, "Err All ON"); manager.SetAllLevelEnabled(AppLogLevel.Error, true); manager.SaveCurrentProfile(); EditorUtility.SetDirty(manager); }
+            if (GUILayout.Button("Err OFF", EditorStyles.miniButtonRight)) { Undo.RecordObject(manager, "Err All OFF"); manager.SetAllLevelEnabled(AppLogLevel.Error, false); manager.SaveCurrentProfile(); EditorUtility.SetDirty(manager); }
             EditorGUILayout.EndHorizontal();
+            EditorGUILayout.EndVertical();
 
             EditorGUILayout.Space();
             EditorGUILayout.LabelField("Log Target Category Groups", EditorStyles.boldLabel);
@@ -83,12 +145,14 @@ namespace Core.Editor
                     {
                         Undo.RecordObject(manager, "Group All ON");
                         manager.SetGroupEnabled(catName, true);
+                        manager.SaveCurrentProfile();
                         EditorUtility.SetDirty(manager);
                     }
                     if (GUILayout.Button("All OFF", EditorStyles.miniButtonRight, GUILayout.Width(55)))
                     {
                         Undo.RecordObject(manager, "Group All OFF");
                         manager.SetGroupEnabled(catName, false);
+                        manager.SaveCurrentProfile();
                         EditorUtility.SetDirty(manager);
                     }
                     EditorGUILayout.EndHorizontal();
@@ -97,35 +161,39 @@ namespace Core.Editor
                     if (isExpandedProp.boolValue && entriesProp != null)
                     {
                         EditorGUILayout.Space(2);
-                        EditorGUILayout.BeginHorizontal();
-                        GUILayout.Space(16);
 
-                        if (GUILayout.Button("Log", EditorStyles.miniButton, GUILayout.Width(28)))
+                        // 列ヘッダー
+                        EditorGUILayout.BeginHorizontal();
+                        GUILayout.Space(18);
+                        if (GUILayout.Button(new GUIContent("Log", "情報ログ (Info) 一括切り替え"), EditorStyles.miniButton, GUILayout.Width(30)))
                         {
                             Undo.RecordObject(manager, "Toggle Group Log");
                             bool enable = ToggleGroupLevel(groupProp, "enableInfo");
                             manager.SetGroupEnabled(catName, enable, AppLogLevel.Info);
+                            manager.SaveCurrentProfile();
                             EditorUtility.SetDirty(manager);
                         }
-                        if (GUILayout.Button("Warn", EditorStyles.miniButton, GUILayout.Width(32)))
+                        if (GUILayout.Button(new GUIContent("Warn", "警告ログ (Warning) 一括切り替え"), EditorStyles.miniButton, GUILayout.Width(34)))
                         {
                             Undo.RecordObject(manager, "Toggle Group Warn");
                             bool enable = ToggleGroupLevel(groupProp, "enableWarning");
                             manager.SetGroupEnabled(catName, enable, AppLogLevel.Warning);
+                            manager.SaveCurrentProfile();
                             EditorUtility.SetDirty(manager);
                         }
-                        if (GUILayout.Button("Err", EditorStyles.miniButton, GUILayout.Width(28)))
+                        if (GUILayout.Button(new GUIContent("Err", "エラーログ (Error) 一括切り替え"), EditorStyles.miniButton, GUILayout.Width(30)))
                         {
                             Undo.RecordObject(manager, "Toggle Group Err");
                             bool enable = ToggleGroupLevel(groupProp, "enableError");
                             manager.SetGroupEnabled(catName, enable, AppLogLevel.Error);
+                            manager.SaveCurrentProfile();
                             EditorUtility.SetDirty(manager);
                         }
-
+                        GUILayout.Space(6);
                         EditorGUILayout.LabelField("Target / Label", EditorStyles.miniBoldLabel);
                         EditorGUILayout.EndHorizontal();
 
-                        EditorGUI.indentLevel++;
+                        // 各エントリ行
                         for (int i = 0; i < entriesProp.arraySize; i++)
                         {
                             SerializedProperty entryProp = entriesProp.GetArrayElementAtIndex(i);
@@ -136,11 +204,12 @@ namespace Core.Editor
                             SerializedProperty errProp = entryProp.FindPropertyRelative("enableError");
 
                             EditorGUILayout.BeginHorizontal();
+                            GUILayout.Space(18);
 
                             EditorGUI.BeginChangeCheck();
-                            bool newInfo = EditorGUILayout.Toggle(infoProp?.boolValue ?? true, GUILayout.Width(28));
-                            bool newWarn = EditorGUILayout.Toggle(warnProp?.boolValue ?? true, GUILayout.Width(32));
-                            bool newErr = EditorGUILayout.Toggle(errProp?.boolValue ?? true, GUILayout.Width(28));
+                            bool newInfo = EditorGUILayout.Toggle(infoProp?.boolValue ?? true, GUILayout.Width(30));
+                            bool newWarn = EditorGUILayout.Toggle(warnProp?.boolValue ?? true, GUILayout.Width(34));
+                            bool newErr = EditorGUILayout.Toggle(errProp?.boolValue ?? true, GUILayout.Width(30));
 
                             if (EditorGUI.EndChangeCheck())
                             {
@@ -148,26 +217,28 @@ namespace Core.Editor
                                 if (warnProp != null) warnProp.boolValue = newWarn;
                                 if (errProp != null) errProp.boolValue = newErr;
                                 serializedObject.ApplyModifiedProperties();
+                                manager.SaveCurrentProfile();
                                 EditorUtility.SetDirty(manager);
                                 manager.BuildLookup();
                             }
 
+                            GUILayout.Space(6);
                             string labelText = !string.IsNullOrEmpty(labelProp?.stringValue)
                                 ? labelProp.stringValue
                                 : (targetProp.objectReferenceValue != null ? targetProp.objectReferenceValue.name : "Unassigned");
 
-                            EditorGUILayout.LabelField(labelText, GUILayout.MinWidth(140), GUILayout.MaxWidth(280));
+                            EditorGUILayout.LabelField(labelText, GUILayout.MinWidth(140), GUILayout.MaxWidth(260));
                             EditorGUILayout.PropertyField(targetProp, GUIContent.none);
 
-                            if (GUILayout.Button("X", GUILayout.Width(24)))
+                            if (GUILayout.Button("✕", GUILayout.Width(22)))
                             {
                                 entriesProp.DeleteArrayElementAtIndex(i);
+                                manager.SaveCurrentProfile();
                                 break;
                             }
 
                             EditorGUILayout.EndHorizontal();
                         }
-                        EditorGUI.indentLevel--;
                     }
 
                     EditorGUILayout.EndVertical();
@@ -183,6 +254,7 @@ namespace Core.Editor
 
             if (GUI.changed)
             {
+                manager.SaveCurrentProfile();
                 manager.BuildLookup();
             }
         }

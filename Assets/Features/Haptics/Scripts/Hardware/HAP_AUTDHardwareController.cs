@@ -104,12 +104,67 @@ public class HAP_AUTDHardwareController : MonoBehaviour
         _backend?.SendNull();
     }
 
-    private async void OnDestroy()
+    private bool _isShuttingDown = false;
+
+    private void OnEnable()
     {
-        if (_backend != null)
+#if UNITY_EDITOR
+        UnityEditor.EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
+#endif
+    }
+
+    private void OnDisable()
+    {
+#if UNITY_EDITOR
+        UnityEditor.EditorApplication.playModeStateChanged -= OnPlayModeStateChanged;
+#endif
+    }
+
+#if UNITY_EDITOR
+    private void OnPlayModeStateChanged(UnityEditor.PlayModeStateChange state)
+    {
+        if (state == UnityEditor.PlayModeStateChange.ExitingPlayMode)
         {
-            await _backend.CloseAsync();
+            ShutdownHardware();
+        }
+    }
+#endif
+
+    private void OnApplicationQuit()
+    {
+        ShutdownHardware();
+    }
+
+    private void OnDestroy()
+    {
+        ShutdownHardware();
+    }
+
+    /// <summary>
+    /// AUTD3 ハードウェアの安全シャットダウン（ファン停止、サイレンサー無効化、超音波停止、接続切断）を実行します。
+    /// Play 終了時やオブジェクト破棄時に確実に同期呼び出しされます。
+    /// </summary>
+    public void ShutdownHardware()
+    {
+        if (_isShuttingDown || _backend == null) return;
+        _isShuttingDown = true;
+
+        try
+        {
+            if (_backend.IsConnected)
+            {
+                _backend.SendNull();
+                _backend.ApplyFan(false);
+                _backend.ApplySilencer(SilencerMode.Disabled, 0, 0);
+            }
             _backend.Dispose();
+        }
+        catch (Exception ex)
+        {
+            AppLogger.LogWarning(this, HAP_LogTriggers.TagLinkService, $"[HardwareController] Error during shutdown: {ex.Message}");
+        }
+        finally
+        {
             _backend = null;
         }
     }

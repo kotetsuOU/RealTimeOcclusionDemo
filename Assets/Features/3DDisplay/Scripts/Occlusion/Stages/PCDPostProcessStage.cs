@@ -74,15 +74,14 @@ internal class PCDPostProcessStage : IPCDPipelineStage
         if (isSectorMode)
         {
             cmd.SetComputeIntParam(cs, PCDShaderConstants.DebugSectorId, s.debugSectorId);
-            cmd.SetComputeTextureParam(cs, k.VisualizeOcclusionDebug, PCDShaderConstants.NeighborCountMap_RW, r.NeighborCountMap);
-            cmd.SetComputeTextureParam(cs, k.VisualizeOcclusionDebug, PCDShaderConstants.OriginTypeMap, r.OriginTypeMap);
         }
         else if (isPatternMode)
         {
             cmd.SetComputeIntParam(cs, PCDShaderConstants.DebugPatternId, s.debugPatternId);
-            cmd.SetComputeTextureParam(cs, k.VisualizeOcclusionDebug, PCDShaderConstants.NeighborCountMap_RW, r.NeighborCountMap);
         }
 
+        cmd.SetComputeTextureParam(cs, k.VisualizeOcclusionDebug, PCDShaderConstants.NeighborCountMap_RW, r.NeighborCountMap);
+        cmd.SetComputeTextureParam(cs, k.VisualizeOcclusionDebug, PCDShaderConstants.OriginTypeMap, r.OriginTypeMap);
         cmd.SetComputeTextureParam(cs, k.VisualizeOcclusionDebug, PCDShaderConstants.OcclusionValueMap_RW, r.OcclusionValueMap);
         cmd.SetComputeTextureParam(cs, k.VisualizeOcclusionDebug, PCDShaderConstants.OriginMap_RW, r.DebugDisplayMap);
         cmd.DispatchCompute(cs, k.VisualizeOcclusionDebug, ctx.ThreadGroupsX, ctx.ThreadGroupsY, 1);
