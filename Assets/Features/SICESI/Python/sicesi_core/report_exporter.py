@@ -4,6 +4,7 @@ SICESI Python Suite: 最適化レポート・評価 CSV エクスポーター
 
 import os
 import csv
+import json
 import numpy as np
 from .pattern_lut import (
     compress_indices, z_to_hex, occ_breakdown_str, class_breakdown_str
@@ -19,7 +20,7 @@ class OptimizationReportExporter:
     @staticmethod
     def export_all_reports(dataset, lut, opt_res, output_dir):
         """
-        全レポート CSV を一括保存します。
+        全レポート CSV および Unity 連携用 JSON を一括保存します。
         
         Args:
             dataset: load_dataset で取得したデータセットリスト
@@ -30,6 +31,7 @@ class OptimizationReportExporter:
         os.makedirs(output_dir, exist_ok=True)
         
         OptimizationReportExporter.export_common_rules_summary(opt_res, lut, output_dir)
+        OptimizationReportExporter.export_optimized_parameters_json(opt_res, lut, output_dir)
         OptimizationReportExporter.export_objective_comparison(dataset, opt_res, output_dir)
         OptimizationReportExporter.export_common_rule_evaluation(dataset, opt_res, output_dir)
         indiv_rows = OptimizationReportExporter.export_individual_optima(dataset, opt_res, output_dir)
@@ -512,3 +514,96 @@ class OptimizationReportExporter:
                     writer.writerow([m, bin(m)[2:].zfill(8), lut['n_occ'][m], lut['rot_cid'][m], dec, "VISIBLE" if dec == 1 else "OCCLUDED", tot_obs])
                     
         print(f"[+] 共通規則・共通LUTファイル (ObjA/ObjB) を保存しました。")
+
+    @staticmethod
+    def export_optimized_parameters_json(opt_res, lut, output_dir):
+        """
+        Unity (C#) で簡単にデシリアライズして PCDOcclusionPipelineController に
+        直接反映できるように、最適化パラメータを構造化 JSON として出力します。
+        """
+        res_8_base = opt_res['res_8_base']
+        res_20_A = opt_res['res_20_A']
+        eval_36_A = opt_res['eval_36_A']
+        eval_256_A = opt_res['eval_256_A']
+        z_36_A_as_256 = opt_res['z_36_A_as_256']
+        z_256_A = opt_res['z_256_A']
+        
+        res_8_B = opt_res['res_8_B']
+        res_20_B = opt_res['res_20_B']
+        eval_36_B = opt_res['eval_36_B']
+        eval_256_B = opt_res['eval_256_B']
+        z_36_B_as_256 = opt_res['z_36_B_as_256']
+        z_256_B = opt_res['z_256_B']
+
+        r20_A_r, r20_A_l = res_20_A.get('common_params', (4, 1))
+        r20_B_r, r20_B_l = res_20_B.get('common_params', (4, 1))
+
+        # 0x プレフィックスを除去した純粋な HEX 64文字 (Unity Inspector 用)
+        hex_8_A = z_to_hex(res_8_base['common_z']).replace("0x", "")
+        hex_20_A = z_to_hex(res_20_A['common_z']).replace("0x", "")
+        hex_36_A = z_to_hex(z_36_A_as_256).replace("0x", "")
+        hex_256_A = z_to_hex(z_256_A).replace("0x", "")
+
+        hex_8_B = z_to_hex(res_8_B['common_z']).replace("0x", "")
+        hex_20_B = z_to_hex(res_20_B['common_z']).replace("0x", "")
+        hex_36_B = z_to_hex(z_36_B_as_256).replace("0x", "")
+        hex_256_B = z_to_hex(z_256_B).replace("0x", "")
+
+        data = {
+            "meanIoUMaximized": {
+                "mode8": {
+                    "thresholdR": int(res_8_base['common_r']),
+                    "ruleDesc": str(res_8_base['common_rule_desc']),
+                    "meanIoU": float(res_8_base['common_eval']['mean_iou']),
+                    "hexMask": hex_8_A
+                },
+                "mode20": {
+                    "thresholdR": int(r20_A_r),
+                    "maxConsecutiveEmptyL": int(r20_A_l),
+                    "ruleDesc": str(res_20_A['common_rule_desc']),
+                    "meanIoU": float(res_20_A['common_eval']['mean_iou']),
+                    "hexMask": hex_20_A
+                },
+                "mode36": {
+                    "hexMask": hex_36_A,
+                    "visibleClasses": len(opt_res['vis_c_A']),
+                    "meanIoU": float(eval_36_A['mean_iou'])
+                },
+                "mode256": {
+                    "hexMask": hex_256_A,
+                    "visiblePatterns": len(opt_res['vis_m_A']),
+                    "meanIoU": float(eval_256_A['mean_iou'])
+                }
+            },
+            "relativeReductionMaximized": {
+                "mode8": {
+                    "thresholdR": int(res_8_B['common_r']),
+                    "ruleDesc": str(res_8_B['common_rule_desc']),
+                    "meanIoU": float(res_8_B['common_eval']['mean_iou']),
+                    "hexMask": hex_8_B
+                },
+                "mode20": {
+                    "thresholdR": int(r20_B_r),
+                    "maxConsecutiveEmptyL": int(r20_B_l),
+                    "ruleDesc": str(res_20_B['common_rule_desc']),
+                    "meanIoU": float(res_20_B['common_eval']['mean_iou']),
+                    "hexMask": hex_20_B
+                },
+                "mode36": {
+                    "hexMask": hex_36_B,
+                    "visibleClasses": len(opt_res['vis_c_B']),
+                    "meanIoU": float(eval_36_B['mean_iou'])
+                },
+                "mode256": {
+                    "hexMask": hex_256_B,
+                    "visiblePatterns": len(opt_res['vis_m_B']),
+                    "meanIoU": float(eval_256_B['mean_iou'])
+                }
+            }
+        }
+
+        json_path = os.path.join(output_dir, "optimized_parameters.json")
+        with open(json_path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        print(f"[+] Unity 連携用最適化パラメータ JSON を保存しました: {json_path}")
+

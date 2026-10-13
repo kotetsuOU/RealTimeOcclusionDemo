@@ -38,7 +38,12 @@ namespace SICESI.Editor
 
             EditorGUILayout.Space(8);
 
-            // 3. 保存済み JSON プリセット一覧 & 一括ベンチマーク実行 (委譲)
+            // 3. Python 最適化の実行 & パイプライン自動置換セクション (委譲)
+            SICESI_OptimizationSectionDrawer.Draw(controller, canExecute);
+
+            EditorGUILayout.Space(8);
+
+            // 4. 保存済み JSON プリセット一覧 & 一括ベンチマーク実行 (委譲)
             SICESI_PresetListSectionDrawer.Draw(controller, canExecute);
         }
 

@@ -1,46 +1,14 @@
 using System;
 using System.IO;
-using System.Text;
 using UnityEngine;
 
 namespace SICESI
 {
     /// <summary>
-    /// SICE SI ベンチマーク評価結果の CSV サマリー記録および撮影画像のテクスチャ読み込みを担当するクラス。
+    /// SICE SI ベンチマーク評価における撮影画像のディスク I/O（読み込み・削除・差分マップ生成）を担当するクラス。
     /// </summary>
-    public static class SICESI_BenchmarkReporter
+    public static class SICESI_BenchmarkImageIO
     {
-        /// <summary>
-        /// CSV ファイルが存在しない場合にヘッダー行を初期化作成します。
-        /// </summary>
-        public static void InitializeCsvHeader(string csvPath)
-        {
-            if (!File.Exists(csvPath))
-            {
-                string header = "Timestamp,VirtualObject,HandMesh,Density,Method,Mean_IoU,Total_IoU,Left_IoU,Right_IoU,Left_TP,Left_FP,Left_FN,Right_TP,Right_FP,Right_FN\n";
-                File.WriteAllText(csvPath, header, Encoding.UTF8);
-            }
-        }
-
-        /// <summary>
-        /// 評価結果メトリクスを CSV の末尾に追記します。
-        /// </summary>
-        public static void AppendCsvRecord(
-            string csvPath,
-            string voName,
-            string handName,
-            float density,
-            string method,
-            SICESI_IoUCalculator.StereoMetricsResult res)
-        {
-            string line = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss},{voName},{handName},{density:F2},{method}," +
-                          $"{res.meanIoU:F4},{res.totalIoU:F4}," +
-                          $"{res.left.iou:F4},{res.right.iou:F4}," +
-                          $"{res.left.tpPixels},{res.left.fpPixels},{res.left.fnPixels}," +
-                          $"{res.right.tpPixels},{res.right.fpPixels},{res.right.fnPixels}\n";
-            File.AppendAllText(csvPath, line, Encoding.UTF8);
-        }
-
         /// <summary>
         /// GT とテスト画像の差分を可視化して保存します（白=TP, 赤=FP:遮蔽漏れ, 青=FN:過剰遮蔽）。
         /// </summary>
@@ -166,7 +134,7 @@ namespace SICESI
                 }
                 catch (Exception ex)
                 {
-                    Debug.LogWarning($"[SICESI_BenchmarkReporter] テクスチャ読み込み例外 ({path}): {ex.Message}");
+                    Debug.LogWarning($"[SICESI_BenchmarkImageIO] テクスチャ読み込み例外 ({path}): {ex.Message}");
                     return null;
                 }
 

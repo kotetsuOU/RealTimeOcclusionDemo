@@ -91,7 +91,8 @@ namespace Features.Haptics.Debug
                 if (info.Transform == null) continue;
 
                 Vector3 pos = info.Transform.position + info.Offset;
-                bool active = controller.IsTargetActive(info.Transform, info.IsEnabled, info.IsTail);
+                float thresh = info.HandContactThreshold > 0f ? info.HandContactThreshold : controller.handContactThreshold;
+                bool active = controller.IsTargetActive(info);
 
                 float closestDist = float.MaxValue;
                 if (clustersList != null)
@@ -111,17 +112,17 @@ namespace Features.Haptics.Debug
                 if (!info.IsEnabled) reason = " (Toggle OFF)";
                 else if (!active)
                 {
-                    if (controller.onlyTargetHandContact && closestDist > controller.handContactThreshold)
+                    if (controller.onlyTargetHandContact && closestDist > thresh)
                     {
-                        reason = $" (手の距離 {distStr} > 閾値 {controller.handContactThreshold:F3}m)";
+                        reason = $" (手の距離 {distStr} > 閾値 {thresh:F3}m)";
                     }
-                    else if (!info.IsTail && controller.disableWhenInAir)
+                    else if (info.ShouldApplyAirborneCheck && controller.disableWhenInAir)
                     {
                         reason = " (空中判定により除外)";
                     }
                 }
 
-                sb.AppendLine($"  • 部位 '{info.Name}': Active={active}, Pos={pos:F2}, 手との最近接距離={distStr}{reason}");
+                sb.AppendLine($"  • 部位 '{info.Name}': Active={active}, Pos={pos:F2}, 接触閾値={thresh:F3}m, 手との最近接距離={distStr}{reason}");
             }
 
             return sb.ToString();

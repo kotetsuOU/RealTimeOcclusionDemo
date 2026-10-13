@@ -56,7 +56,8 @@ Assets/Features/Haptics/Scripts/
 ├── Hardware/                                  # 物理デバイス通信・配置
 │   ├── AUTD3Device.cs                         # 単一アレイデバイス定義
 │   ├── HAP_AUTDHardwareController.cs          # 物理通信・リンク管理
-│   └── HAP_AUTDTransformLoader.cs             # デバイス配置JSON保存/復元
+│   ├── HAP_AUTDTransformLoader.cs             # デバイス配置JSON保存/復元
+│   └── HAP_DeviceOrientationHelper.cs         # 物理照射面ローカル反転整合ヘルパー
 ├── Processors/                                # アルゴリズム・パイプライン実行者
 │   ├── HAP_AcousticPipelineExecutor.cs        # 焦点生成〜バックエンド送信実行
 │   ├── HAP_AUTDPerformanceProfiler.cs         # パフォーマンス計測
@@ -119,6 +120,15 @@ graph TD
 [AUTD3 超音波アレイ実機 / Simulator]
 ```
 
+### 2.4 物理配置と照射面ローカル反転整合仕様 (`HAP_DeviceOrientationHelper`)
+
+Unity 上の `AUTD3.prefab` 構造（親 Transform に対してメッシュが配置されている階層構造）と超音波照射面（物理トランスデューサ開口面）の幾何学的定義の差異を吸収するため、全デバイス一律のローカル回転補正規約を定めています。
+
+* **一貫したローカル Y 軸 180° 反転**:  
+  Scene ビュー上の配置や Transform（UI 表示）を変更することなく、SDK (`Autd3` / `AUTD3Sharp.AUTD3`) 初期化時および幾何グルーピング判定 (`HAP_DeviceGrouping`) 時に、全デバイス共通でローカル Y 軸回りに 180° 反転（`rotation * Quaternion.Euler(0f, 180f, 0f)`）を適用します。
+* **物理照射ベクトルの整合性**:  
+  この統一変換により、机の上に上向き（$+Y$）に設置された床面 4 台（Device 2, 3, 4, 5）および斜めスタンドに設置された側面 4 台（Device 0, 1, 6, 7）のすべてが、ターゲット領域（中央のキャラクター）に向かって正しい同位相で照射されます。
+
 ---
 
 ## 3. セットアップ・使用方法
@@ -174,10 +184,13 @@ Play モードに入ると、選択されたバックエンド経由で AUTD3 �
 
 ### 5.1 トラブルシューティング
 
-* **超音波が出力されない場合**:
+* **超音波が出力されない・極端に弱い場合**:
   1. `HAP_AUTDHapticsController` Inspector 上部の PlayMode ステータスバナーで `● Hardware Connected` と表示されているか確認してください。
   2. `bypassHaptics` が `false` であることを確認してください。
   3. `sourceMode` が `AutoHCD` の場合、`HCD_Pipeline` で手指の接触クラスタが正常に検出されているか確認してください。
+  4. **変調モードの確認**: `HAP_AUTDHardwareController` の `Modulation Mode` が `Sine`（周波数 150Hz）に設定されているか確認してください。`Static`（直流）に設定されていると、皮膚の機械受容器が順応して触覚を感じにくくなります。
+  5. **多焦点による減衰の防止**: 複数部位が存在する場合、多焦点分散による音圧低下を防ぐため、システムはアクティブな部位へ単焦点集中照射（`Holo.Naive`）を行い、最大音圧（10,000 Pa）を維持します。
+  6. **ジャンプ・空中停止からの出力復帰保証**: 接地判定（`disableWhenInAir`）による空中判定で出力停止（`SendNull`）が行われた後、着地時に変調キャッシュを自動リセットし、先行送信タスクの排他待機を経て `Modulation.Constant` / `Sine` が FPGA へ確実に再適用されます。
 * **Inspector の設定二重表示が発生しない理由**:
   `HAP_AUTDHardwareControllerEditor` 等のスリムエディタが個別コンポーネントの Default Inspector 展開を抑制し、`HAP_AUTDHapticsController` のタブ UI に一本化しているためです。
 

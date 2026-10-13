@@ -26,9 +26,16 @@ public struct HapticsTargetInfo
     public string Name;
     public Transform Transform;
     public bool IsEnabled;
-    public bool IsTail; // 接地判定 (disableWhenInAir) を行わない特殊部位判定
+    public bool IsTail; // 接地判定 (disableWhenInAir) を行わない特殊部位判定（後方互換用）
+    public bool? ApplyAirborneCheck; // 接地判定 (disableWhenInAir) を適用するかどうか（nullの場合は !IsTail を使用）
     public Vector3 Offset; // ターゲット位置オフセット
     public Vector3 TouchDirection; // 照射・接触向き（メッシュに向かうベクトル）
+    public float HandContactThreshold; // 部位別の接触距離しきい値（<= 0 の場合はコントローラーの共通値を使用）
+
+    /// <summary>
+    /// 接地・空中判定を適用すべきかどうかを取得します（ApplyAirborneCheck が未指定の場合は !IsTail を採用）。
+    /// </summary>
+    public readonly bool ShouldApplyAirborneCheck => ApplyAirborneCheck ?? !IsTail;
 }
 
 /// <summary>
@@ -107,7 +114,7 @@ public abstract class HAP_BaseObjectHapticsController : MonoBehaviour
     {
         foreach (var info in TargetInfos)
         {
-            if (IsTargetActive(info.Transform, info.IsEnabled, info.IsTail))
+            if (IsTargetActive(info))
             {
                 return true;
             }
@@ -144,12 +151,21 @@ public abstract class HAP_BaseObjectHapticsController : MonoBehaviour
     }
 
     /// <summary>
-    /// 指定されたターゲットが現在ハプティクス照射可能なアクティブ状態であるかどうかを判定します。
-    /// 判定処理は <see cref="HAP_TargetContactEvaluator.IsTargetActive"/> に委譲しています。
+    /// 指定されたターゲット情報が現在ハプティクス照射可能なアクティブ状態であるかどうかを判定します。
+    /// 判定処理は <see cref="HAP_TargetContactEvaluator.IsTargetActive(HAP_BaseObjectHapticsController, HapticsTargetInfo)"/> に委譲しています。
     /// </summary>
-    public bool IsTargetActive(Transform? targetTransform, bool isEnabled, bool isTail)
+    public bool IsTargetActive(HapticsTargetInfo info)
     {
-        return HAP_TargetContactEvaluator.IsTargetActive(this, targetTransform, isEnabled, isTail);
+        return HAP_TargetContactEvaluator.IsTargetActive(this, info);
+    }
+
+    /// <summary>
+    /// 指定されたターゲットが現在ハプティクス照射可能なアクティブ状態であるかどうかを判定します。
+    /// 判定処理は <see cref="HAP_TargetContactEvaluator.IsTargetActive(HAP_BaseObjectHapticsController, Transform?, bool, bool, float, bool?)"/> に委譲しています。
+    /// </summary>
+    public bool IsTargetActive(Transform? targetTransform, bool isEnabled, bool isTail, float customContactThreshold = -1f, bool? applyAirborneCheck = null)
+    {
+        return HAP_TargetContactEvaluator.IsTargetActive(this, targetTransform, isEnabled, isTail, customContactThreshold, applyAirborneCheck);
     }
 
     /// <summary>

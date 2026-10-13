@@ -43,10 +43,13 @@ namespace Features.Haptics.Backends.Current
         public async Task OpenAsync(AUTDLinkType linkType, string soemAdapterName, IReadOnlyList<AUTD3Device> devices)
         {
             var orderedDevices = devices.OrderBy(obj => obj.ID).ToList();
-            var sdkDevices = orderedDevices.Select(obj => new Autd3(obj.transform.position, obj.transform.rotation)).ToList();
+            var sdkDevices = orderedDevices.Select(obj => new Autd3(
+                obj.transform.position,
+                Features.Haptics.Hardware.HAP_DeviceOrientationHelper.GetAdjustedRotation(obj)
+            )).ToList();
 
             _geometry = new Geometry(sdkDevices);
-            AppLogger.Log(null, HAP_LogTriggers.TagLinkService, $"[CurrentBackend] Connecting to AUTD3 via {linkType}. Found {sdkDevices.Count} devices.");
+            AppLogger.Log(null, HAP_LogTriggers.TagLinkService, $"[CurrentBackend] Connecting to AUTD3 via {linkType}. Found {sdkDevices.Count} devices (local Y-inversion applied uniformly).");
 
             try
             {
@@ -75,6 +78,12 @@ namespace Features.Haptics.Backends.Current
             }
             catch (Exception ex)
             {
+                if (_geometry != null)
+                {
+                    try { _geometry.Dispose(); } catch { }
+                    _geometry = null;
+                }
+                _client = null;
                 AppLogger.LogError(null, HAP_LogTriggers.TagLinkService, $"[CurrentBackend] Failed to connect: {ex.Message}");
             }
         }
@@ -119,9 +128,20 @@ namespace Features.Haptics.Backends.Current
             AppLogger.Log(null, HAP_LogTriggers.TagLinkService, "[CurrentBackend] AUTD3 connection closed.");
         }
 
-        public async void SendNull()
+        public void SendNull()
         {
-            await _hardwareConfigurator.SendNullAsync(_client, _geometry);
+            if (_client == null || _geometry == null) return;
+            _sendTask = Task.Run(async () =>
+            {
+                try
+                {
+                    await _hardwareConfigurator.SendNullAsync(_client, _geometry).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    AppLogger.LogWarning(null, HAP_LogTriggers.TagLinkService, $"[CurrentBackend] Error in SendNull: {ex.Message}");
+                }
+            });
         }
 
         public void ApplyModulation(ModulationMode mode, float sineFreq, float staticAmp)

@@ -13,7 +13,7 @@
 
 本システムは、各コンポーネントの Inspector を汚すことなく、シーン内の主要モジュール（`HCD`, `RealSense`, `PCD`, `SRD`, `URP`, `Experiment`, `Haptics`, `PCV` 等）のログ出力を `AppLogManager` インスペクター上で一元かつ階層的に ON/OFF 制御する仕組みを提供します。
 
-* **自動コンテキスト識別（複数アタッチ対応）**: 同一スクリプトが複数 GameObject にアタッチされている場合（例: 複数台の RealSense カメラ）、`AppLogger.Log(this, ...)` 呼び出しによってログプレフィックスが **`[型名: GameObject名]`**（例: `[RsDevice: RealSense_Front]`）へ自動拡張され、出力元オブジェクトを即座に識別可能です。
+* **自動コンテキスト識別（複数アタッチ・マルチスレッド対応）**: 同一スクリプトが複数 GameObject にアタッチされている場合（例: 複数台の RealSense カメラ）、`AppLogger.Log(this, ...)` 呼び出しによってログプレフィックスが **`[型名: GameObject名]`**（例: `[RsDevice: RealSense_Front]`）へ自動拡張され、出力元オブジェクトを即座に識別可能です。また、ワーカースレッド（バックグラウンド処理）からの出力時でも、`ILogContextProvider` インターフェースまたはスレッドセーフキャッシュにより、Unity API のスレッド制約を受けずに GameObject 名付きプレフィックスを安全に出力します。
 * **中央集中トグル管理**: モジュールカテゴリ（例: `HCD (Haptic Collision)`, `Experiment`, `PCV (PointCloudViewer)`, `PCD (Occlusion)`, `SRD Display (PCD/SRD)`, `URP / RenderPipelines`, `RealSense`）および個別サブトリガー（例: `[EXP_Manager]`, `[SRD_MirrorCamDebug]`, `[SRD_NativeLog]`, `[URP_MatrixDebug]`）単位でログ有効状態を切り替え可能です。
 * **ネイティブ C++ DLL ログの一元統合**: Sony SRDisplay プラグインの内部 C++ DLL から出力されるネイティブデバッグログ (`[oz-debug-log]`) を `SRDCorePlugin` コールバック経由で `AppLogger` に集約し、`AppLogManager` のトグル操作で即座に遮断（ミュート）できます。
 * **早期初期化保証 (`DefaultExecutionOrder(-1000)`)**: `AppLogManager` は最優先で起動されるため、`SRDManager.Awake()` などの各種マネージャーの初期化時に出力される早期ログであっても、設定した OFF トグルに従って漏れなく確実に制御されます。
@@ -30,7 +30,7 @@
 ```text
 Assets/Core/Scripts/
 ├── Logging/
-│   ├── AppLogger.cs                   # モジュール非依存の静的ログ制御 API (`UnityEngine.Debug` 完全修飾対応)
+│   ├── AppLogger.cs                   # モジュール非依存の静的ログ制御 API (`ILogContextProvider` / スレッドセーフキャッシュ内包)
 │   ├── AppLogManager.cs               # [DefaultExecutionOrder(-1000)] シーン内の全ログトリガーを一元管理するファサード MonoBehaviour
 │   ├── AppLogLookupEngine.cs          # 高速ルックアップ（ターゲット別・タグ別・名前別）および有効判定エンジン (Pure C#)
 │   ├── AppLogSceneScanner.cs          # シーン・メモリ走査、実在要素検出、残骸パージ、設定復元スキャナー (Pure C#)
@@ -46,6 +46,8 @@ Assets/Core/Scripts/
     ├── HAP_LogTriggers.cs             # Haptics モジュール用 AppLogManager 連動トリガー
     ├── DPC_LogTriggers.cs             # DPC (Dummy Point Cloud) モジュール用連動トリガー
     ├── PCV_LogTriggers.cs             # PointCloudViewer モジュール用 AppLogManager 連動トリガー
+    ├── (RealSense デバイス モジュール)
+    │   └── RsDevice.cs                # [AppLoggable("RealSense (Device)")] [ILogContextProvider] マルチスレッドカメラ制御
     ├── (SRD Display / 立体視 モジュール)
     │   ├── SRDCorePlugin.cs           # C++ Native DLL コールバック受領 & `AppLogger.Log("SRD_NativeLog")` 統合
     │   ├── SRDMirrorDebugLogger.cs    # [AppLoggable("SRD Display (PCD/SRD)")] SRD 鏡像デバッグ & `SRD_NativeLog` トリガー登録
@@ -63,6 +65,7 @@ Assets/Core/Scripts/
 graph TD
     subgraph CoreLogging["Core.Logging モジュール"]
         AppLogger["AppLogger<br/>(Static API Class)"]
+        ILogContextProvider["ILogContextProvider<br/>(スレッドセーフプレフィックスIF)"]
         AppLogManager["AppLogManager<br/>(MonoBehaviour / Order:-1000)"]
         AppLogLookupEngine["AppLogLookupEngine<br/>(高速検索・判定エンジン)"]
         AppLogSceneScanner["AppLogSceneScanner<br/>(スキャン・同期・残骸パージ)"]
@@ -78,8 +81,10 @@ graph TD
         AppLogManager --> LogModels
         AppLogManager --> ProfileModels
         AppLogger <--> AppLogManager
+        AppLogger -.-> ILogContextProvider
     end
 
+    RsDevice["RsDevice (RealSense)<br/>[ILogContextProvider]"] --> |LogPrefix / WorkerThread| AppLogger
     LogTriggersHCD["HCD_LogTriggers<br/>[AppLoggable / IAppLoggable]"] --> |RegisterLogTriggers| AppLogManager
     LogTriggersEXP["EXP_LogTriggers<br/>[AppLoggable / IAppLoggable]"] --> |RegisterLogTriggers| AppLogManager
     LogTriggersPCD["PCD_LogTriggers<br/>[AppLoggable / IAppLoggable]"] --> |RegisterLogTriggers| AppLogManager
@@ -99,6 +104,8 @@ graph TD
     style AppLogSceneScanner fill:#27ae60,color:#fff
     style AppLogGroupModifier fill:#16a085,color:#fff
     style AppLogger fill:#f5a623,color:#fff
+    style ILogContextProvider fill:#e67e22,color:#fff
+    style RsDevice fill:#3498db,color:#fff
     style SRDCorePlugin fill:#e67e22,color:#fff
     style SRDDbgLogger fill:#50e3c2,color:#000
     style URPDebug fill:#e74c3c,color:#fff
@@ -113,6 +120,15 @@ graph TD
   `[AppLoggable("カテゴリー名")]` 属性および `IAppLoggable` インターフェースは、モジュールの窓口コンポーネント（例: `HCD_Pipeline`, `EXP_ExperimentManager`）、専用デバッグクラス（例: `SRDMirrorDebugLogger`）、およびパイプライン RenderFeature（例: `URPMatrixDebugFeature`, `MirrorRendererFeature`）に付与します。
 * **機能実行コンポーネントからのデバッグ分離**:
   幾何変換や純粋なレンダリングを行う機能コンポーネント（例: `SRDMirrorCamera`, `SRDMirrorCullingFeature`）内にはデバッグログ出力を混在させず、独立したデバッグクラス（`SRDMirrorDebugLogger`）や診断 Feature（`URPMatrixDebugFeature`）へ責務を完全に分離します。
+
+### 2.4 スレッドセーフなコンテキスト解決アーキテクチャ
+
+Unity ではワーカースレッド（バックグラウンドスレッド）から `gameObject.name` や `GetInstanceID()` などの Unity オブジェクト API を呼び出すことが許可されていません。本システムでは以下の二重保護機構によって、スレッド制約を回避しつつ GameObject 名を出力します：
+
+1. **`ILogContextProvider` による直接解決 (最優先)**:
+   ワーカースレッドを持つコンポーネント（`RsDevice` 等）が `ILogContextProvider` を実装し、マネージド文字列 `LogPrefix`（例: `$"RsDevice: {m_deviceName}"`）を返します。Unity API を一切介さないため、ワーカースレッドからでも 100% 安全かつ高速に解決されます。
+2. **.NET CLR ハッシュコードによるスレッドセーフキャッシュ (フォールバック)**:
+   メインスレッド実行時または `BuildLookup` 時に、.NET CLR プリミティブである `System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(context)` をキーとして `Component名: GameObject名` を `ConcurrentDictionary` にキャッシュします。`ILogContextProvider` を実装していないコンポーネントであっても、キャッシュ経由で GameObject 名が復元されます。
 
 ---
 
@@ -197,6 +213,36 @@ namespace Features.MyFeature.Debug
   * **`複製`**: 既存のプロファイルをベースに別設定を作成できます。
   * **`削除`**: 不要になった調査用プロファイルを安全に削除します（最低1つは維持されます）。
 
+### 3.4 バックグラウンドスレッド処理コンポーネントでのプレフィックス設定 (`ILogContextProvider` 実装)
+
+ワーカースレッド（バックグラウンドスレッド）からログを出力するコンポーネント（例: `RsDevice`）では、Unity API 制約を回避するために `ILogContextProvider` を実装します。
+
+```csharp
+using UnityEngine;
+using Core.Logging;
+
+public class MyWorkerComponent : MonoBehaviour, ILogContextProvider
+{
+    private string _cachedName;
+
+    public string LogPrefix => !string.IsNullOrEmpty(_cachedName) 
+        ? $"{GetType().Name}: {_cachedName}" 
+        : GetType().Name;
+
+    private void Awake()
+    {
+        // メインスレッド時に GameObject 名をキャッシュ
+        _cachedName = gameObject.name;
+    }
+
+    private void WorkerThreadMethod()
+    {
+        // ワーカースレッドからのログ呼び出し時でも、[MyWorkerComponent: <GameObject名>] が安全に出力されます
+        AppLogger.LogWarning(this, "バックグラウンドスレッドで警告が発生しました");
+    }
+}
+```
+
 ---
 
 ## 4. 仕様・パラメータ詳細
@@ -206,14 +252,16 @@ namespace Features.MyFeature.Debug
 | 型 / メソッド名 | 引数 / 構造 | 説明 |
 |---|---|---|
 | `AppLogLevel` (enum) | `Info` (0), `Warning` (1), `Error` (2) | ログメッセージの重要度レベルを表す列挙型 |
+| `ILogContextProvider` (interface) | `string LogPrefix { get; }` | バックグラウンドスレッド等から Unity API を介さずにログプレフィックスを提供するためのインターフェース |
+| `RegisterContext` | `(Object context)` | メインスレッド時にコンテキスト（GameObject名付きプレフィックス）をキャッシュへ事前登録 |
 | `IsEnabled` | `(Object context, string subTag = null)` | `Info` レベルで指定コンポーネント/サブタグのログが有効か判定 |
 | `IsEnabled` | `(Object context, AppLogLevel level, string subTag = null)` | 指定ログレベルおよびコンポーネント/サブタグのログが有効か判定 |
 | `IsEnabled` | `(string nameTag, AppLogLevel level = AppLogLevel.Info)` | 指定ログレベルおよび識別タグ名でログが有効か判定 (動的マネージャー検索対応) |
-| `Log` | `(Object context, string message)` / `(Object context, string message, string subTag)` | `Info` レベルの通常情報ログを出力 (引数順序自動補正対応) |
+| `Log` | `(Object context, string message)` / `(Object context, string message, string subTag)` | `Info` レベルの通常情報ログを出力 (引数順序自動補正・スレッドセーフプレフィックス対応) |
 | `Log` | `(string nameTag, string message, Object context = null)` | `Info` レベルの名前タグ指定情報ログを出力 |
-| `LogWarning` | `(Object context, string message)` / `(Object context, string message, string subTag)` | `Warning` レベルの警告ログを出力 (引数順序自動補正対応) |
+| `LogWarning` | `(Object context, string message)` / `(Object context, string message, string subTag)` | `Warning` レベルの警告ログを出力 (引数順序自動補正・スレッドセーフプレフィックス対応) |
 | `LogWarning` | `(string nameTag, string message, Object context = null)` | `Warning` レベルの名前タグ指定警告ログを出力 |
-| `LogError` | `(Object context, string message)` / `(Object context, string message, string subTag)` | `Error` レベルのエラーログを出力 (引数順序自動補正対応) |
+| `LogError` | `(Object context, string message)` / `(Object context, string message, string subTag)` | `Error` レベルのエラーログを出力 (引数順序自動補正・スレッドセーフプレフィックス対応) |
 | `LogError` | `(string nameTag, string message, Object context = null)` | `Error` レベルの名前タグ指定エラーログを出力 |
 
 ### 4.2 `AppLogManager` パラメータ・仕様
@@ -312,3 +360,14 @@ private static void RuntimeDebugLogCallback(string message, SrdXrLogLevels logLe
 ```
 
 * **起動超初期化時のログ貫通防止**: `SRDManager.Awake()` などの第 0 フレーム段階でネイティブ DLL のセッション作成処理が呼ばれた場合でも、`AppLogManager` の `DefaultExecutionOrder(-1000)` および `AppLogger` の動的インスタンス検索・包含検索フォールバックにより、設定された `Log OFF` トグルに従って早期ログであっても漏れなく完全に遮断されます。
+
+### 5.4 マルチスレッド環境における Unity API 制約と安全なプレフィックス解決仕様
+
+リアルタイムカメラ処理（`RsDevice.WaitForFrames()` 等）や触覚デバイス通信など、バックグラウンド（ワーカースレッド）から `AppLogger.Log` / `AppLogger.LogWarning` / `AppLogger.LogError` を呼び出す場合は以下の仕様に留意してください：
+
+1. **Unity オブジェクトアクセス制約**:
+   Unity の設計上、ワーカースレッドから `comp.gameObject.name` や `comp.GetInstanceID()` を直接呼び出すと内部で `UnityException` がスローされます。
+2. **`ILogContextProvider` 実装の推奨**:
+   ワーカースレッドを持つコンポーネント自身が `ILogContextProvider` を実装し、マネージド文字列プロパティ `LogPrefix` を返すように構成することで、Unity API を一切介さずに確実に `[型名: GameObject名]` を出力できます。
+3. **キャッシュフォールバック**:
+   `ILogContextProvider` を実装していないコンポーネントであっても、メインスレッド実行時に .NET CLR プリミティブ（`RuntimeHelpers.GetHashCode`）をキーとして `ConcurrentDictionary` に名前が登録されていれば、バックグラウンドスレッドでも GameObject 名付きプレフィックスが自動復元されます。

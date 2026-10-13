@@ -42,6 +42,26 @@ public class HAP_FoxBodyHapticsController : HAP_BaseObjectHapticsController
     public bool enableBackRight = true;
     public bool enableTail = true;
 
+    [Header("Individual Hand Contact Thresholds (部位別 手の接触判定しきい値)")]
+    [Tooltip("有効時、部位ごとに個別の手の接触判定しきい値を使用します。無効時または各部位<=0時は共通のhandContactThresholdが使用されます。")]
+    public bool useIndividualContactThresholds = false;
+    [Tooltip("頭部の手の接触判定しきい値（メートル）。<= 0 で共通値を使用。")]
+    public float headContactThreshold = -1f;
+    [Tooltip("左耳の手の接触判定しきい値（メートル）。<= 0 で共通値を使用。")]
+    public float leftEarContactThreshold = -1f;
+    [Tooltip("右耳の手の接触判定しきい値（メートル）。<= 0 で共通値を使用。")]
+    public float rightEarContactThreshold = -1f;
+    [Tooltip("左前足の手の接触判定しきい値（メートル）。<= 0 で共通値を使用。")]
+    public float frontLeftContactThreshold = -1f;
+    [Tooltip("右前足の手の接触判定しきい値（メートル）。<= 0 で共通値を使用。")]
+    public float frontRightContactThreshold = -1f;
+    [Tooltip("左後足の手の接触判定しきい値（メートル）。<= 0 で共通値を使用。")]
+    public float backLeftContactThreshold = -1f;
+    [Tooltip("右後足の手の接触判定しきい値（メートル）。<= 0 で共通値を使用。")]
+    public float backRightContactThreshold = -1f;
+    [Tooltip("尻尾の手の接触判定しきい値（メートル）。<= 0 で共通値を使用。")]
+    public float tailContactThreshold = -1f;
+
     [Header("Target Touch Directions (照射・接触向き)")]
     [FormerlySerializedAs("headTargetNormal")]
     [Tooltip("バーチャルオブジェクト（頭部・耳）が接触対象へ触れる/押し当てる向き（デフォルト: Vector3.down）。")]
@@ -49,9 +69,17 @@ public class HAP_FoxBodyHapticsController : HAP_BaseObjectHapticsController
     // 注: 足・尻尾用の照射法線方向は基底クラスの footTargetTouchDirection (Vector3.down) を使用します。
 
     /// <summary>
+    /// 部位ごとの有効な接触判定しきい値を返します。個別設定が無効または未設定(<=0)の場合は共通値を返します。
+    /// </summary>
+    public float GetEffectiveContactThreshold(float individualThreshold)
+    {
+        return (useIndividualContactThresholds && individualThreshold > 0f) ? individualThreshold : handContactThreshold;
+    }
+
+    /// <summary>
     /// 各部位のターゲット情報をリストにして返します（基底クラスのGizmo描画や判定に利用）。
     /// 頭 -> 左耳 -> 右耳 -> 前左 -> 前右 -> 後右 -> 後左 -> 尻尾 の順で定義します。
-    /// ※ 頭・耳・尻尾は接地判定 (disableWhenInAir) を適用しない特殊部位 (IsTail = true) として登録します。
+    /// ※ 接地判定 (disableWhenInAir) は足（4本）のみに適用し、頭・耳・尻尾は空中に浮いていても維持されます。
     /// </summary>
     public override List<HapticsTargetInfo> TargetInfos
     {
@@ -60,28 +88,28 @@ public class HAP_FoxBodyHapticsController : HAP_BaseObjectHapticsController
             var list = new List<HapticsTargetInfo>();
 
             if (headBone != null)
-                list.Add(new HapticsTargetInfo { Name = "Head", Transform = headBone, IsEnabled = enableHead, IsTail = true, Offset = Vector3.zero, TouchDirection = headTargetTouchDirection });
+                list.Add(new HapticsTargetInfo { Name = "Head", Transform = headBone, IsEnabled = enableHead, IsTail = true, ApplyAirborneCheck = false, Offset = Vector3.zero, TouchDirection = headTargetTouchDirection, HandContactThreshold = GetEffectiveContactThreshold(headContactThreshold) });
 
             if (leftEarBone != null)
-                list.Add(new HapticsTargetInfo { Name = "Left Ear", Transform = leftEarBone, IsEnabled = enableLeftEar, IsTail = true, Offset = Vector3.zero, TouchDirection = headTargetTouchDirection });
+                list.Add(new HapticsTargetInfo { Name = "Left Ear", Transform = leftEarBone, IsEnabled = enableLeftEar, IsTail = true, ApplyAirborneCheck = false, Offset = Vector3.zero, TouchDirection = headTargetTouchDirection, HandContactThreshold = GetEffectiveContactThreshold(leftEarContactThreshold) });
 
             if (rightEarBone != null)
-                list.Add(new HapticsTargetInfo { Name = "Right Ear", Transform = rightEarBone, IsEnabled = enableRightEar, IsTail = true, Offset = Vector3.zero, TouchDirection = headTargetTouchDirection });
+                list.Add(new HapticsTargetInfo { Name = "Right Ear", Transform = rightEarBone, IsEnabled = enableRightEar, IsTail = true, ApplyAirborneCheck = false, Offset = Vector3.zero, TouchDirection = headTargetTouchDirection, HandContactThreshold = GetEffectiveContactThreshold(rightEarContactThreshold) });
 
             if (frontLeftFoot != null)
-                list.Add(new HapticsTargetInfo { Name = "Front Left", Transform = frontLeftFoot, IsEnabled = enableFrontLeft, IsTail = false, Offset = Vector3.zero, TouchDirection = footTargetTouchDirection });
+                list.Add(new HapticsTargetInfo { Name = "Front Left", Transform = frontLeftFoot, IsEnabled = enableFrontLeft, IsTail = false, ApplyAirborneCheck = true, Offset = Vector3.zero, TouchDirection = footTargetTouchDirection, HandContactThreshold = GetEffectiveContactThreshold(frontLeftContactThreshold) });
 
             if (frontRightFoot != null)
-                list.Add(new HapticsTargetInfo { Name = "Front Right", Transform = frontRightFoot, IsEnabled = enableFrontRight, IsTail = false, Offset = Vector3.zero, TouchDirection = footTargetTouchDirection });
+                list.Add(new HapticsTargetInfo { Name = "Front Right", Transform = frontRightFoot, IsEnabled = enableFrontRight, IsTail = false, ApplyAirborneCheck = true, Offset = Vector3.zero, TouchDirection = footTargetTouchDirection, HandContactThreshold = GetEffectiveContactThreshold(frontRightContactThreshold) });
 
             if (backRightFoot != null)
-                list.Add(new HapticsTargetInfo { Name = "Back Right", Transform = backRightFoot, IsEnabled = enableBackRight, IsTail = false, Offset = Vector3.zero, TouchDirection = footTargetTouchDirection });
+                list.Add(new HapticsTargetInfo { Name = "Back Right", Transform = backRightFoot, IsEnabled = enableBackRight, IsTail = false, ApplyAirborneCheck = true, Offset = Vector3.zero, TouchDirection = footTargetTouchDirection, HandContactThreshold = GetEffectiveContactThreshold(backRightContactThreshold) });
 
             if (backLeftFoot != null)
-                list.Add(new HapticsTargetInfo { Name = "Back Left", Transform = backLeftFoot, IsEnabled = enableBackLeft, IsTail = false, Offset = Vector3.zero, TouchDirection = footTargetTouchDirection });
+                list.Add(new HapticsTargetInfo { Name = "Back Left", Transform = backLeftFoot, IsEnabled = enableBackLeft, IsTail = false, ApplyAirborneCheck = true, Offset = Vector3.zero, TouchDirection = footTargetTouchDirection, HandContactThreshold = GetEffectiveContactThreshold(backLeftContactThreshold) });
 
             if (tailBone != null)
-                list.Add(new HapticsTargetInfo { Name = "Tail", Transform = tailBone, IsEnabled = enableTail, IsTail = true, Offset = Vector3.zero, TouchDirection = footTargetTouchDirection });
+                list.Add(new HapticsTargetInfo { Name = "Tail", Transform = tailBone, IsEnabled = enableTail, IsTail = true, ApplyAirborneCheck = false, Offset = Vector3.zero, TouchDirection = footTargetTouchDirection, HandContactThreshold = GetEffectiveContactThreshold(tailContactThreshold) });
 
             return list;
         }

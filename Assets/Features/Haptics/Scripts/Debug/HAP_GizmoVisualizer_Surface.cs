@@ -121,7 +121,7 @@ public static partial class HAP_GizmoVisualizer
                     continue;
                 }
 
-                var groupForward = deviceGroups[g][0].transform.forward;
+                var groupForward = Features.Haptics.Hardware.HAP_DeviceOrientationHelper.GetAdjustedForward(deviceGroups[g][0]);
                 // デバイスが面の「外側」から「内側」に向かっている場合、groupForward と -worldNormal のなす角が小さくなる
                 float angle = Vector3.Angle(groupForward, -worldNormal);
                 if (angle <= directionalAngleThreshold)

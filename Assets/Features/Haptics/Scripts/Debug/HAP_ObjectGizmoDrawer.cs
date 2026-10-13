@@ -54,12 +54,13 @@ namespace Features.Haptics.Debug
 
             Vector3 pos = info.Transform.position + info.Offset;
             bool isEnabled = info.IsEnabled;
-            bool active = controller.IsTargetActive(info.Transform, isEnabled, info.IsTail);
+            float threshold = info.HandContactThreshold > 0f ? info.HandContactThreshold : controller.handContactThreshold;
+            bool active = controller.IsTargetActive(info);
             bool isGrounded = true;
 
             Transform? effectiveRoot = controller.GetEffectiveRootTransform(info.Transform);
 
-            if (!info.IsTail && controller.disableWhenInAir && effectiveRoot != null)
+            if (info.ShouldApplyAirborneCheck && controller.disableWhenInAir && effectiveRoot != null)
             {
                 float relHeight = pos.y - effectiveRoot.position.y;
                 if (relHeight > controller.airborneHeightThreshold)
@@ -82,7 +83,7 @@ namespace Features.Haptics.Debug
                     {
                         foreach (var c in clusters)
                         {
-                            if (c.IsAlive && Vector3.Distance(c.Centroid, pos) <= controller.handContactThreshold)
+                            if (c.IsAlive && Vector3.Distance(c.Centroid, pos) <= threshold)
                             {
                                 hasContact = true;
                                 break;
@@ -99,7 +100,7 @@ namespace Features.Haptics.Debug
             Color baseColor = isEnabled ? controller.activeColor : controller.inactiveColor;
 
             // 1. 接地判定（高さ判定）の可視化線を描画 (足のみ適用)
-            if (!info.IsTail && controller.disableWhenInAir && effectiveRoot != null)
+            if (info.ShouldApplyAirborneCheck && controller.disableWhenInAir && effectiveRoot != null)
             {
                 Vector3 groundPt = new Vector3(pos.x, effectiveRoot.position.y, pos.z);
                 Vector3 threshPt = new Vector3(pos.x, effectiveRoot.position.y + controller.airborneHeightThreshold, pos.z);
@@ -129,7 +130,7 @@ namespace Features.Haptics.Debug
             {
                 // 接触判定の許容球（接触中: 緑、未接触: 黄色ワイヤー球）を描画
                 Gizmos.color = active ? new Color(0f, 1f, 0f, 0.4f) : new Color(1f, 0.9f, 0f, 0.35f);
-                Gizmos.DrawWireSphere(pos, controller.handContactThreshold);
+                Gizmos.DrawWireSphere(pos, threshold);
 
                 HCD_Pipeline? pipeline = (controller.autdController != null) ? controller.autdController.hcdPipeline : null;
                 if (pipeline == null) pipeline = Object.FindAnyObjectByType<HCD_Pipeline>();
@@ -141,7 +142,7 @@ namespace Features.Haptics.Debug
                     {
                         foreach (var c in clusters)
                         {
-                            if (c.IsAlive && Vector3.Distance(c.Centroid, pos) <= controller.handContactThreshold)
+                            if (c.IsAlive && Vector3.Distance(c.Centroid, pos) <= threshold)
                             {
                                 Gizmos.color = controller.activeColor;
                                 Gizmos.DrawLine(pos, c.Centroid);

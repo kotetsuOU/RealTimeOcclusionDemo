@@ -123,6 +123,20 @@ namespace SICESI
         /// <summary>
         /// JSON から Transform 情報を復元・適用します。
         /// </summary>
+        /// <summary>
+        /// JSON から Transform 情報を復元・適用します (ConditionName の受け取りが不要な場合)。
+        /// </summary>
+        public static bool LoadAndApplySceneTransformsJson(
+            string jsonPath,
+            GameObject gtObj,
+            GameObject voObj,
+            Camera leftCam,
+            Camera rightCam,
+            Camera sceneCam)
+        {
+            return LoadAndApplySceneTransformsJson(jsonPath, gtObj, voObj, leftCam, rightCam, sceneCam, out _);
+        }
+
         public static bool LoadAndApplySceneTransformsJson(
             string jsonPath,
             GameObject gtObj,

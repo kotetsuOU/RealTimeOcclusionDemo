@@ -140,7 +140,7 @@ namespace SICESI
         /// <summary>
         /// 左右目線カメラの映像を指定ディレクトリに保存します。
         /// </summary>
-        public static void CaptureStereoViews(Camera leftCam, Camera rightCam, string targetDir, string filePrefix, bool applySRGB, bool bypassSRGBConversion = false)
+        public static void CaptureStereoViews(Camera leftCam, Camera rightCam, string targetDir, string filePrefix, bool applySRGB = false, bool bypassSRGBConversion = false)
         {
             string leftDir = Path.Combine(targetDir, "Left");
             string rightDir = Path.Combine(targetDir, "Right");

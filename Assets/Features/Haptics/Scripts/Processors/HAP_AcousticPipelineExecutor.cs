@@ -84,6 +84,12 @@ namespace Features.Haptics.Processors
 
                     if (hardwareController.Backend != null && hardwareController.Backend.IsConnected)
                     {
+                        if (_isCurrentlyOff)
+                        {
+                            // 出力停止状態からの復帰時: FPGAに確実に変調（StaticまたはSine）を再適用
+                            hardwareController.ApplyModulation();
+                        }
+
                         hardwareController.Backend.SendFoci(
                             clusterFociList,
                             hardwareController.ConnectedDevices,

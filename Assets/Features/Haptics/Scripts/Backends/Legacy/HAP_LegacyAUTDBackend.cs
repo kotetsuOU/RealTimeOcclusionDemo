@@ -54,9 +54,12 @@ namespace Features.Haptics.Backends.Legacy
         public Task OpenAsync(AUTDLinkType linkType, string soemAdapterName, IReadOnlyList<AUTD3Device> devices)
         {
             var orderedDevices = devices.OrderBy(obj => obj.ID).ToList();
-            var sdkDevices = orderedDevices.Select(obj => new AUTD3Sharp.AUTD3(pos: obj.transform.position, rot: obj.transform.rotation)).ToList();
+            var sdkDevices = orderedDevices.Select(obj => new AUTD3Sharp.AUTD3(
+                pos: obj.transform.position,
+                rot: Features.Haptics.Hardware.HAP_DeviceOrientationHelper.GetAdjustedRotation(obj)
+            )).ToList();
 
-            AppLogger.Log(null, HAP_LogTriggers.TagLinkService, $"[LegacyBackend] Connecting to AUTD3. Found {sdkDevices.Count} devices.");
+            AppLogger.Log(null, HAP_LogTriggers.TagLinkService, $"[LegacyBackend] Connecting to AUTD3. Found {sdkDevices.Count} devices (local Y-inversion applied uniformly).");
 
             try
             {

@@ -23,6 +23,7 @@ namespace SICESI
         public class PresetEntry
         {
             public string caseName;
+            public string folderName = "";
             public string jsonPath;
             public string timestamp;
             public PresetCategory category;
@@ -40,14 +41,17 @@ namespace SICESI
         public static string GetPresetsDirectory(string rootOutputDirectory, PresetCategory category)
             => SICESI_PresetRepository.GetPresetsDirectory(rootOutputDirectory, category);
 
+        public static List<string> GetExistingFolders(string rootOutputDirectory, PresetCategory category)
+            => SICESI_PresetRepository.GetExistingFolders(rootOutputDirectory, category);
+
         public static PresetCategory DetectCurrentCategory(SICESI_StereoEvaluationController controller, out string reason)
             => SICESI_PresetCategoryDetector.DetectCurrentCategory(controller, out reason);
 
         public static List<PresetEntry> LoadPresetEntries(string rootOutputDirectory, PresetCategory? filterCategory = null)
             => SICESI_PresetRepository.LoadPresetEntries(rootOutputDirectory, filterCategory);
 
-        public static bool SaveCurrentSceneAsPreset(SICESI_StereoEvaluationController controller, string caseName, PresetCategory category)
-            => SICESI_PresetRepository.SaveCurrentSceneAsPreset(controller, caseName, category);
+        public static bool SaveCurrentSceneAsPreset(SICESI_StereoEvaluationController controller, string caseName, PresetCategory category, string subFolder = "")
+            => SICESI_PresetRepository.SaveCurrentSceneAsPreset(controller, caseName, category, subFolder);
 
         public static bool ApplyPresetToScene(SICESI_StereoEvaluationController controller, string jsonPath)
             => SICESI_PresetSceneApplier.ApplyPresetToScene(controller, jsonPath);

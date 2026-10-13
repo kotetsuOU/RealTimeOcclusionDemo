@@ -47,7 +47,7 @@ namespace SICESI
                     _controller.occlusionPipelineController.minOccludedSectors = _controller.fixedMinOccludedSectors;
                 }
 
-                string unitSuffix = _controller.GetDensityUnitSuffix();
+                string unitSuffix = SICESI_EvaluationParamsHelper.GetDensityUnitSuffix(_controller.densityUnit);
                 for (int d = 0; d < _controller.sweepDensities.Length; d++)
                 {
                     float density = _controller.sweepDensities[d];

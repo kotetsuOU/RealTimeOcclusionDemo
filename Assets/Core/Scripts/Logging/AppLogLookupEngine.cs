@@ -41,6 +41,8 @@ namespace Core.Logging
                                     _objectLookup[entry.target] = entry;
                                 }
 
+                                AppLogger.RegisterContext(entry.target);
+
                                 if (!string.IsNullOrEmpty(entry.tag))
                                 {
                                     string key = GetTargetTagKey(entry.target, entry.tag);

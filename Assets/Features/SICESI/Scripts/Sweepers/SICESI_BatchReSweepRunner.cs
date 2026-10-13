@@ -102,6 +102,17 @@ namespace SICESI
         }
 
         /// <summary>
+        /// 選択された最適化用配置プリセット (JSON) 群の 8枚二値マスク収集＆最適化ルーチン。
+        /// 処理は <see cref="SICESI_OptimizationPresetRunner"/> に委譲されています。
+        /// </summary>
+        public IEnumerator RunOptimizationPresetsRoutine(
+            List<SICESI_PresetPoseManager.PresetEntry> presets,
+            bool autoRunPython = true)
+        {
+            return _controller.OptimizationPresetRunner.RunOptimizationPresetsRoutine(presets, autoRunPython);
+        }
+
+        /// <summary>
         /// scene_transforms.json からオブジェクト名を取得し、シーン内の GameObject を解決して Transform を適用します。
         /// </summary>
         private bool LoadAndResolveCaseScene(string jsonPath, string defaultCaseName)

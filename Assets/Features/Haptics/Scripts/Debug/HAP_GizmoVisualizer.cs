@@ -26,7 +26,9 @@ public static partial class HAP_GizmoVisualizer
             bool added = false;
             foreach (var group in deviceGroups)
             {
-                if (Vector3.Angle(group[0].transform.forward, device.transform.forward) < 1.0f)
+                Vector3 gForward = Features.Haptics.Hardware.HAP_DeviceOrientationHelper.GetAdjustedForward(group[0]);
+                Vector3 dForward = Features.Haptics.Hardware.HAP_DeviceOrientationHelper.GetAdjustedForward(device);
+                if (Vector3.Angle(gForward, dForward) < 1.0f)
                 {
                     group.Add(device);
                     added = true;

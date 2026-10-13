@@ -11,7 +11,11 @@ namespace SICESI.Editor
     public static class SICESI_PresetSaveSectionDrawer
     {
         private static string _newCaseName = "Case_1";
+        private static string _subFolderName = "";
         private static SICESI_PresetPoseManager.PresetCategory _selectedCategory = SICESI_PresetPoseManager.PresetCategory.Generalization;
+        private static GameObject _lastInspectedVo = null;
+        private static GameObject _lastInspectedHand = null;
+        private static bool _initialized = false;
 
         /// <summary>
         /// プリセット保存セクションを描画します。
@@ -29,6 +33,15 @@ namespace SICESI.Editor
 
             // 現在のオブジェクト認識状態を自動判定
             var detectedCategory = SICESI_PresetPoseManager.DetectCurrentCategory(controller, out string detectReason);
+
+            // 対象オブジェクトが変更された場合、または初回のみ自動判定カテゴリに同期
+            if (!_initialized || controller.virtualObject != _lastInspectedVo || controller.groundTruthObject != _lastInspectedHand)
+            {
+                _lastInspectedVo = controller.virtualObject;
+                _lastInspectedHand = controller.groundTruthObject;
+                _selectedCategory = detectedCategory;
+                _initialized = true;
+            }
 
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
             {
@@ -57,6 +70,11 @@ namespace SICESI.Editor
 
                 // 保存先カテゴリの選択 (自動判定結果を反映)
                 DrawCategorySelector(detectedCategory);
+
+                EditorGUILayout.Space(2);
+
+                // 保存先フォルダーの選択・入力
+                DrawFolderSelector(controller);
 
                 EditorGUILayout.Space(4);
 
@@ -212,12 +230,55 @@ namespace SICESI.Editor
                 {
                     _selectedCategory = (SICESI_PresetPoseManager.PresetCategory)newCatIndex;
                 }
-                else if (detectedCategory != _selectedCategory && Event.current.type == EventType.Layout)
+
+                if (_selectedCategory != detectedCategory)
                 {
-                    _selectedCategory = detectedCategory;
+                    if (GUILayout.Button("自動判定に戻す", EditorStyles.miniButton, GUILayout.Width(95)))
+                    {
+                        _selectedCategory = detectedCategory;
+                    }
                 }
             }
             EditorGUILayout.EndHorizontal();
+        }
+
+        private static void DrawFolderSelector(SICESI_StereoEvaluationController controller)
+        {
+            EditorGUILayout.BeginHorizontal();
+            {
+                EditorGUILayout.LabelField("フォルダー:", GUILayout.Width(70));
+                string displayFolder = string.IsNullOrEmpty(_subFolderName) ? "" : _subFolderName;
+                string newFolder = EditorGUILayout.TextField(displayFolder);
+                if (newFolder != displayFolder)
+                {
+                    _subFolderName = newFolder.Trim();
+                }
+
+                var existingFolders = SICESI_PresetPoseManager.GetExistingFolders(controller.outputDirectory, _selectedCategory);
+                if (existingFolders != null && existingFolders.Count > 0)
+                {
+                    if (GUILayout.Button("📁 既存選択", EditorStyles.miniButton, GUILayout.Width(75)))
+                    {
+                        var menu = new GenericMenu();
+                        foreach (var folder in existingFolders)
+                        {
+                            string f = folder;
+                            bool isSelected = (f == "(ルート)" && string.IsNullOrEmpty(_subFolderName)) || (_subFolderName == f);
+                            menu.AddItem(new GUIContent(f), isSelected, () =>
+                            {
+                                _subFolderName = (f == "(ルート)") ? "" : f;
+                            });
+                        }
+                        menu.ShowAsContext();
+                    }
+                }
+            }
+            EditorGUILayout.EndHorizontal();
+
+            string folderHint = string.IsNullOrEmpty(_subFolderName)
+                ? "💡 未入力時はルート (直下) に保存されます"
+                : $"💡 保存先サブフォルダー: [{_subFolderName}]";
+            EditorGUILayout.LabelField(folderHint, EditorStyles.wordWrappedMiniLabel);
         }
 
         private static void DrawSaveButton(SICESI_StereoEvaluationController controller)
@@ -240,9 +301,10 @@ namespace SICESI.Editor
 
                 if (GUILayout.Button(saveBtnText, GUILayout.Width(170), GUILayout.Height(26)))
                 {
-                    if (SICESI_PresetPoseManager.SaveCurrentSceneAsPreset(controller, _newCaseName, _selectedCategory))
+                    if (SICESI_PresetPoseManager.SaveCurrentSceneAsPreset(controller, _newCaseName, _selectedCategory, _subFolderName))
                     {
-                        EditorUtility.DisplayDialog("保存完了", $"[{_selectedCategory}] 配置プリセット [{_newCaseName}] を保存しました。\nVO: {curVoName}\nHand: {curHandName}", "OK");
+                        string folderInfo = string.IsNullOrEmpty(_subFolderName) ? "" : $"フォルダー: {_subFolderName}\n";
+                        EditorUtility.DisplayDialog("保存完了", $"[{_selectedCategory}] 配置プリセット [{_newCaseName}] を保存しました。\n{folderInfo}VO: {curVoName}\nHand: {curHandName}", "OK");
 
                         if (_newCaseName.StartsWith("Case_") && int.TryParse(_newCaseName.Substring(5), out int num))
                         {

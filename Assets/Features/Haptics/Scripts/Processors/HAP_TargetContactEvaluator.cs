@@ -12,19 +12,74 @@ namespace Features.Haptics.Processors
     public static class HAP_TargetContactEvaluator
     {
         /// <summary>
+        /// 指定されたターゲット情報が現在ハプティクス照射可能なアクティブ状態であるかどうかを判定します。
+        /// </summary>
+        public static bool IsTargetActive(
+            HAP_BaseObjectHapticsController controller,
+            HapticsTargetInfo info)
+        {
+            if (controller == null || info.Transform == null) return false;
+            if (!info.IsEnabled) return false;
+
+            // 1. 接地判定（空中判定。足などの空中判定対象パーツのみ適用）
+            if (info.ShouldApplyAirborneCheck && controller.disableWhenInAir)
+            {
+                Transform? effectiveRoot = GetEffectiveRootTransform(controller, info.Transform);
+                if (effectiveRoot != null)
+                {
+                    Vector3 pos = info.Transform.position + info.Offset;
+                    float relHeight = pos.y - effectiveRoot.position.y;
+                    if (relHeight > controller.airborneHeightThreshold) return false;
+                }
+            }
+
+            // 2. 手との近接接触判定（個別しきい値が設定されていればそれを優先、なければ共通しきい値を使用）
+            if (controller.onlyTargetHandContact)
+            {
+                float threshold = info.HandContactThreshold > 0f ? info.HandContactThreshold : controller.handContactThreshold;
+                bool hasContact = false;
+                HCD_Pipeline? pipeline = (controller.autdController != null) ? controller.autdController.hcdPipeline : null;
+                if (pipeline == null) pipeline = HCD_Pipeline.Instance ?? Object.FindAnyObjectByType<HCD_Pipeline>();
+
+                if (pipeline != null)
+                {
+                    var clusters = pipeline.GetTrackedClusters();
+                    if (clusters != null)
+                    {
+                        Vector3 pos = info.Transform.position + info.Offset;
+                        foreach (var c in clusters)
+                        {
+                            if (c.IsAlive && Vector3.Distance(c.Centroid, pos) <= threshold)
+                            {
+                                hasContact = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (!hasContact) return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
         /// 指定されたターゲットが現在ハプティクス照射可能なアクティブ状態であるかどうかを判定します。
         /// </summary>
         public static bool IsTargetActive(
             HAP_BaseObjectHapticsController controller,
             Transform? targetTransform,
             bool isEnabled,
-            bool isTail)
+            bool isTail,
+            float customContactThreshold = -1f,
+            bool? applyAirborneCheck = null)
         {
             if (controller == null || targetTransform == null) return false;
             if (!isEnabled) return false;
 
-            // 1. 接地判定（空中判定。足などの非Tailパーツのみ適用）
-            if (!isTail && controller.disableWhenInAir)
+            // 1. 接地判定（空中判定。足などの非Tailパーツまたは明示的に空中判定が有効なパーツのみ適用）
+            bool shouldCheckAirborne = applyAirborneCheck ?? !isTail;
+            if (shouldCheckAirborne && controller.disableWhenInAir)
             {
                 Transform? effectiveRoot = GetEffectiveRootTransform(controller, targetTransform);
                 if (effectiveRoot != null)
@@ -34,9 +89,10 @@ namespace Features.Haptics.Processors
                 }
             }
 
-            // 2. 手との近接接触判定
+            // 2. 手との近接接触判定（個別しきい値指定があれば優先）
             if (controller.onlyTargetHandContact)
             {
+                float threshold = customContactThreshold > 0f ? customContactThreshold : controller.handContactThreshold;
                 bool hasContact = false;
                 HCD_Pipeline? pipeline = (controller.autdController != null) ? controller.autdController.hcdPipeline : null;
                 if (pipeline == null) pipeline = HCD_Pipeline.Instance ?? Object.FindAnyObjectByType<HCD_Pipeline>();
@@ -48,7 +104,7 @@ namespace Features.Haptics.Processors
                     {
                         foreach (var c in clusters)
                         {
-                            if (c.IsAlive && Vector3.Distance(c.Centroid, targetTransform.position) <= controller.handContactThreshold)
+                            if (c.IsAlive && Vector3.Distance(c.Centroid, targetTransform.position) <= threshold)
                             {
                                 hasContact = true;
                                 break;

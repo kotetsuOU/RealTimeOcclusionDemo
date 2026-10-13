@@ -25,6 +25,7 @@ Assets/Features/Haptics/Scripts/
 ├── Hardware/
 │   ├── HAP_AUTDHardwareController.cs  # 通信リンク・物理接続管理
 │   ├── HAP_AUTDTransformLoader.cs     # 配置JSON保存/読込・プレハブ生成
+│   ├── HAP_DeviceOrientationHelper.cs # 物理照射面ローカル反転整合ヘルパー
 │   └── AUTD3Device.cs                 # 単一アレイデバイス定義
 ├── Processors/
 │   ├── HAP_TargetSourceDispatcher.cs  # 触覚ターゲット抽出
@@ -87,6 +88,7 @@ graph TD
 2. **「📐 Placement」タブ**:
    * `デバイス GameObject を生成` ボタンを押下して、必要な数の `Autd0`, `Autd1`... プレハブをシーンに展開します。
    * 配置調整後、`シーン配置を JSON に保存` ボタンを押下することで位置・回転を保存できます。
+   * デバイスの物理照射面（メッシュとの幾何定義）は、[`HAP_DeviceOrientationHelper`](file:///c:/Users/hongo/Documents/tsutsumi/RealTimeOcclusion/Assets/Features/Haptics/Scripts/Hardware/HAP_DeviceOrientationHelper.cs) により実行時に自動的にローカル Y 軸 180° 反転補正されるため、Scene ビュー上の見た目や Transform 設定をそのまま維持して利用できます。
 3. **「⚙️ General」タブ**:
    * `sourceMode` を `AutoHCD`（手指接触検出）または `ObjectTarget`（仮想オブジェクト部位）に設定します。
 4. **「🔊 Acoustics」タブ**:

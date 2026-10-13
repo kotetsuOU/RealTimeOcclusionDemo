@@ -30,8 +30,8 @@ namespace SICESI
             string conditionRootDir = _controller.ConditionRootDir;
             string sweepRootDir = Path.Combine(conditionRootDir, "Pattern256MaskSweep");
             Directory.CreateDirectory(sweepRootDir);
-            _controller.SaveSceneTransformsJson(sweepRootDir);
-            _controller.SaveSceneTransformsJson(conditionRootDir);
+            SICESI_SceneMetadataSerializer.SaveSceneTransformsJson(sweepRootDir, _controller.conditionName, _controller.groundTruthObject, _controller.virtualObject, _controller.leftEyeCamera, _controller.rightEyeCamera, _controller.sceneCaptureCamera);
+            SICESI_SceneMetadataSerializer.SaveSceneTransformsJson(conditionRootDir, _controller.conditionName, _controller.groundTruthObject, _controller.virtualObject, _controller.leftEyeCamera, _controller.rightEyeCamera, _controller.sceneCaptureCamera);
 
             AppLogger.Log("SICESI", $"=== 256占有パターン単独二値マスク 密度スイープ開始: {sweepRootDir} ===");
 
@@ -55,7 +55,7 @@ namespace SICESI
                 PCDRendererFeature.Instance.settings.enableSoftOcclusionFade = false;
             }
 
-            var voBackup = _controller.SetVirtualObjectUnlitWhiteState(true);
+            var voBackup = _controller.MaterialSwapper.SetVirtualObjectUnlitWhiteState(_controller.virtualObject, _controller.renderVirtualObjectAsUnlitWhite);
             try
             {
                 // Step 0: 仮想物体単独シルエット
@@ -68,12 +68,12 @@ namespace SICESI
                 yield return new WaitForEndOfFrame();
 
                 string gtDir = Path.Combine(sweepRootDir, "GT");
-                _controller.CaptureStereoViews(gtDir, "vo_silhouette");
+                SICESI_ScreenCaptureUtil.CaptureStereoViews(_controller.leftEyeCamera, _controller.rightEyeCamera, gtDir, "vo_silhouette", _controller.applySRGBConversion);
 
                 string commonGtDir = Path.Combine(_controller.outputDirectory, "GT");
                 if (commonGtDir != gtDir)
                 {
-                    _controller.CaptureStereoViews(commonGtDir, "vo_silhouette");
+                    SICESI_ScreenCaptureUtil.CaptureStereoViews(_controller.leftEyeCamera, _controller.rightEyeCamera, commonGtDir, "vo_silhouette", _controller.applySRGBConversion);
                 }
 
                 if (_controller.groundTruthObject != null) _controller.groundTruthObject.SetActive(prevGtActive);
@@ -81,19 +81,19 @@ namespace SICESI
 
                 // Step 1: Ground Truth 撮影
                 _collector.statusMessage = "Capturing Ground Truth for 256-Pattern Sweep...";
-                var backup = _controller.SetGroundTruthState(true);
+                var backup = _controller.MaterialSwapper.SetGroundTruthState(_controller.groundTruthObject, _controller.groundTruthCaptureLayer, _controller.renderGroundTruthAsBlack);
                 if (_controller.pointCloudObject != null) _controller.pointCloudObject.SetActive(false);
 
                 for (int i = 0; i < 3; i++) yield return null;
                 yield return new WaitForEndOfFrame();
 
-                _controller.CaptureStereoViews(gtDir, "gt");
+                SICESI_ScreenCaptureUtil.CaptureStereoViews(_controller.leftEyeCamera, _controller.rightEyeCamera, gtDir, "gt", _controller.applySRGBConversion);
                 if (commonGtDir != gtDir)
                 {
-                    _controller.CaptureStereoViews(commonGtDir, "gt");
+                    SICESI_ScreenCaptureUtil.CaptureStereoViews(_controller.leftEyeCamera, _controller.rightEyeCamera, commonGtDir, "gt", _controller.applySRGBConversion);
                 }
 
-                _controller.RestoreGroundTruthState(backup);
+                _controller.MaterialSwapper.RestoreGroundTruthState(backup);
                 AppLogger.Log("SICESI", $"[1/2] Ground Truth 撮影完了: {gtDir}");
 
                 // Step 2: 点群表示 & 密度ループ
@@ -151,7 +151,7 @@ namespace SICESI
                         SetDebugPatternId(-1);
                         yield return null;
                         yield return new WaitForEndOfFrame();
-                        _controller.CaptureStereoViews(targetDir, $"test_{densityStr}");
+                        SICESI_ScreenCaptureUtil.CaptureStereoViews(_controller.leftEyeCamera, _controller.rightEyeCamera, targetDir, $"test_{densityStr}", _controller.applySRGBConversion);
 
                         // 2. 256パターン単独二値マスクの順次撮影
                         int[] patterns = _collector.targetPatterns;
@@ -173,7 +173,7 @@ namespace SICESI
                             yield return null;
                             yield return new WaitForEndOfFrame();
 
-                            _controller.CaptureStereoViews(masksDir, $"pattern_{pattern:D3}");
+                            SICESI_ScreenCaptureUtil.CaptureStereoViews(_controller.leftEyeCamera, _controller.rightEyeCamera, masksDir, $"pattern_{pattern:D3}", _controller.applySRGBConversion);
                         }
                     }
 
@@ -189,7 +189,7 @@ namespace SICESI
             }
             finally
             {
-                _controller.RestoreVirtualObjectState(voBackup);
+                _controller.MaterialSwapper.RestoreVirtualObjectState(voBackup);
                 SetDebugPatternId(prevDebugPatternId);
                 if (_controller.occlusionPipelineController != null)
                 {

@@ -72,5 +72,80 @@ namespace SICESI
             if (_controller.isCapturing) return;
             _controller.StartCoroutine(_controller.SnapshotRunner.CaptureSceneViewRoutine());
         }
+
+        public void RunBatchReSweep(string parentDirectory = "")
+        {
+            if (_controller.isCapturing) return;
+            if (string.IsNullOrEmpty(parentDirectory))
+            {
+                parentDirectory = System.IO.Path.Combine(_controller.outputDirectory, _controller.casesParentFolder);
+            }
+            _controller.StartCoroutine(_controller.BatchReSweepRunner.RunBatchReSweepRoutine(parentDirectory));
+        }
+
+        public void RunGeneralizationBenchmark()
+        {
+            if (_controller.isCapturing) return;
+            _controller.StartCoroutine(_controller.GeneralizationRunner.RunGeneralizationBenchmarkRoutine());
+        }
+
+        public void RunPresetBenchmark(System.Collections.Generic.List<SICESI_PresetPoseManager.PresetEntry> presets)
+        {
+            if (_controller.isCapturing) return;
+            _controller.StartCoroutine(_controller.GeneralizationRunner.RunBenchmarkFromPresetsRoutine(presets));
+        }
+
+        public void RunOptimizationPresets(System.Collections.Generic.List<SICESI_PresetPoseManager.PresetEntry> presets, bool autoRunPython = true)
+        {
+            if (_controller.isCapturing) return;
+            _controller.StartCoroutine(_controller.OptimizationPresetRunner.RunOptimizationPresetsRoutine(presets, autoRunPython));
+        }
+
+        public void RunPythonOptimization(
+            string datasetRoot = null,
+            string outputDir = null,
+            string pythonPath = "python",
+            bool skipDiffMaps = true,
+            bool forceRegenerate = false,
+            SICESI_OptimizationResult.ObjectiveType objective = SICESI_OptimizationResult.ObjectiveType.MeanIoUMaximized,
+            bool autoApplyToPipeline = true)
+        {
+            if (string.IsNullOrEmpty(datasetRoot))
+            {
+                if (!string.IsNullOrEmpty(_controller.outputDirectory) && !string.IsNullOrEmpty(_controller.casesParentFolder) &&
+                    System.IO.Directory.Exists(System.IO.Path.Combine(_controller.outputDirectory, _controller.casesParentFolder)))
+                {
+                    datasetRoot = System.IO.Path.Combine(_controller.outputDirectory, _controller.casesParentFolder);
+                }
+                else
+                {
+                    datasetRoot = !string.IsNullOrEmpty(_controller.outputDirectory)
+                        ? _controller.outputDirectory
+                        : System.IO.Path.GetFullPath(System.IO.Path.Combine(Application.dataPath, "..", "..", "Estimation", "SICESI_Dataset"));
+                }
+            }
+
+            if (string.IsNullOrEmpty(outputDir))
+            {
+                outputDir = System.IO.Path.Combine(datasetRoot, "RuleOptimizationResults");
+            }
+
+            AppLogger.Log(_controller, $"[RunPythonOptimization] 最適化を実行します。\n  対象データセット: {datasetRoot}\n  結果出力先: {outputDir}", SICESI_StereoEvaluationController.TagCore);
+
+            _controller.StartCoroutine(_controller.PythonOptimizationRunner.RunOptimizationRoutine(
+                datasetRoot,
+                outputDir,
+                pythonPath,
+                skipDiffMaps,
+                forceRegenerate,
+                objective,
+                (success, result) =>
+                {
+                    if (success && autoApplyToPipeline && result != null)
+                    {
+                        SICESI_OptimizationApplier.ApplyAll(_controller.occlusionPipelineController, result);
+                    }
+                }));
+        }
     }
 }

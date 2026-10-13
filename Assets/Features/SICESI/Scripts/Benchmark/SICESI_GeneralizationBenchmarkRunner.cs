@@ -21,6 +21,8 @@ namespace SICESI
 
         public bool isRunning { get; private set; } = false;
         public string statusMessage { get; private set; } = "Ready";
+        public Dictionary<string, SICESI_MethodMetricsAccumulator> lastMethodAverages { get; private set; } = null;
+        public string lastAverageSummaryText { get; private set; } = "";
 
         public SICESI_GeneralizationBenchmarkRunner(SICESI_StereoEvaluationController controller)
         {
@@ -63,6 +65,8 @@ namespace SICESI
             Directory.CreateDirectory(baseOutputDir);
             string csvPath = Path.Combine(baseOutputDir, "generalization_benchmark_summary.csv");
             SICESI_BenchmarkReporter.InitializeCsvHeader(csvPath);
+
+            var accumulators = new Dictionary<string, SICESI_MethodMetricsAccumulator>();
 
             AppLogger.Log(_controller, $"=== [GeneralizationBenchmark] 追加実験開始 (VO: {voList.Count}種 × Hand: {handList.Count}種) ===", SICESI_StereoEvaluationController.TagCore);
 
@@ -117,7 +121,7 @@ namespace SICESI
                         }
 
                         // 3. 5手法のスイープ評価 & IoU 計測
-                        yield return ExecuteMethodsSweepRoutine(pairSubDir, csvPath, curVo.name, curHand.name, gtLeftTex, gtRightTex);
+                        yield return ExecuteMethodsSweepRoutine(pairSubDir, csvPath, curVo.name, curHand.name, gtLeftTex, gtRightTex, accumulators);
 
                         Object.DestroyImmediate(gtLeftTex);
                         Object.DestroyImmediate(gtRightTex);
@@ -129,11 +133,20 @@ namespace SICESI
                 }
             }
 
+            // 4. 全体5手法平均値の集計・CSV追記・サマリー出力
+            SICESI_BenchmarkReporter.AppendOverallAverageSummary(csvPath, accumulators);
+            string avgCsvPath = Path.Combine(baseOutputDir, "generalization_benchmark_overall_average.csv");
+            SICESI_BenchmarkReporter.SaveOverallAverageCsv(avgCsvPath, accumulators);
+
+            lastMethodAverages = accumulators;
+            lastAverageSummaryText = SICESI_BenchmarkReporter.FormatOverallAverageSummaryString(accumulators);
+            AppLogger.Log(_controller, lastAverageSummaryText, SICESI_StereoEvaluationController.TagCore);
+
             isRunning = false;
             _controller.isCapturing = false;
             statusMessage = "Generalization Benchmark Completed!";
             _controller.statusMessage = statusMessage;
-            AppLogger.Log(_controller, $"=== [GeneralizationBenchmark] 全実験が完了しました！サマリー: {csvPath} ===", SICESI_StereoEvaluationController.TagCore);
+            AppLogger.Log(_controller, $"=== [GeneralizationBenchmark] 全実験が完了しました！サマリー: {csvPath} (平均CSV: {avgCsvPath}) ===", SICESI_StereoEvaluationController.TagCore);
         }
 
         /// <summary>
@@ -160,6 +173,8 @@ namespace SICESI
             Directory.CreateDirectory(baseOutputDir);
             string csvPath = Path.Combine(baseOutputDir, "preset_benchmark_summary.csv");
             SICESI_BenchmarkReporter.InitializeCsvHeader(csvPath);
+
+            var accumulators = new Dictionary<string, SICESI_MethodMetricsAccumulator>();
 
             AppLogger.Log(_controller, $"=== [GeneralizationBenchmark] プリセット一括ベンチマーク開始 (全 {presets.Count} 件) ===", SICESI_StereoEvaluationController.TagCore);
 
@@ -205,7 +220,7 @@ namespace SICESI
                     }
 
                     // 3. 5手法のスイープ評価 & IoU 計測
-                    yield return ExecuteMethodsSweepRoutine(caseSubDir, csvPath, preset.virtualObjectName, preset.handMeshName, gtLeftTex, gtRightTex, preset.caseName);
+                    yield return ExecuteMethodsSweepRoutine(caseSubDir, csvPath, preset.virtualObjectName, preset.handMeshName, gtLeftTex, gtRightTex, accumulators, preset.caseName);
 
                     Object.DestroyImmediate(gtLeftTex);
                     Object.DestroyImmediate(gtRightTex);
@@ -216,11 +231,20 @@ namespace SICESI
                 }
             }
 
+            // 4. 全体5手法平均値の集計・CSV追記・サマリー出力
+            SICESI_BenchmarkReporter.AppendOverallAverageSummary(csvPath, accumulators);
+            string avgCsvPath = Path.Combine(baseOutputDir, "preset_benchmark_overall_average.csv");
+            SICESI_BenchmarkReporter.SaveOverallAverageCsv(avgCsvPath, accumulators);
+
+            lastMethodAverages = accumulators;
+            lastAverageSummaryText = SICESI_BenchmarkReporter.FormatOverallAverageSummaryString(accumulators);
+            AppLogger.Log(_controller, lastAverageSummaryText, SICESI_StereoEvaluationController.TagCore);
+
             isRunning = false;
             _controller.isCapturing = false;
             statusMessage = "Preset Benchmark Completed!";
             _controller.statusMessage = statusMessage;
-            AppLogger.Log(_controller, $"=== [GeneralizationBenchmark] プリセット一括ベンチマーク完了！サマリー: {csvPath} ===", SICESI_StereoEvaluationController.TagCore);
+            AppLogger.Log(_controller, $"=== [GeneralizationBenchmark] プリセット一括ベンチマーク完了！サマリー: {csvPath} (平均CSV: {avgCsvPath}) ===", SICESI_StereoEvaluationController.TagCore);
         }
 
         private IEnumerator ExecuteMethodsSweepRoutine(
@@ -230,6 +254,7 @@ namespace SICESI
             string handName,
             Texture2D gtLeftTex,
             Texture2D gtRightTex,
+            Dictionary<string, SICESI_MethodMetricsAccumulator> accumulators,
             string logPrefix = "")
         {
             var evaluationMethods = SICESI_BenchmarkMethodRegistry.GetEvaluationMethods();
@@ -273,19 +298,19 @@ namespace SICESI
                         for (int w = 0; w < _controller.waitFramesAfterDensityChange + 2; w++) yield return null;
                         yield return new WaitForEndOfFrame();
 
-                        string methodDirName = $"Density_{density:F1}{_controller.GetDensityUnitSuffix()}_{method.methodName}";
+                        string methodDirName = $"Density_{density:F1}{SICESI_EvaluationParamsHelper.GetDensityUnitSuffix(_controller.densityUnit)}_{method.methodName}";
                         string testDir = Path.Combine(parentSubDir, methodDirName);
                         Directory.CreateDirectory(testDir);
 
                         // 前回実行の残存画像を誤って読み込まないよう、撮影前に削除する
-                        SICESI_BenchmarkReporter.DeleteStereoImages(testDir, "test");
+                        SICESI_BenchmarkImageIO.DeleteStereoImages(testDir, "test");
 
                         SICESI_ScreenCaptureUtil.CaptureStereoViews(
                             _controller.leftEyeCamera, _controller.rightEyeCamera, testDir, "test", _controller.applySRGBConversion);
 
                         yield return new WaitForSeconds(0.15f);
 
-                        var (testLeftTex, testRightTex) = SICESI_BenchmarkReporter.LoadStereoTextures(testDir, "test");
+                        var (testLeftTex, testRightTex) = SICESI_BenchmarkImageIO.LoadStereoTextures(testDir, "test");
 
                         if (testLeftTex != null && testRightTex != null)
                         {
@@ -293,11 +318,22 @@ namespace SICESI
                             var rightMetrics = SICESI_IoUCalculator.Calculate(gtRightTex, testRightTex);
                             var stereoMetrics = SICESI_IoUCalculator.StereoMetricsResult.FromStereo(leftMetrics, rightMetrics);
 
+                            // 5手法の全体平均用アキュムレータに集計
+                            if (accumulators != null)
+                            {
+                                if (!accumulators.TryGetValue(method.methodName, out var acc))
+                                {
+                                    acc = new SICESI_MethodMetricsAccumulator(method.methodName);
+                                    accumulators[method.methodName] = acc;
+                                }
+                                acc.Add(stereoMetrics);
+                            }
+
                             string tag = string.IsNullOrEmpty(logPrefix) ? method.methodName : $"{logPrefix} | {method.methodName}";
                             AppLogger.Log(_controller, $"[{tag}] Density={density:F1} IoU: {stereoMetrics.meanIoU:P2} (L: {leftMetrics.iou:P2}, R: {rightMetrics.iou:P2}) L-FP(遮蔽漏れ): {leftMetrics.fpPixels}, L-FN(過剰遮蔽): {leftMetrics.fnPixels}", SICESI_StereoEvaluationController.TagMaskSweep);
 
                             SICESI_BenchmarkReporter.AppendCsvRecord(csvPath, voName, handName, density, method.methodName, stereoMetrics);
-                            SICESI_BenchmarkReporter.SaveDiffImage(gtLeftTex, testLeftTex, Path.Combine(testDir, "diff_left.png"));
+                            SICESI_BenchmarkImageIO.SaveDiffImage(gtLeftTex, testLeftTex, Path.Combine(testDir, "diff_left.png"));
 
                             Object.DestroyImmediate(testLeftTex);
                             Object.DestroyImmediate(testRightTex);

@@ -31,8 +31,8 @@ namespace SICESI
             string conditionRootDir = _controller.ConditionRootDir;
             string sweepRootDir = Path.Combine(conditionRootDir, "Sector8MaskSweep");
             Directory.CreateDirectory(sweepRootDir);
-            _controller.SaveSceneTransformsJson(sweepRootDir);
-            _controller.SaveSceneTransformsJson(conditionRootDir);
+            SICESI_SceneMetadataSerializer.SaveSceneTransformsJson(sweepRootDir, _controller.conditionName, _controller.groundTruthObject, _controller.virtualObject, _controller.leftEyeCamera, _controller.rightEyeCamera, _controller.sceneCaptureCamera);
+            SICESI_SceneMetadataSerializer.SaveSceneTransformsJson(conditionRootDir, _controller.conditionName, _controller.groundTruthObject, _controller.virtualObject, _controller.leftEyeCamera, _controller.rightEyeCamera, _controller.sceneCaptureCamera);
 
             AppLogger.Log("SICESI", $"=== 8セクター二値マスク 密度スイープ開始: {sweepRootDir} ===");
 
@@ -68,7 +68,7 @@ namespace SICESI
                 PCDRendererFeature.Instance.settings.holeFillingMethod = PCDRendererFeature.PCD_HoleFillingMethod.None;
             }
 
-            var voBackup = _controller.SetVirtualObjectUnlitWhiteState(true);
+            var voBackup = _controller.MaterialSwapper.SetVirtualObjectUnlitWhiteState(_controller.virtualObject, _controller.renderVirtualObjectAsUnlitWhite);
             try
             {
                 // Step 0: 仮想物体単独シルエット
@@ -81,12 +81,12 @@ namespace SICESI
                 yield return new WaitForEndOfFrame();
 
                 string gtDir = Path.Combine(sweepRootDir, "GT");
-                _controller.CaptureStereoViews(gtDir, "vo_silhouette");
+                SICESI_ScreenCaptureUtil.CaptureStereoViews(_controller.leftEyeCamera, _controller.rightEyeCamera, gtDir, "vo_silhouette", _controller.applySRGBConversion);
 
                 string commonGtDir = Path.Combine(_controller.outputDirectory, "GT");
                 if (commonGtDir != gtDir)
                 {
-                    _controller.CaptureStereoViews(commonGtDir, "vo_silhouette");
+                    SICESI_ScreenCaptureUtil.CaptureStereoViews(_controller.leftEyeCamera, _controller.rightEyeCamera, commonGtDir, "vo_silhouette", _controller.applySRGBConversion);
                 }
 
                 if (_controller.groundTruthObject != null) _controller.groundTruthObject.SetActive(prevGtActive);
@@ -94,19 +94,19 @@ namespace SICESI
 
                 // Step 1: Ground Truth 撮影
                 _collector.statusMessage = "Capturing Ground Truth for Mask Sweep...";
-                var backup = _controller.SetGroundTruthState(true);
+                var backup = _controller.MaterialSwapper.SetGroundTruthState(_controller.groundTruthObject, _controller.groundTruthCaptureLayer, _controller.renderGroundTruthAsBlack);
                 if (_controller.pointCloudObject != null) _controller.pointCloudObject.SetActive(false);
 
                 for (int i = 0; i < 3; i++) yield return null;
                 yield return new WaitForEndOfFrame();
 
-                _controller.CaptureStereoViews(gtDir, "gt");
+                SICESI_ScreenCaptureUtil.CaptureStereoViews(_controller.leftEyeCamera, _controller.rightEyeCamera, gtDir, "gt", _controller.applySRGBConversion);
                 if (commonGtDir != gtDir)
                 {
-                    _controller.CaptureStereoViews(commonGtDir, "gt");
+                    SICESI_ScreenCaptureUtil.CaptureStereoViews(_controller.leftEyeCamera, _controller.rightEyeCamera, commonGtDir, "gt", _controller.applySRGBConversion);
                 }
 
-                _controller.RestoreGroundTruthState(backup);
+                _controller.MaterialSwapper.RestoreGroundTruthState(backup);
                 AppLogger.Log("SICESI", $"[1/2] Ground Truth 撮影完了: {gtDir}");
 
                 // Step 2: 点群表示 & 密度ループ
@@ -165,14 +165,14 @@ namespace SICESI
                         SetDebugSectorId(10);
                         yield return null;
                         yield return new WaitForEndOfFrame();
-                        _controller.CaptureStereoViews(targetDir, "point_mask", bypassSRGBConversion: true);
+                        SICESI_ScreenCaptureUtil.CaptureStereoViews(_controller.leftEyeCamera, _controller.rightEyeCamera, targetDir, "point_mask", _controller.applySRGBConversion, bypassSRGBConversion: true);
 
                         // 1. 通常テスト画像
                         SetDebugSectorId(-1);
                         SetDebugPatternId(-1);
                         yield return null;
                         yield return new WaitForEndOfFrame();
-                        _controller.CaptureStereoViews(targetDir, $"test_{densityStr}");
+                        SICESI_ScreenCaptureUtil.CaptureStereoViews(_controller.leftEyeCamera, _controller.rightEyeCamera, targetDir, $"test_{densityStr}", _controller.applySRGBConversion);
 
                         // 2. 8セクター二値マスク
                         for (int s = 0; s < 8; s++)
@@ -181,7 +181,7 @@ namespace SICESI
                             SetDebugSectorId(s);
                             yield return null;
                             yield return new WaitForEndOfFrame();
-                            _controller.CaptureStereoViews(targetDir, $"sector_{s}_mask");
+                            SICESI_ScreenCaptureUtil.CaptureStereoViews(_controller.leftEyeCamera, _controller.rightEyeCamera, targetDir, $"sector_{s}_mask", _controller.applySRGBConversion);
                         }
 
                         // 3. 統合 8bit パターンマスク
@@ -189,14 +189,14 @@ namespace SICESI
                         SetDebugSectorId(8);
                         yield return null;
                         yield return new WaitForEndOfFrame();
-                        _controller.CaptureStereoViews(targetDir, "sector_mask", bypassSRGBConversion: true);
+                        SICESI_ScreenCaptureUtil.CaptureStereoViews(_controller.leftEyeCamera, _controller.rightEyeCamera, targetDir, "sector_mask", _controller.applySRGBConversion, bypassSRGBConversion: true);
 
                         // 4. GPU 実遮蔽判定マスク
                         _collector.statusMessage = $"Density {densityStr} | GPU Occluded Truth Mask";
                         SetDebugSectorId(9);
                         yield return null;
                         yield return new WaitForEndOfFrame();
-                        _controller.CaptureStereoViews(targetDir, "gpu_occluded_mask");
+                        SICESI_ScreenCaptureUtil.CaptureStereoViews(_controller.leftEyeCamera, _controller.rightEyeCamera, targetDir, "gpu_occluded_mask", _controller.applySRGBConversion);
                     }
 
                     SetDebugSectorId(-1);
@@ -211,7 +211,7 @@ namespace SICESI
             }
             finally
             {
-                _controller.RestoreVirtualObjectState(voBackup);
+                _controller.MaterialSwapper.RestoreVirtualObjectState(voBackup);
                 Time.timeScale = prevTimeScale;
                 SetDebugSectorId(prevDebugSectorId);
                 SetDebugPatternId(prevDebugPatternId);

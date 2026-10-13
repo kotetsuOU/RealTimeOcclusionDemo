@@ -18,7 +18,7 @@ namespace SICESI.Editor
             {
                 EditorGUILayout.LabelField("🌟 SICE 2026 提案手法: 連続非占有セクタースイープ", EditorStyles.boldLabel);
 
-                var pairs = controller.GetValidConsecutivePairs();
+                var pairs = SICESI_ConsecutivePairEvaluator.GenerateValidPairs(controller.sweepSectors, controller.sweepMaxConsecutiveZeros, controller.skipRedundantConditions);
                 int densityMultiplier = controller.sweepDensitiesAcrossConsecutive && controller.sweepDensities != null ? controller.sweepDensities.Length : 1;
                 int totalConditions = pairs.Count * densityMultiplier;
                 string btnLabel = $"🚀 連続非占有スイープ実行 ({pairs.Count}条件 × {densityMultiplier}密度: 計{totalConditions}組)";
@@ -35,7 +35,7 @@ namespace SICESI.Editor
                         $"保存先: {savePath}\n\n自動一括撮影を開始しますか？",
                         "開始", "キャンセル"))
                     {
-                        controller.RunConsecutiveSectorSweep();
+                        controller.Dispatcher.RunConsecutiveSectorSweep();
                     }
                 }
                 GUI.backgroundColor = Color.white;
@@ -67,7 +67,7 @@ namespace SICESI.Editor
                         $"保存先: {savePath}\n\n自動一括撮影を開始しますか？",
                         "開始", "キャンセル"))
                     {
-                        controller.RunSectorSweep();
+                        controller.Dispatcher.RunSectorSweep();
                     }
                 }
                 GUI.backgroundColor = Color.white;
@@ -95,7 +95,7 @@ namespace SICESI.Editor
                         $"保存先: {savePath}\n\n自動一括撮影を開始しますか？",
                         "開始", "キャンセル"))
                     {
-                        controller.RunDensitySweep();
+                        controller.Dispatcher.RunDensitySweep();
                     }
                 }
                 GUI.backgroundColor = Color.white;
@@ -133,7 +133,7 @@ namespace SICESI.Editor
                         $"保存先: {savePath}\n\n自動一括撮影を開始しますか？",
                         "開始", "キャンセル"))
                     {
-                        controller.RunDensityOcclusionThresholdSweep();
+                        controller.Dispatcher.RunDensityOcclusionThresholdSweep();
                     }
                 }
                 GUI.backgroundColor = Color.white;

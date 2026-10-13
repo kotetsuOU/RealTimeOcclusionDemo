@@ -11,8 +11,23 @@ using Core.Logging;
 /// </summary>
 [HelpURL("https://github.com/IntelRealSense/librealsense/tree/master/wrappers/unity")]
 [AppLoggable("RealSense (Device)")]
-public class RsDevice : RsFrameProvider
+public class RsDevice : RsFrameProvider, ILogContextProvider
 {
+    /// <summary>
+    /// バックグラウンドスレッド等から安全に参照できるログ用プレフィックス
+    /// </summary>
+    public string LogPrefix
+    {
+        get
+        {
+            if (string.IsNullOrEmpty(m_deviceName) && AppLogger.IsMainThread)
+            {
+                try { m_deviceName = gameObject.name; } catch { }
+            }
+            return !string.IsNullOrEmpty(m_deviceName) ? $"RsDevice: {m_deviceName}" : "RsDevice";
+        }
+    }
+
     /// <summary>
     /// The parallelism mode of the module
     /// </summary>
@@ -101,9 +116,13 @@ public class RsDevice : RsFrameProvider
     [Tooltip("リトライ間隔（秒）")]
     public float retryIntervalSeconds = 1f;
 
-    void OnEnable()
+    void Awake()
     {
         m_deviceName = gameObject.name;
+    }
+
+    void OnEnable()
+    {
         frameCount = 0;
         StartCoroutine(StartWithRetry());
     }

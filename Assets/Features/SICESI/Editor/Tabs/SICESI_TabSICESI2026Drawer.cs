@@ -75,7 +75,7 @@ namespace SICESI.Editor
                         $"一括再実験を開始しますか？",
                         "開始", "キャンセル"))
                     {
-                        controller.RunBatchReSweep(targetScanDir);
+                        controller.Dispatcher.RunBatchReSweep(targetScanDir);
                     }
                 }
                 GUI.backgroundColor = Color.white;
@@ -87,7 +87,12 @@ namespace SICESI.Editor
 
             EditorGUILayout.Space(8);
 
-            // 3. スナップショット・日常撮影
+            // 3. 【最適化 & 自動置換】Python 256パターンLUT等の数理最適化実行 & パイプライン自動置換
+            SICESI_OptimizationSectionDrawer.Draw(controller, canExecute);
+
+            EditorGUILayout.Space(8);
+
+            // 4. スナップショット・個別撮影
             EditorGUILayout.LabelField("📸 スナップショット・個別撮影", EditorStyles.boldLabel);
 
             GUI.enabled = canExecute;
@@ -96,14 +101,14 @@ namespace SICESI.Editor
             GUI.backgroundColor = new Color(0.6f, 0.9f, 0.6f);
             if (GUILayout.Button("📸 Ground Truth (手メッシュ遮蔽) の左右画像を撮影", GUILayout.Height(32)))
             {
-                controller.CaptureGroundTruth();
+                controller.Dispatcher.CaptureGroundTruth();
             }
 
             // 現在条件の単発撮影
             GUI.backgroundColor = new Color(0.7f, 0.85f, 1.0f);
             if (GUILayout.Button($"📸 現在の条件 ({controller.conditionName}) で左右画像を撮影", GUILayout.Height(30)))
             {
-                controller.CaptureCurrentCondition();
+                controller.Dispatcher.CaptureCurrentCondition();
             }
 
             // シーン全体撮影
@@ -115,7 +120,7 @@ namespace SICESI.Editor
                     : "📸 シーン保存カメラで現在の様子を撮影 (scene_overview.png)";
                 if (GUILayout.Button(sceneBtnLabel, GUILayout.Height(28)))
                 {
-                    controller.CaptureSceneOverview();
+                    controller.Dispatcher.CaptureSceneOverview();
                 }
             }
 

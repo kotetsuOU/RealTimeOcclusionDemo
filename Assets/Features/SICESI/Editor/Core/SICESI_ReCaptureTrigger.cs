@@ -67,7 +67,7 @@ public class SICESI_ReCaptureTrigger : AssetPostprocessor
             controller.sweepDensities = new float[] { 0.25f };
 
             string jsonPath = Path.Combine(controller.outputDirectory, "1", "scene_transforms.json");
-            controller.LoadAndApplySceneTransformsJson(jsonPath);
+            SICESI_SceneMetadataSerializer.LoadAndApplySceneTransformsJson(jsonPath, controller.groundTruthObject, controller.virtualObject, controller.leftEyeCamera, controller.rightEyeCamera, controller.sceneCaptureCamera);
 
             var collector = controller.GetComponent<SICESI_SectorMaskCollector>();
             if (collector == null) collector = controller.gameObject.AddComponent<SICESI_SectorMaskCollector>();

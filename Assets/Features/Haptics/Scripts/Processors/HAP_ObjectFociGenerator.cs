@@ -28,7 +28,7 @@ public static class HAP_ObjectFociGenerator
             var activeCandidates = new List<HapticsTargetInfo>();
             foreach (var info in controller.TargetInfos)
             {
-                if (info.Transform != null && controller.IsTargetActive(info.Transform, info.IsEnabled, info.IsTail))
+                if (info.Transform != null && controller.IsTargetActive(info))
                 {
                     activeCandidates.Add(info);
                 }
@@ -65,7 +65,7 @@ public static class HAP_ObjectFociGenerator
             foreach (var info in controller.TargetInfos)
             {
                 if (info.Transform == null) continue;
-                if (!controller.IsTargetActive(info.Transform, info.IsEnabled, info.IsTail)) continue;
+                if (!controller.IsTargetActive(info)) continue;
 
                 Vector3 pos = info.Transform.position;
                 TrackedCluster dummyCluster = new TrackedCluster

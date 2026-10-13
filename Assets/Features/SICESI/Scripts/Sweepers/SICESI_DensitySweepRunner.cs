@@ -45,7 +45,7 @@ namespace SICESI
                 if (_controller.pointCloudObject != null) _controller.pointCloudObject.SetActive(true);
 
                 // Step 3: 各密度で順次撮影
-                string unitSuffix = _controller.GetDensityUnitSuffix();
+                string unitSuffix = SICESI_EvaluationParamsHelper.GetDensityUnitSuffix(_controller.densityUnit);
                 for (int i = 0; i < _controller.sweepDensities.Length; i++)
                 {
                     float density = _controller.sweepDensities[i];

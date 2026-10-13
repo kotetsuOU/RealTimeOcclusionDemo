@@ -68,12 +68,14 @@ namespace Features.Haptics.Backends.Current
                 using var frames = builder.Build();
                 foreach (var frame in frames)
                 {
-                    await client.SendCheckedAsync(frame);
+                    await client.SendCheckedAsync(frame).ConfigureAwait(false);
                 }
 
                 _prevModMode = mode;
                 _prevSineFreq = sineFreq;
                 _prevStaticAmp = staticAmp;
+
+                AppLogger.Log(null, HAP_LogTriggers.TagModulationService, $"[CurrentBackend] Applied Modulation: Mode={mode}, SineFreq={sineFreq}Hz, StaticAmp={staticAmp:F2}");
             }
             catch (Exception ex)
             {
@@ -109,7 +111,7 @@ namespace Features.Haptics.Backends.Current
                 using var frames = builder.Build();
                 foreach (var frame in frames)
                 {
-                    await client.SendCheckedAsync(frame);
+                    await client.SendCheckedAsync(frame).ConfigureAwait(false);
                 }
 
                 _prevSilencerMode = mode;
@@ -137,7 +139,7 @@ namespace Features.Haptics.Backends.Current
                 using var frames = builder.Build();
                 foreach (var frame in frames)
                 {
-                    await client.SendCheckedAsync(frame);
+                    await client.SendCheckedAsync(frame).ConfigureAwait(false);
                 }
 
                 _prevFanState = enableFan;
@@ -164,8 +166,11 @@ namespace Features.Haptics.Backends.Current
                 using var frames = builder.Build();
                 foreach (var frame in frames)
                 {
-                    await client.SendCheckedAsync(frame);
+                    await client.SendCheckedAsync(frame).ConfigureAwait(false);
                 }
+
+                // 出力停止後、再開時に確実に Modulation を FPGA へ再適用させるためにキャッシュをリセット
+                ResetModulationCache();
             }
             catch (Exception ex)
             {
@@ -186,7 +191,7 @@ namespace Features.Haptics.Backends.Current
                 using var frames = builder.Build();
                 foreach (var frame in frames)
                 {
-                    await client.SendCheckedAsync(frame);
+                    await client.SendCheckedAsync(frame).ConfigureAwait(false);
                 }
                 _prevSilencerMode = SilencerMode.Disabled;
             }
@@ -209,7 +214,7 @@ namespace Features.Haptics.Backends.Current
                 using var frames = builder.Build();
                 foreach (var frame in frames)
                 {
-                    await client.SendCheckedAsync(frame);
+                    await client.SendCheckedAsync(frame).ConfigureAwait(false);
                 }
                 _prevFanState = false;
             }
@@ -224,13 +229,21 @@ namespace Features.Haptics.Backends.Current
         /// </summary>
         public void ResetCachedStates()
         {
-            _prevModMode = (ModulationMode)(-1);
-            _prevSineFreq = -1f;
-            _prevStaticAmp = -1f;
+            ResetModulationCache();
             _prevSilencerMode = (SilencerMode)(-1);
             _prevSilStepPhase = 0;
             _prevSilStepAmp = 0;
             _prevFanState = false;
+        }
+
+        /// <summary>
+        /// Modulation（変調）のキャッシュのみをリセットし、次回送信時に確実に再適用させます。
+        /// </summary>
+        public void ResetModulationCache()
+        {
+            _prevModMode = (ModulationMode)(-1);
+            _prevSineFreq = -1f;
+            _prevStaticAmp = -1f;
         }
     }
 }

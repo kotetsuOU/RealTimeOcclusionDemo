@@ -34,8 +34,8 @@ namespace SICESI
             string conditionRootDir = _controller.ConditionRootDir;
             string sweepRootDir = Path.Combine(conditionRootDir, "SectorMaskSweep");
             Directory.CreateDirectory(sweepRootDir);
-            _controller.SaveSceneTransformsJson(sweepRootDir);
-            _controller.SaveSceneTransformsJson(conditionRootDir);
+            SICESI_SceneMetadataSerializer.SaveSceneTransformsJson(sweepRootDir, _controller.conditionName, _controller.groundTruthObject, _controller.virtualObject, _controller.leftEyeCamera, _controller.rightEyeCamera, _controller.sceneCaptureCamera);
+            SICESI_SceneMetadataSerializer.SaveSceneTransformsJson(conditionRootDir, _controller.conditionName, _controller.groundTruthObject, _controller.virtualObject, _controller.leftEyeCamera, _controller.rightEyeCamera, _controller.sceneCaptureCamera);
 
             AppLogger.Log("SICESI", $"=== 占有セクターマスク 密度スイープ開始: {sweepRootDir} ===");
 
@@ -57,7 +57,7 @@ namespace SICESI
                 PCDRendererFeature.Instance.settings.enableSoftOcclusionFade = false;
             }
 
-            var voBackup = _controller.SetVirtualObjectUnlitWhiteState(true);
+            var voBackup = _controller.MaterialSwapper.SetVirtualObjectUnlitWhiteState(_controller.virtualObject, _controller.renderVirtualObjectAsUnlitWhite);
             try
             {
                 _collector.statusMessage = "Capturing Virtual Object Silhouette...";
@@ -69,30 +69,30 @@ namespace SICESI
                 yield return new WaitForEndOfFrame();
 
                 string gtDir = Path.Combine(sweepRootDir, "GT");
-                _controller.CaptureStereoViews(gtDir, "vo_silhouette");
+                SICESI_ScreenCaptureUtil.CaptureStereoViews(_controller.leftEyeCamera, _controller.rightEyeCamera, gtDir, "vo_silhouette", _controller.applySRGBConversion);
 
                 string commonGtDir = Path.Combine(_controller.outputDirectory, "GT");
                 if (commonGtDir != gtDir)
                 {
-                    _controller.CaptureStereoViews(commonGtDir, "vo_silhouette");
+                    SICESI_ScreenCaptureUtil.CaptureStereoViews(_controller.leftEyeCamera, _controller.rightEyeCamera, commonGtDir, "vo_silhouette", _controller.applySRGBConversion);
                 }
 
                 if (_controller.groundTruthObject != null) _controller.groundTruthObject.SetActive(prevGtActive);
 
                 _collector.statusMessage = "Capturing Ground Truth for SectorMask Sweep...";
-                var backup = _controller.SetGroundTruthState(true);
+                var backup = _controller.MaterialSwapper.SetGroundTruthState(_controller.groundTruthObject, _controller.groundTruthCaptureLayer, _controller.renderGroundTruthAsBlack);
                 if (_controller.pointCloudObject != null) _controller.pointCloudObject.SetActive(false);
 
                 for (int i = 0; i < 3; i++) yield return null;
                 yield return new WaitForEndOfFrame();
 
-                _controller.CaptureStereoViews(gtDir, "gt");
+                SICESI_ScreenCaptureUtil.CaptureStereoViews(_controller.leftEyeCamera, _controller.rightEyeCamera, gtDir, "gt", _controller.applySRGBConversion);
                 if (commonGtDir != gtDir)
                 {
-                    _controller.CaptureStereoViews(commonGtDir, "gt");
+                    SICESI_ScreenCaptureUtil.CaptureStereoViews(_controller.leftEyeCamera, _controller.rightEyeCamera, commonGtDir, "gt", _controller.applySRGBConversion);
                 }
 
-                _controller.RestoreGroundTruthState(backup);
+                _controller.MaterialSwapper.RestoreGroundTruthState(backup);
 
                 if (_controller.pointCloudObject != null) _controller.pointCloudObject.SetActive(true);
 
@@ -144,7 +144,7 @@ namespace SICESI
                             _controller.rightEyeCamera,
                             targetDir,
                             densityStr,
-                            (cam, path) => _controller.SaveCameraView(cam, path)
+                            (cam, path) => SICESI_ScreenCaptureUtil.SaveCameraView(cam, path, _controller.applySRGBConversion)
                         )
                     );
 
@@ -157,7 +157,7 @@ namespace SICESI
             }
             finally
             {
-                _controller.RestoreVirtualObjectState(voBackup);
+                _controller.MaterialSwapper.RestoreVirtualObjectState(voBackup);
                 Time.timeScale = prevTimeScale;
                 if (_controller.occlusionPipelineController != null)
                 {

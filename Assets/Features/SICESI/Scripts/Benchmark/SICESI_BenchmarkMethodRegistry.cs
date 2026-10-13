@@ -19,10 +19,26 @@ namespace SICESI
         }
 
         /// <summary>
+        /// 現在有効な動的最適化パラメータ。設定されている場合はデフォルトの固定値の代わりにこれが使用されます。
+        /// </summary>
+        public static SICESI_OptimizationResult ActiveOptimizedParameters { get; set; } = null;
+
+        /// <summary>
         /// ベンチマーク評価対象となる 5 手法の一覧設定を取得します。
+        /// 最適化パラメータが設定されている場合は、動的に最適解が反映されます。
         /// </summary>
         public static List<MethodConfig> GetEvaluationMethods()
         {
+            int r8 = ActiveOptimizedParameters != null ? ActiveOptimizedParameters.mode8ThresholdR : 7;
+            int r20 = ActiveOptimizedParameters != null ? ActiveOptimizedParameters.mode20ThresholdR : 4;
+            int l20 = ActiveOptimizedParameters != null ? ActiveOptimizedParameters.mode20MaxConsecutiveEmptyL : 1;
+            string hex36 = ActiveOptimizedParameters != null && !string.IsNullOrEmpty(ActiveOptimizedParameters.mode36Hex)
+                ? ActiveOptimizedParameters.mode36Hex
+                : PCDOcclusionPipelineController.DEFAULT_HEX_36;
+            string hex256 = ActiveOptimizedParameters != null && !string.IsNullOrEmpty(ActiveOptimizedParameters.mode256Hex)
+                ? ActiveOptimizedParameters.mode256Hex
+                : PCDOcclusionPipelineController.DEFAULT_HEX_256;
+
             return new List<MethodConfig>
             {
                 new MethodConfig
@@ -35,18 +51,18 @@ namespace SICESI
                 },
                 new MethodConfig
                 {
-                    methodName = "Mode_8 (SectorThreshold_R7)",
+                    methodName = $"Mode_8 (SectorThreshold_R{r8})",
                     mode = PCDRendererFeature.PCD_OcclusionEvaluationMode.SectorThreshold,
-                    minSectors = 7,
+                    minSectors = r8,
                     maxConsecutiveZeros = 8,
                     customLutHex = ""
                 },
                 new MethodConfig
                 {
-                    methodName = "Mode_20 (Consecutive_R4_L1)",
+                    methodName = $"Mode_20 (Consecutive_R{r20}_L{l20})",
                     mode = PCDRendererFeature.PCD_OcclusionEvaluationMode.SectorConsecutiveZeros,
-                    minSectors = 4,
-                    maxConsecutiveZeros = 1,
+                    minSectors = r20,
+                    maxConsecutiveZeros = l20,
                     customLutHex = ""
                 },
                 new MethodConfig
@@ -55,7 +71,7 @@ namespace SICESI
                     mode = PCDRendererFeature.PCD_OcclusionEvaluationMode.RotationLUT36,
                     minSectors = 1,
                     maxConsecutiveZeros = 8,
-                    customLutHex = PCDOcclusionPipelineController.DEFAULT_HEX_36
+                    customLutHex = hex36
                 },
                 new MethodConfig
                 {
@@ -63,7 +79,7 @@ namespace SICESI
                     mode = PCDRendererFeature.PCD_OcclusionEvaluationMode.PatternLUT256,
                     minSectors = 1,
                     maxConsecutiveZeros = 8,
-                    customLutHex = PCDOcclusionPipelineController.DEFAULT_HEX_256
+                    customLutHex = hex256
                 }
             };
         }

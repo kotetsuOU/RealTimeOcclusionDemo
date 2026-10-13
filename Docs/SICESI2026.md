@@ -52,16 +52,22 @@ Assets/Features/SICESI/
 │   ├── pattern_VO.csv                # 全48条件合算 256パターンの V, O 画素数テーブル
 │   └── figures/                      # 論文・報告書用図表データ
 ├── Editor/
-│   ├── SICESI_StereoEvaluationEditor.cs # Inspector タブ構成統括エディタ
-│   ├── SICESI_ReCaptureTrigger.cs       # 再撮影用トリガー
-│   └── Tabs/                            # 【責務分離】Inspector タブ描画クラス群
-│       ├── SICESI_TabGeneralizationDrawer.cs # 汎化ベンチマーク (ペア全探索) タブ
-│       ├── SICESI_TabPresetsDrawer.cs        # 配置プリセット管理 & 一括ベンチマークタブ
-│       ├── SICESI_TabSweepsDrawer.cs         # 各種スイープ撮影 (密度・セクター・マスク) タブ
-│       ├── SICESI_TabCaptureDrawer.cs        # 単発撮影・GT撮影・俯瞰撮影タブ
-│       ├── SICESI_TabDatasetConfigDrawer.cs  # データセット仮想オブジェクト・手設定タブ
-│       ├── SICESI_TabSettingsDrawer.cs       # カメラ・ディレクトリ・パイプライン設定タブ
-│       └── SICESI_PresetSaveSectionDrawer.cs # シーン配置プリセット JSON 保存セクション
+│   ├── Core/                         # 【統括】Inspector エディタ & 再撮影トリガー
+│   │   ├── SICESI_StereoEvaluationEditor.cs
+│   │   └── SICESI_ReCaptureTrigger.cs
+│   ├── Tabs/                         # 【タブ基盤】Inspector タブ描画クラス群
+│   │   ├── SICESI_TabAdditionalExperimentsDrawer.cs # 追加実験・汎化ベンチマーク統合タブ
+│   │   ├── SICESI_TabSICESI2026Drawer.cs            # メイン実験 (SICE SI 2026) タブ
+│   │   ├── SICESI_TabSweepsDrawer.cs                # 各種スイープ撮影 (密度・セクター・マスク) タブ
+│   │   └── SICESI_TabSettingsDrawer.cs              # カメラ・ディレクトリ・パイプライン設定タブ
+│   ├── Presets/                      # 【配置プリセット】プリセット保存・一覧・選択管理
+│   │   ├── SICESI_PresetExecutionActionDrawer.cs    # プリセット実行アクション
+│   │   ├── SICESI_PresetListSectionDrawer.cs        # プリセット一覧・シーン復元
+│   │   ├── SICESI_PresetSaveSectionDrawer.cs        # シーン配置プリセット JSON 保存
+│   │   └── SICESI_PresetSelectionManager.cs         # プリセット個別ON/OFF選択 & 開閉永続化
+│   └── Optimization/                 # 【最適化】Python 最適化実行 & パイプライン自動置換
+│       ├── SICESI_OptimizationActionDrawer.cs       # 最適化実行アクションボタン
+│       └── SICESI_OptimizationSectionDrawer.cs      # 最適化パラメータ設定・置換セクション
 ├── Python/                           # Python 解析・最適化・可視化スイート
 │   ├── sicesi_core/                  # 【共通コアパッケージ】
 │   │   ├── constants.py              # 配色定義 (TP/TN/FN/FP), 二値化閾値 (128)
@@ -84,41 +90,51 @@ Assets/Features/SICESI/
 │   ├── make_pattern_figure_data.py   # 【図表】論文用 LaTeX 表・グラフ用データ抽出
 │   └── evaluate_whole_vo.py          # 【研究用】評価領域全体でのパターン別集計
 └── Scripts/
-    ├── AdditionalExperiments/        # 【新規】汎化ベンチマーク & 配置プリセット統合基盤
-    │   ├── SICESI_EvaluationDatasetConfig.cs     # 3-Objects & 汎化セット構成定義
-    │   ├── SICESI_PresetPoseManager.cs           # 配置プリセット走査・管理・エントリ抽出
-    │   ├── SICESI_PresetSceneApplier.cs          # プリセットJSONのシーンオブジェクト適用
+    ├── Core/                         # 【基盤 Context & ロケーター】
+    │   ├── SICESI_StereoEvaluationController.cs   # シーン設定・ランナー保持 Context (純粋Context化)
+    │   ├── SICESI_SectorMaskCollector.cs          # マスク収集コンポーネント
+    │   └── SICESI_SceneComponentLocator.cs        # カメラ・オブジェクトの自動検出ロケーター
+    ├── Benchmark/                    # 【ベンチマーク & 汎化評価】
     │   ├── SICESI_GeneralizationBenchmarkRunner.cs # 汎化&プリセットベンチマーク実行 (Unlit維持)
+    │   ├── SICESI_BenchmarkMethodRegistry.cs     # 5手法設定レジストリ (動的最適化値反映対応)
+    │   ├── SICESI_BenchmarkReporter.cs           # サマリーCSV出力 (5条件平均値集計対応)
     │   ├── SICESI_BenchmarkGroundTruthCapturer.cs # 最終出力GT撮影制御 (手黒化+点群オフ)
-    │   ├── SICESI_BenchmarkMethodRegistry.cs     # 5手法設定レジストリ (Average, 8, 20, 36, 256)
-    │   ├── SICESI_BenchmarkReporter.cs           # サマリーCSV出力 & ステレオテクスチャ解決
+    │   ├── SICESI_BenchmarkImageIO.cs            # ベンチマーク画像I/O & 残存画像削除
+    │   ├── SICESI_MethodMetricsAccumulator.cs    # 手法別メトリクス累積 & 平均値計算
     │   ├── SICESI_IoUCalculator.cs               # ステレオ画像 IoU・過剰遮蔽・遮蔽漏れ高速計算
+    │   ├── SICESI_EvaluationDatasetConfig.cs     # 3-Objects & 汎化セット構成定義
     │   └── SICESI_DatasetSyncService.cs          # シーンとデータセット構成の自動同期
-    ├── Capture/
-    │   ├── SICESI_MaterialSwapper.cs         # GT・仮想物体のマテリアル/Layer 一時変更・復元
-    │   ├── SICESI_SceneOverviewCapturer.cs   # 通常URP俯瞰・ステレオ配置撮影 & JSON保存
-    │   ├── SICESI_SceneMetadataSerializer.cs # Transform & 評価パラメータのJSONシリアライズ・保存・復元
-    │   ├── SICESI_ScreenCaptureUtil.cs       # カメラPNG保存・URP直接レンダリング・ステレオ視点保存
-    │   ├── SICESI_CameraPoseLock.cs          # カメラ姿勢(Pos/Rot/Proj)固定ヘルパー (IDisposable)
-    │   └── SICESI_GpuMaskReadbackHandler.cs  # GPU AsyncReadback & マスクデータ保存
-    ├── Sweepers/
-    │   ├── SICESI_EvaluationDispatcher.cs    # スイープ実行バリデーション・Coroutine起動ディスパッチャ
-    │   ├── SICESI_SnapshotRunner.cs          # GT撮影・単発撮影・シーン俯瞰撮影
-    │   ├── SICESI_StereoSweepRunner.cs       # パラメータ探索コーディネーター (Facade)
-    │   ├── SICESI_DensitySweepRunner.cs      # 点群密度スイープ
-    │   ├── SICESI_SectorSweepRunner.cs       # セクター閾値スイープ (Average比較含む)
-    │   ├── SICESI_ConsecutiveSweepRunner.cs  # 連続非占有スイープ (20代表条件)
-    │   ├── SICESI_ThresholdSweepRunner.cs    # 密度×オクルージョン閾値スイープ
-    │   ├── SICESI_SectorMaskSweepRunner.cs   # セクターマスク収集コーディネーター (Facade)
-    │   ├── SICESI_Sector8MaskSweepRunner.cs  # 8セクター画面保存マスクスイープ
-    │   ├── SICESI_SectorMaskDensityRunner.cs # 全密度GPU Readbackマスクスイープ
-    │   └── SICESI_Pattern256SweepRunner.cs   # 256パターンLUT網羅スイープ
-    ├── Utils/
-    │   ├── SICESI_ConsecutivePairEvaluator.cs # 連続非占有の幾何学的重複判定・ペア生成
-    │   ├── SICESI_EvaluationParamsHelper.cs  # 密度単位サフィックス変換・ヘルパー
-    │   └── SICESI_SceneComponentLocator.cs    # カメラ・オブジェクトの自動検出ロケーター
-    ├── SICESI_StereoEvaluationController.cs   # メインコントローラー (Facade)
-    └── SICESI_SectorMaskCollector.cs          # マスク収集コントローラー (Facade)
+    ├── Presets/                      # 【配置プリセット管理】
+    │   ├── SICESI_PresetPoseManager.cs           # 配置プリセット走査・管理・エントリ抽出
+    │   ├── SICESI_PresetRepository.cs            # プリセットJSON永続化・フォルダー探索
+    │   ├── SICESI_PresetSceneApplier.cs          # プリセットJSONのシーンオブジェクト適用
+    │   └── SICESI_PresetCategoryDetector.cs      # カテゴリ自動判定
+    ├── Sweepers/                     # 【各種スイープ撮影ランナー群】
+    │   ├── SICESI_EvaluationDispatcher.cs        # スイープ実行バリデーション & 起動統括
+    │   ├── SICESI_StereoSweepRunner.cs           # パラメータ探索コーディネーター
+    │   ├── SICESI_BatchReSweepRunner.cs          # 一括再検証スイープ (平均値集計対応)
+    │   ├── SICESI_Sector8MaskSweepRunner.cs      # 8セクター画面保存マスクスイープ
+    │   ├── SICESI_Pattern256SweepRunner.cs       # 256パターンLUT網羅スイープ
+    │   ├── SICESI_SectorMaskDensityRunner.cs     # 全密度GPU Readbackマスクスイープ
+    │   ├── SICESI_DensitySweepRunner.cs          # 点群密度スイープ
+    │   ├── SICESI_SectorSweepRunner.cs           # セクター閾値スイープ (Average比較含む)
+    │   ├── SICESI_ConsecutiveSweepRunner.cs      # 連続非占有スイープ (20代表条件)
+    │   ├── SICESI_ThresholdSweepRunner.cs        # 密度×オクルージョン閾値スイープ
+    │   └── SICESI_SnapshotRunner.cs              # GT撮影・単発撮影・シーン俯瞰撮影
+    ├── Optimization/                 # 【Python 最適化連携 & パイプライン置換】
+    │   ├── SICESI_PythonOptimizationRunner.cs    # Python 最適化バックグラウンド非同期実行ランナー
+    │   ├── SICESI_OptimizationPresetRunner.cs    # プリセット最適化バッチ実行
+    │   ├── SICESI_OptimizationApplier.cs         # パイプライン & レジストリへのパラメータ自動置換
+    │   └── SICESI_OptimizationResult.cs          # 最適化パラメータデータモデル (JSON/CSV パース)
+    ├── Capture/                      # 【画像撮影 & メタデータ保存】
+    │   ├── SICESI_MaterialSwapper.cs             # GT・仮想物体のマテリアル/Layer 一時変更・復元
+    │   ├── SICESI_ScreenCaptureUtil.cs           # カメラPNG保存・URP直接レンダリング・ステレオ視点保存
+    │   ├── SICESI_SceneMetadataSerializer.cs     # Transform & 評価パラメータのJSONシリアライズ・保存・復元
+    │   ├── SICESI_CameraPoseLock.cs              # カメラ姿勢(Pos/Rot/Proj)固定ヘルパー (IDisposable)
+    │   └── SICESI_AsyncTextureReadbackHandler.cs # GPU AsyncReadback & マスクデータ保存
+    └── Params/                       # 【パラメータ & 幾何計算 Pure C#】
+        ├── SICESI_EvaluationParamsHelper.cs      # 密度単位サフィックス変換・ヘルパー
+        └── SICESI_ConsecutivePairEvaluator.cs    # 連続非占有の幾何学的重複判定・ペア生成
 ```
 
 ### 2.2 クラス相関図 & データ連携図
@@ -138,41 +154,53 @@ classDiagram
         +RsDummyPointCloudProvider dummyPointCloudProvider
         +RsMaterialController materialController
         +PCDOcclusionPipelineController occlusionPipelineController
+        +SICESI_EvaluationDispatcher Dispatcher
         +SICESI_MaterialSwapper MaterialSwapper
         +SICESI_SnapshotRunner SnapshotRunner
         +SICESI_StereoSweepRunner StereoSweepRunner
+        +SICESI_GeneralizationBenchmarkRunner GeneralizationRunner
+        +SICESI_PythonOptimizationRunner PythonOptimizationRunner
+        +SICESI_OptimizationPresetRunner OptimizationPresetRunner
+        +FindCameras()
+        +FindDummyComponents()
+        +SyncDummyPointCloudWithGroundTruth()
+    }
+
+    class SICESI_EvaluationDispatcher {
         +CaptureGroundTruth()
         +CaptureCurrentCondition()
         +RunDensitySweep()
         +RunSectorSweep()
         +RunConsecutiveSectorSweep()
+        +RunDensityOcclusionThresholdSweep()
         +CaptureSceneOverview()
+        +RunBatchReSweep()
+        +RunGeneralizationBenchmark()
+        +RunPresetBenchmark()
+        +RunOptimizationPresets()
+        +RunPythonOptimization()
     }
 
-    class SICESI_SnapshotRunner {
-        +CaptureGroundTruthRoutine()
-        +CaptureCurrentConditionRoutine()
-        +CaptureSceneOverviewRoutine()
+    class SICESI_MaterialSwapper {
+        +SetGroundTruthState()
+        +RestoreGroundTruthState()
+        +SetVirtualObjectUnlitWhiteState()
+        +RestoreVirtualObjectState()
+        +SetGroundTruthSkinState()
+        +RestoreGroundTruthSkinState()
     }
 
-    class SICESI_SectorMaskCollector {
-        +SICESI_SectorMaskSweepRunner SectorMaskRunner
-        +SICESI_Pattern256SweepRunner Pattern256Runner
-        +RunSectorMaskDensitySweep()
-        +RunSector8MaskSweep()
-        +RunPattern256MaskSweep()
+    class SICESI_ScreenCaptureUtil {
+        +SaveCameraView()
+        +SaveCameraViewDirect()
+        +CaptureStereoViews()
+        +SaveEyeViewsForScene()
     }
 
-    class SICESI_StereoSweepRunner {
-        +DensitySweepRoutine()
-        +SectorSweepRoutine()
-        +ConsecutiveSectorSweepRoutine()
-        +DensityOcclusionThresholdSweepRoutine()
-    }
-
-    class SICESI_SectorMaskSweepRunner {
-        +Sector8MaskSweepRoutine()
-        +SectorMaskDensitySweepRoutine()
+    class SICESI_SceneMetadataSerializer {
+        +SaveSceneTransformsJson()
+        +LoadAndApplySceneTransformsJson()
+        +SaveEvaluationParamsJson()
     }
 
     class SICESI_GeneralizationBenchmarkRunner {
@@ -180,67 +208,48 @@ classDiagram
         +RunBenchmarkFromPresetsRoutine()
     }
 
-    class SICESI_SceneOverviewCapturer {
-        +CaptureSceneOverviewRoutine(controller, targetDir)
+    class SICESI_BenchmarkReporter {
+        +RecordEvaluationRow()
+        +FinalizeAndExportSummary()
     }
 
-    class SICESI_SceneMetadataSerializer {
-        +SaveSceneTransformsJson(targetDir, condition, objects...)
-        +LoadAndApplySceneTransformsJson(path, objects...)
-        +SaveEvaluationParamsJson(targetDir, condition, params...)
+    class SICESI_MethodMetricsAccumulator {
+        +Accumulate()
+        +ComputeAverages()
     }
 
-    class SICESI_ScreenCaptureUtil {
-        +SaveCameraView(camera, path, applySRGB)
-        +SaveCameraViewDirect(camera, path)
-        +CaptureStereoViews(leftCam, rightCam, targetDir, prefix, applySRGB)
-        +SaveEyeViewsForScene(leftCam, rightCam, sceneDir, applySRGB)
+    class SICESI_SectorMaskCollector {
+        +RunSectorMaskDensitySweep()
+        +RunSector8MaskSweep()
+        +RunPattern256MaskSweep()
     }
 
-    class SICESI_PresetPoseManager {
-        +LoadAvailablePresets()
-        +ApplyPresetToScene()
-    }
+    SICESI_StereoEvaluationController *-- SICESI_EvaluationDispatcher : コマンド起動委譲
+    SICESI_StereoEvaluationController *-- SICESI_MaterialSwapper : マテリアル管理保持
+    SICESI_StereoEvaluationController *-- SICESI_SnapshotRunner : 保持
+    SICESI_StereoEvaluationController *-- SICESI_StereoSweepRunner : 保持
+    SICESI_StereoEvaluationController *-- SICESI_GeneralizationBenchmarkRunner : 保持
+    SICESI_StereoEvaluationController *-- SICESI_PythonOptimizationRunner : 保持
+    SICESI_StereoEvaluationController *-- SICESI_OptimizationPresetRunner : 保持
 
-    class SICESI_BenchmarkMethodRegistry {
-        +GetEvaluationMethods()
-        +ApplyMethodSettings()
-    }
+    SICESI_EvaluationDispatcher ..> SICESI_SnapshotRunner : コルーチン起動
+    SICESI_EvaluationDispatcher ..> SICESI_StereoSweepRunner : コルーチン起動
+    SICESI_EvaluationDispatcher ..> SICESI_GeneralizationBenchmarkRunner : コルーチン起動
+    SICESI_EvaluationDispatcher ..> SICESI_PythonOptimizationRunner : 実行呼び出し
 
-    class SICESI_IoUCalculator {
-        +Calculate(gt, test, threshold) MetricsResult
-    }
+    SICESI_GeneralizationBenchmarkRunner ..> SICESI_MaterialSwapper : 白化・復元
+    SICESI_GeneralizationBenchmarkRunner ..> SICESI_ScreenCaptureUtil : キャプチャ
+    SICESI_GeneralizationBenchmarkRunner ..> SICESI_SceneMetadataSerializer : 姿勢保存
+    SICESI_GeneralizationBenchmarkRunner ..> SICESI_BenchmarkReporter : CSV出力 (平均値集計)
+    SICESI_BenchmarkReporter *-- SICESI_MethodMetricsAccumulator : 5条件平均値集計
 
-    SICESI_StereoEvaluationController *-- SICESI_MaterialSwapper : 委譲
-    SICESI_StereoEvaluationController *-- SICESI_SnapshotRunner : 委譲
-    SICESI_StereoEvaluationController *-- SICESI_StereoSweepRunner : 委譲
-    SICESI_StereoEvaluationController *-- SICESI_GeneralizationBenchmarkRunner : 委譲
-    SICESI_SectorMaskCollector *-- SICESI_SectorMaskSweepRunner : 委譲
-    SICESI_SectorMaskCollector *-- SICESI_Pattern256SweepRunner : 委譲
-
-    SICESI_SnapshotRunner ..> SICESI_SceneOverviewCapturer : 俯瞰撮影委譲
-    SICESI_GeneralizationBenchmarkRunner ..> SICESI_SceneOverviewCapturer : シーン配置記録委譲
-    SICESI_GeneralizationBenchmarkRunner ..> SICESI_PresetPoseManager : プリセット取得・適用
-    SICESI_GeneralizationBenchmarkRunner ..> SICESI_BenchmarkGroundTruthCapturer : 最終出力GT撮影
-    SICESI_GeneralizationBenchmarkRunner ..> SICESI_BenchmarkMethodRegistry : 5手法適用
-    SICESI_GeneralizationBenchmarkRunner ..> SICESI_IoUCalculator : リアルタイムIoU計測 (threshold=128)
-    SICESI_GeneralizationBenchmarkRunner ..> SICESI_BenchmarkReporter : CSV出力 & 画像ロード
-    SICESI_GeneralizationBenchmarkRunner ..> RsMaterialController : テスト撮影時Black化・復元
-    SICESI_SceneOverviewCapturer ..> SICESI_ScreenCaptureUtil : 通常URP直接レンダリング (SaveCameraViewDirect)
-    SICESI_SceneOverviewCapturer ..> SICESI_SceneMetadataSerializer : Transform保存 (SaveSceneTransformsJson)
-
-    SICESI_StereoSweepRunner *-- SICESI_DensitySweepRunner : 委譲
-    SICESI_StereoSweepRunner *-- SICESI_SectorSweepRunner : 委譲
-    SICESI_StereoSweepRunner *-- SICESI_ConsecutiveSweepRunner : 委譲
-    SICESI_StereoSweepRunner *-- SICESI_ThresholdSweepRunner : 委譲
-
-    SICESI_SectorMaskSweepRunner *-- SICESI_Sector8MaskSweepRunner : 委譲
-    SICESI_SectorMaskSweepRunner *-- SICESI_SectorMaskDensityRunner : 委譲
-
-    SICESI_SectorMaskDensityRunner *-- SICESI_GpuMaskReadbackHandler : リードバック
-    SICESI_Pattern256SweepRunner ..> SICESI_CameraPoseLock : 姿勢固定
-    SICESI_Sector8MaskSweepRunner ..> SICESI_CameraPoseLock : 姿勢固定
-    SICESI_ConsecutiveSweepRunner ..> SICESI_ConsecutivePairEvaluator : 重複判定
+    SICESI_SectorMaskCollector *-- SICESI_Sector8MaskSweepRunner : 保持・実行
+    SICESI_SectorMaskCollector *-- SICESI_Pattern256SweepRunner : 保持・実行
+    SICESI_SectorMaskCollector *-- SICESI_SectorMaskDensityRunner : 保持・実行
+    SICESI_Sector8MaskSweepRunner ..> SICESI_ScreenCaptureUtil : 直接キャプチャ
+    SICESI_Sector8MaskSweepRunner ..> SICESI_MaterialSwapper : 直接マテリアル切替
+    SICESI_Pattern256SweepRunner ..> SICESI_ScreenCaptureUtil : 直接キャプチャ
+    SICESI_Pattern256SweepRunner ..> SICESI_MaterialSwapper : 直接マテリアル切替
 ```
 
 #### Unity と Python パイプラインのデータ連携図
@@ -262,7 +271,7 @@ graph LR
         C & D & E & F --> G[optimize_pattern_rules.py]
         G -->|自動生成| H[(pattern_VO.csv)]
         G -->|MILP / 局所探索| I[(common_rules_summary.csv)]
-        G -->|最適HEX配列| J[最適256パターンLUT]
+        G -->|構造化出力| J[(optimized_parameters.json)]
         G -->|画素比較| K[(diff_map & モンタージュ)]
         
         C & B --> L[export_occlusion_diff_maps.py]
@@ -270,7 +279,12 @@ graph LR
         M --> N[(stereo_evaluation_summary.csv)]
     end
 
-    J -.->|HEX設定| O[Unity PCDOcclusionPipelineController]
+    subgraph AutoApply [自動パラメータ置換基盤]
+        J --> P[SICESI_PythonOptimizationRunner]
+        P --> Q[SICESI_OptimizationApplier]
+        Q -->|直接置換・即時適用| O[PCDOcclusionPipelineController]
+        Q -->|動的オーバーライド| R[SICESI_BenchmarkMethodRegistry]
+    end
 ```
 
 ### 2.3 処理フロー（エンドツーエンド実行シーケンス）
@@ -279,27 +293,30 @@ graph LR
 sequenceDiagram
     autonumber
     participant Unity as Unity (SICESI Editor)
+    participant Runner as SICESI_PythonOptimizationRunner
     participant Disk as データセット (ファイルシステム)
     participant Opt as Python: optimize_pattern_rules.py
-    participant Diff as Python: export_occlusion_diff_maps.py
+    participant Applier as SICESI_OptimizationApplier
     participant Shader as Unity: PCDOcclusionPipelineController
+    participant MethodReg as SICESI_BenchmarkMethodRegistry
 
     Note over Unity: 1. データセット撮影フェーズ
     Unity->>Unity: カメラ姿勢固定 (CameraPoseLock) & Time.timeScale=0
     Unity->>Disk: GT撮影 (gt_left.png, vo_silhouette_left.png)
     Unity->>Disk: 各密度撮影 (point_mask_left.png, sector_0~7_mask_left.png)
     
-    Note over Opt: 2. 真値集計 & 最適化フェーズ
-    Opt->>Disk: 画像群の読み込み
-    Note over Opt: 手前点群直接投影 (point_mask) を確定遮蔽として除外
-    Opt->>Disk: pattern_VO.csv 自動生成 & 保存
-    Opt->>Opt: 4手法の個別最適・共通最適を計算 (MILP / 局所探索)
-    Opt->>Disk: 最適化サマリーCSV群を保存
-    Opt->>Disk: diff_map 画像 & 比較モンタージュ保存
+    Note over Runner, Opt: 2. Python バックグラウンド最適化フェーズ
+    Unity->>Runner: 最適化実行要求 (RunPythonOptimization)
+    Runner->>Opt: バックグラウンドプロセス非同期起動 (--skip-diff)
+    Opt->>Disk: pattern_VO.csv 自動集計 & MILP / 局所探索計算
+    Opt->>Disk: optimized_parameters.json & common_rules_summary.csv 保存
+    Opt-->>Runner: プロセス終了 (ExitCode: 0)
     
-    Note over Shader: 3. 最適解の Unity 反映フェーズ
-    Opt-->>Shader: 最適 256 パターンの HEX 値を出力
-    Shader->>Shader: _PatternLUT_256_Optimized に反映 (シェーダー即時適用)
+    Note over Applier, Shader: 3. パラメータ自動置換・パイプライン適用フェーズ
+    Runner->>Applier: 最適解の受け渡し (SICESI_OptimizationResult)
+    Applier->>Shader: Mode 8, 20, 36, 256 の各閾値・LUT HEX を直接上書き
+    Applier->>MethodReg: ベンチマーク評価レジストリへ最新パラメータを登録
+    Shader->>Shader: シェーダーへの即時バインド (UpdatePatternLUTWords)
 ```
 
 #### 汎化・配置プリセット一括ベンチマーク実行シーケンス
@@ -337,6 +354,19 @@ sequenceDiagram
     Unity->>Disk: preset_benchmark_summary.csv 自動追記
 ```
 
+### 2.4 神クラス抑制と純粋 Context 化（アプローチ 1）
+
+本システムでは、開発の進展に伴い単一の MonoBehaviour に責務や他クラスへの 1 行委譲メソッドが過度に集中する「神クラス化（God Class Anti-pattern）」を防止するため、**「純粋 Context 化 & 窓口ラッパー全廃（アプローチ 1）」** の設計原則を適用しています。
+
+* **純粋 Context としての `SICESI_StereoEvaluationController`**:
+  コントローラー本体は、シーン内のコンポーネント参照、シリアライズされた評価パラメータ、および各 Runner / サービスのインスタンス管理（ライフサイクル）に専念します。
+* **1 行委譲メソッドの全廃**:
+  歴史的経緯で生やされていた他クラスのメソッドを中継するだけのラッパーメソッド（計 25 個以上、約 100 行）を全廃しました。
+* **直接協調アーキテクチャ**:
+  各 Runner や Editor クラスは、コントローラーを経由することなく、対応する専門クラス（`controller.Dispatcher`, `controller.MaterialSwapper`, `SICESI_ScreenCaptureUtil`, `SICESI_SceneMetadataSerializer`, `SICESI_ConsecutivePairEvaluator`）を直接呼び出して協調動作します。
+* **役割に応じた階層的ディレクトリ配置**:
+  `Scripts/` 配下を `Core/`, `Benchmark/`, `Presets/`, `Sweepers/`, `Optimization/`, `Capture/`, `Params/` に、`Editor/` 配下を `Core/`, `Tabs/`, `Presets/`, `Optimization/` に体系的に整理し、保守性と拡張性を最大化しています。
+
 ---
 
 ## 3. セットアップ・使用方法
@@ -345,12 +375,12 @@ sequenceDiagram
 
 #### Step 1: 評価コントローラーの配置 & 自動検出
 
-1. シーン内の管理 GameObject に [`SICESI_StereoEvaluationController.cs`](file:///c:/Users/hongo/Documents/tsutsumi/RealTimeOcclusion/Assets/Features/SICESI/Scripts/SICESI_StereoEvaluationController.cs) および [`SICESI_SectorMaskCollector.cs`](file:///c:/Users/hongo/Documents/tsutsumi/RealTimeOcclusion/Assets/Features/SICESI/Scripts/SICESI_SectorMaskCollector.cs) をアタッチします。
+1. シーン内の管理 GameObject に [`SICESI_StereoEvaluationController.cs`](file:///c:/Users/hongo/Documents/tsutsumi/RealTimeOcclusion/Assets/Features/SICESI/Scripts/Core/SICESI_StereoEvaluationController.cs) および [`SICESI_SectorMaskCollector.cs`](file:///c:/Users/hongo/Documents/tsutsumi/RealTimeOcclusion/Assets/Features/SICESI/Scripts/Core/SICESI_SectorMaskCollector.cs) をアタッチします。
 2. Inspector 上部の **「🔍 シーンからカメラ・点群プロバイダーを自動検出」** ボタンをクリックし、左右眼カメラ、シーン俯瞰カメラ、点群プロバイダー、手メッシュ、仮想物体を自動検出・アサインします。
 
 #### Step 2: Inspector タブ構成と機能選択
 
-[`SICESI_StereoEvaluationEditor.cs`](file:///c:/Users/hongo/Documents/tsutsumi/RealTimeOcclusion/Assets/Features/SICESI/Editor/SICESI_StereoEvaluationEditor.cs) は神クラス化を防止するため 6 つの独立タブ描画クラスに分割されています。用途に応じてタブを切り替えて操作します。
+[`SICESI_StereoEvaluationEditor.cs`](file:///c:/Users/hongo/Documents/tsutsumi/RealTimeOcclusion/Assets/Features/SICESI/Editor/Core/SICESI_StereoEvaluationEditor.cs) は神クラス化を防止するため、役割ごとの独立 Drawer クラス群（`Tabs/`, `Presets/`, `Optimization/`）に分割されています。用途に応じてタブを切り替えて操作します。
 
 | タブ名 | 担当クラス | 主な機能 |
 | :--- | :--- | :--- |
@@ -385,7 +415,7 @@ sequenceDiagram
    - **点群一時 Black 化プロトコル（Python 完全互換 IoU 計算）**:
      テスト画像撮影時、点群カラーモードを [`RsMaterialController.cs`](file:///c:/Users/hongo/Documents/tsutsumi/RealTimeOcclusion/Assets/Features/PCD/Scripts/PointCloud/RsMaterialController.cs) により `PointCloudColorMode.Black`（完全な黒: RGB 0,0,0）に一時変更します。肌色点群（RGB 各成分 > 128）が白（仮想物体）と誤判定されて発生していた「遮蔽漏れ (FP)」の激増を完全に排除し、撮影完了後は `try-finally` で元のカラーモード（Skin 等）へ安全に復元されます。
    - **5 手法のテスト撮影 & リアルタイム計測**: `SICESI_BenchmarkMethodRegistry` が 5 手法（Mode_Average, Mode 8, Mode 20, Mode 36, Mode 256）を順次適用し、点群オクルージョン画像をキャプチャします。
-   - **完全可逆 PNG & 二値化閾値 128 統一による高精度 IoU 算出**: すべての画像は `Texture2D.EncodeToPNG()` によるロスレス可逆形式で保存され、[`SICESI_IoUCalculator.cs`](file:///c:/Users/hongo/Documents/tsutsumi/RealTimeOcclusion/Assets/Features/SICESI/Scripts/AdditionalExperiments/SICESI_IoUCalculator.cs) が Python 側（`sicesi_core/metrics.py`）と同一の判定閾値 `threshold = 128`（`c.r > 128 || c.g > 128 || c.b > 128`）で即座にピクセル単位の IoU、過剰遮蔽 (FN)、遮蔽漏れ (FP) を算出して `preset_benchmark_summary.csv` に自動追記します。
+   - **完全可逆 PNG & 二値化閾値 128 統一による高精度 IoU 算出**: すべての画像は `Texture2D.EncodeToPNG()` によるロスレス可逆形式で保存され、[`SICESI_IoUCalculator.cs`](file:///c:/Users/hongo/Documents/tsutsumi/RealTimeOcclusion/Assets/Features/SICESI/Scripts/Benchmark/SICESI_IoUCalculator.cs) が Python 側（`sicesi_core/metrics.py`）と同一の判定閾値 `threshold = 128`（`c.r > 128 || c.g > 128 || c.b > 128`）で即座にピクセル単位の IoU、過剰遮蔽 (FN)、遮蔽漏れ (FP) を算出して `preset_benchmark_summary.csv` に自動追記します。
 
 ---
 
@@ -439,9 +469,31 @@ python Assets/Features/SICESI/Python/calc_stereoMaskedValue.py -c Bouchiba -o "s
 python Assets/Features/SICESI/Python/calc_stereoMaskedValue.py -c Bouchiba --export-diff
 ```
 
-#### Step 7: Unity シェーダーへの最適 HEX 配列の反映
+#### Step 7: Unity 内部からの Python 最適化実行 & パイプライン自動置換
 
-`optimize_pattern_rules.py` の実行結果コンソールに表示される 256 ビット HEX 文字列（または `common_lut_256_*.csv`）を確認し、Unity 側の [`PCDOcclusionPipelineController.cs`](file:///c:/Users/hongo/Documents/tsutsumi/RealTimeOcclusion/Assets/Features/PCD/Scripts/Occlusion/PCDOcclusionPipelineController.cs) の `_PatternLUT_256_Optimized` フィールドに 8 個の 32-bit `uint` 配列として設定します。
+従来の手動 HEX コピーに加え、Inspector 上の **「追加実験」タブ** 内に新設された **「🪐 Python 最適化の実行 & パイプライン自動置換」** セクションから、完全自動で最適化とパイプライン置換を実行できます。
+
+1. Inspector の「追加実験」タブを開きます。
+2. 対象データセットフォルダおよび目的関数（平均 IoU 最大化 / 相対低減率最大化）を選択します。
+3. **「🚀 Python 最適化を実行してパイプラインに自動置換」** ボタンをクリックします。
+   * バックグラウンドプロセスとして `optimize_pattern_rules.py --skip-diff` が非同期実行されます（Unity エディタはフリーズしません）。
+   * 最適化完了後、生成された `optimized_parameters.json` から Mode 8（$R_{\mathrm{th}}$）、Mode 20（$R_{\mathrm{th}}, L_{\mathrm{th}}$）、Mode 36（HEX）、Mode 256（HEX）が [`PCDOcclusionPipelineController.cs`](file:///c:/Users/hongo/Documents/tsutsumi/RealTimeOcclusion/Assets/Features/3DDisplay/Scripts/Occlusion/Controllers/PCDOcclusionPipelineController.cs) および [`SICESI_BenchmarkMethodRegistry.cs`](file:///c:/Users/hongo/Documents/tsutsumi/RealTimeOcclusion/Assets/Features/SICESI/Scripts/Benchmark/SICESI_BenchmarkMethodRegistry.cs) に即時反映・置換されます。
+   * 既に計算済みの結果がある場合は、**「📥 既存結果 (JSON/CSV) を再読み込みして適用」** ボタンから一瞬で最新値を再適用することも可能です。
+
+#### Step 8: 配置プリセットのフォルダー階層分類 & 個別 ON/OFF 管理による一括ベンチマーク
+
+追加実験タブ内の **「保存済み JSON プリセット一覧」** では、保存された各 `scene_transforms.json` をサブフォルダーごとに階層分類し、各プリセットの有効/無効（ON/OFF）を個別管理できます。
+
+1. **プリセット保存時のフォルダー指定**:
+   * 「現在のシーン配置を JSON プリセットとして保存」セクションの「フォルダー」入力欄で、任意のサブフォルダー名（例: `FoxSeries`, `Batch1` 等）を入力、または「📁 既存選択」から選択して保存できます（未入力時はルート直下）。
+2. **フォルダー別グループ化表示 & 開閉**:
+   * 一覧画面では、ルート直下および各サブフォルダーごとに自動でグループ化され、フォルダーヘッダー（`📁 フォルダー名`）の Foldout で自由に開閉できます。
+3. **個別 ON/OFF (チェックボックス) & フォルダー単位の一括操作**:
+   * 各プリセットの先頭にあるチェックボックス（☑️ / ☐）で、一括自動実行に含めるか否かを個別に選択できます（除外されたプリセットは打ち消し線表示）。
+   * フォルダーヘッダーの「✔」「✖」ボタンで、フォルダー内の全プリセットを一括で選択 / 解除できます。
+   * 全体ヘッダーの「✔ 全選択」「✖ 全解除」ボタンで、表示中タブ全体のプリセットを一括操作できます。
+4. **選択プリセットのみの一括自動ベンチマーク実行**:
+   * 「🚀 一括自動実行」ボタンをクリックすると、チェックボックスで**選択されたプリセットのみ**を対象にして、5手法 × 全密度の自動復元・IoU計測が実行されます。
 
 ---
 
@@ -575,7 +627,7 @@ $$V_m = \sum_{p \in M, \mathrm{mask}(p) = m} \mathbf{1}_{\{\mathrm{GT}(p) = 0\}}
 
 ### 4.7 汎化ベンチマーク 5 手法設定仕様
 
-[`SICESI_BenchmarkMethodRegistry.cs`](file:///c:/Users/hongo/Documents/tsutsumi/RealTimeOcclusion/Assets/Features/SICESI/Scripts/AdditionalExperiments/SICESI_BenchmarkMethodRegistry.cs) にて一元管理される、学術比較用の 5 手法パラメータ定義です。
+[`SICESI_BenchmarkMethodRegistry.cs`](file:///c:/Users/hongo/Documents/tsutsumi/RealTimeOcclusion/Assets/Features/SICESI/Scripts/Benchmark/SICESI_BenchmarkMethodRegistry.cs) にて一元管理される、学術比較用の 5 手法パラメータ定義です。
 
 | 手法名 | 評価モード (`mode`) | 最低占有数 $R_{\mathrm{th}}$ | 最大連続非占有 $L_{\mathrm{th}}$ | LUT 定義 |
 | :--- | :--- | :---: | :---: | :--- |
@@ -618,13 +670,13 @@ AdditionalExperiments/PresetBenchmark/
 
 #### CSV カラム定義 (`preset_benchmark_summary.csv`)
 
-プリセット一括実行時に [`SICESI_BenchmarkReporter.cs`](file:///c:/Users/hongo/Documents/tsutsumi/RealTimeOcclusion/Assets/Features/SICESI/Scripts/AdditionalExperiments/SICESI_BenchmarkReporter.cs) から出力される CSV の列構成です。
+プリセット一括実行時に [`SICESI_BenchmarkReporter.cs`](file:///c:/Users/hongo/Documents/tsutsumi/RealTimeOcclusion/Assets/Features/SICESI/Scripts/Benchmark/SICESI_BenchmarkReporter.cs) から出力される CSV の列構成です。
 
 | 列名 | 型 | 説明 |
 | :--- | :--- | :--- |
 | `Timestamp` | `string` | 測定実行日時 (`yyyy-MM-dd HH:mm:ss`) |
 | `VirtualObject` | `string` | 評価対象の仮想 3D オブジェクト名 |
-| `HandMesh` | `string` | 評価対象の正解手メッシュ名 |
+| `HandMesh` | `string` | 評価対象の正解手メッシュ名（または `[Average]`） |
 | `Density` | `float` | 点群密度数値（既定単位: $\mathrm{pts/mm^2}$） |
 | `Method` | `string` | 評価手法名（`Mode_Average`, `Mode_8`, `Mode_20`, `Mode_36`, `Mode_256`） |
 | `Mean_IoU` | `float` | 左右眼の平均 IoU ($(\mathrm{Left\_IoU} + \mathrm{Right\_IoU}) / 2$) |
@@ -633,6 +685,9 @@ AdditionalExperiments/PresetBenchmark/
 | `Left_TP`, `Right_TP` | `int` | 正しく可視と判定された画素数 (True Positive) |
 | `Left_FP`, `Right_FP` | `int` | 遮蔽漏れ・透過ゴースト画素数 (False Positive: 本来遮蔽されるべき領域) |
 | `Left_FN`, `Right_FN` | `int` | 過剰遮蔽画素数 (False Negative: 本来可視であるべき領域の欠損) |
+
+##### 5条件・全プリセットの平均値自動集計 (Mean across conditions)
+[`SICESI_MethodMetricsAccumulator.cs`](file:///c:/Users/hongo/Documents/tsutsumi/RealTimeOcclusion/Assets/Features/SICESI/Scripts/Benchmark/SICESI_MethodMetricsAccumulator.cs) により、各手法・各密度ごとに全評価ケースのスコアが自動累積されます。全プリセットの一括実行完了時、CSV の末尾に各手法の **全配置平均行（`HandMesh = [Average]`）** が自動追記され、配置ごとの個体差を超えた総合的な手法性能を一目で把握できます。
 
 ---
 
@@ -700,6 +755,6 @@ $$L = \frac{p'}{\sqrt{\text{density}}}$$
   [`SICESI_ScreenCaptureUtil.SaveCameraViewDirect`](file:///c:/Users/hongo/Documents/tsutsumi/RealTimeOcclusion/Assets/Features/SICESI/Scripts/Capture/SICESI_ScreenCaptureUtil.cs) では、指定カメラの画角・アスペクト比に合わせた一時 `RenderTexture` を `cam.targetTexture` に割り当て、`cam.Render()` を明示的に直接呼び出します。
   これにより、GameView の表示状態やディスプレイ投影に一切影響されることなく、歪みのない通常 2D 画角によるロスレス PNG 画像を直接生成・保存できます。
 * **独立クラス [`SICESI_SceneOverviewCapturer.cs`](file:///c:/Users/hongo/Documents/tsutsumi/RealTimeOcclusion/Assets/Features/SICESI/Scripts/Capture/SICESI_SceneOverviewCapturer.cs) による責務集約**:
-  俯瞰撮影・ステレオ配置撮影（`scene_left.png`, `scene_right.png`）・Transform シリアライズ（`scene_transforms.json`）の全処理を新設された本クラスに集約し、[`SICESI_SnapshotRunner.cs`](file:///c:/Users/hongo/Documents/tsutsumi/RealTimeOcclusion/Assets/Features/SICESI/Scripts/Sweepers/SICESI_SnapshotRunner.cs) および [`SICESI_GeneralizationBenchmarkRunner.cs`](file:///c:/Users/hongo/Documents/tsutsumi/RealTimeOcclusion/Assets/Features/SICESI/Scripts/AdditionalExperiments/SICESI_GeneralizationBenchmarkRunner.cs) から委譲呼び出しとすることで、コードの重複・冗長性を完全に解消しました。
+  俯瞰撮影・ステレオ配置撮影（`scene_left.png`, `scene_right.png`）・Transform シリアライズ（`scene_transforms.json`）の全処理を新設された本クラスに集約し、[`SICESI_SnapshotRunner.cs`](file:///c:/Users/hongo/Documents/tsutsumi/RealTimeOcclusion/Assets/Features/SICESI/Scripts/Sweepers/SICESI_SnapshotRunner.cs) および [`SICESI_GeneralizationBenchmarkRunner.cs`](file:///c:/Users/hongo/Documents/tsutsumi/RealTimeOcclusion/Assets/Features/SICESI/Scripts/Benchmark/SICESI_GeneralizationBenchmarkRunner.cs) から委譲呼び出しとすることで、コードの重複・冗長性を完全に解消しました。
 
 詳細なログ仕様については [Logging.md](./Logging.md) を参照してください。

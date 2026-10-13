@@ -63,7 +63,8 @@ namespace Features.Haptics.Processors
 
                             foreach (var dev in candidateDevs)
                             {
-                                float angle = Vector3.Angle(dev.transform.forward, -cData.Cluster.Normal);
+                                Vector3 devForward = Features.Haptics.Hardware.HAP_DeviceOrientationHelper.GetAdjustedForward(dev);
+                                float angle = Vector3.Angle(devForward, -cData.Cluster.Normal);
                                 if (angle < groupMinAngle)
                                 {
                                     groupMinAngle = angle;
@@ -102,7 +103,8 @@ namespace Features.Haptics.Processors
                 {
                     if (debugDisabler != null && debugDisabler.IsDisabled(dev.ID)) continue;
 
-                    float angle = Vector3.Angle(dev.transform.forward, -cData.Cluster.Normal);
+                    Vector3 devForward = Features.Haptics.Hardware.HAP_DeviceOrientationHelper.GetAdjustedForward(dev);
+                    float angle = Vector3.Angle(devForward, -cData.Cluster.Normal);
                     if (angle < minAngle)
                     {
                         minAngle = angle;

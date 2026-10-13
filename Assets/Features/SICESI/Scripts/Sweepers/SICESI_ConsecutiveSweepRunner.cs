@@ -48,10 +48,10 @@ namespace SICESI
                     _controller.occlusionPipelineController.evaluationMode = PCDRendererFeature.PCD_OcclusionEvaluationMode.SectorConsecutiveZeros;
                 }
 
-                string unitSuffix = _controller.GetDensityUnitSuffix();
+                string unitSuffix = SICESI_EvaluationParamsHelper.GetDensityUnitSuffix(_controller.densityUnit);
 
                 // 重複排除設定が反映された候補ペアリストを取得
-                var validPairs = _controller.GetValidConsecutivePairs();
+                var validPairs = SICESI_ConsecutivePairEvaluator.GenerateValidPairs(_controller.sweepSectors, _controller.sweepMaxConsecutiveZeros, _controller.skipRedundantConditions);
 
                 if (_controller.sweepDensitiesAcrossConsecutive && _controller.dummyPointCloudProvider != null)
                 {

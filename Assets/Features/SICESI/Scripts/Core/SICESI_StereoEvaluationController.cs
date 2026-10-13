@@ -22,6 +22,7 @@ namespace SICESI
         public const string TagCapture      = "SICESI_Capture";
         public const string TagStereoSweep  = "SICESI_StereoSweep";
         public const string TagMaskSweep    = "SICESI_MaskSweep";
+        public const string TagOptRunner    = "SICESI_OptRunner";
 
         public void RegisterLogTriggers(LogCategoryGroup group, HashSet<string> existingLabels)
         {
@@ -29,6 +30,7 @@ namespace SICESI
             AddSubTrigger(group, this, "[SICESI] Capture & Camera", TagCapture, existingLabels);
             AddSubTrigger(group, this, "[SICESI] Stereo Sweep", TagStereoSweep, existingLabels);
             AddSubTrigger(group, this, "[SICESI] Sector Mask Sweep", TagMaskSweep, existingLabels);
+            AddSubTrigger(group, this, "[SICESI] Python Optimization", TagOptRunner, existingLabels);
         }
 
         private static void AddSubTrigger(LogCategoryGroup group, UnityEngine.Object target, string label, string tag, HashSet<string> existing)
@@ -165,10 +167,17 @@ namespace SICESI
         [Tooltip("現在の実験条件・ケース名 (例: RawTest, RawTest_case1 など)")]
         public string conditionName = "RawTest";
 
+        [HideInInspector]
+        public string customConditionRootDir = null;
+
         public string ConditionRootDir
         {
             get
             {
+                if (!string.IsNullOrEmpty(customConditionRootDir))
+                {
+                    return customConditionRootDir;
+                }
                 if (!string.IsNullOrEmpty(casesParentFolder))
                 {
                     return Path.Combine(outputDirectory, casesParentFolder, conditionName);
@@ -195,6 +204,8 @@ namespace SICESI
         private SICESI_EvaluationDispatcher _dispatcher;
         private SICESI_BatchReSweepRunner _batchReSweepRunner;
         private SICESI_GeneralizationBenchmarkRunner _generalizationRunner;
+        private SICESI_PythonOptimizationRunner _pythonOptimizationRunner;
+        private SICESI_OptimizationPresetRunner _optimizationPresetRunner;
 
         public SICESI_MaterialSwapper MaterialSwapper => _materialSwapper ?? (_materialSwapper = new SICESI_MaterialSwapper());
         public SICESI_SnapshotRunner SnapshotRunner => _snapshotRunner ?? (_snapshotRunner = new SICESI_SnapshotRunner(this, MaterialSwapper));
@@ -202,21 +213,14 @@ namespace SICESI
         public SICESI_EvaluationDispatcher Dispatcher => _dispatcher ?? (_dispatcher = new SICESI_EvaluationDispatcher(this));
         public SICESI_BatchReSweepRunner BatchReSweepRunner => _batchReSweepRunner ?? (_batchReSweepRunner = new SICESI_BatchReSweepRunner(this));
         public SICESI_GeneralizationBenchmarkRunner GeneralizationRunner => _generalizationRunner ?? (_generalizationRunner = new SICESI_GeneralizationBenchmarkRunner(this));
+        public SICESI_PythonOptimizationRunner PythonOptimizationRunner => _pythonOptimizationRunner ?? (_pythonOptimizationRunner = new SICESI_PythonOptimizationRunner(this));
+        public SICESI_OptimizationPresetRunner OptimizationPresetRunner => _optimizationPresetRunner ?? (_optimizationPresetRunner = new SICESI_OptimizationPresetRunner(this));
 
         // 後方互換性エイリアス
         public SICESI_StereoSweepRunner SweepRunner => StereoSweepRunner;
 
         #endregion
 
-        #region 後方互換用型定義・エイリアス
-
-        public class GroundTruthStateBackup : SICESI_MaterialSwapper.GroundTruthStateBackup { }
-        public class GroundTruthSkinColorBackup : SICESI_MaterialSwapper.GroundTruthSkinColorBackup { }
-        public class VirtualObjectStateBackup : SICESI_MaterialSwapper.VirtualObjectStateBackup { }
-        public class SerializableTransformData : SICESI_SceneMetadataSerializer.SerializableTransformData { }
-        public class SceneTransformsData : SICESI_SceneMetadataSerializer.SceneTransformsData { }
-
-        #endregion
 
         #region Unity ライフサイクル
 
@@ -286,89 +290,5 @@ namespace SICESI
 
         #endregion
 
-        #region スイープ実行 API (Facade -> Dispatcher 委譲)
-
-        public void CaptureGroundTruth() => Dispatcher.CaptureGroundTruth();
-        public void CaptureCurrentCondition(string subFolderName = "") => Dispatcher.CaptureCurrentCondition(subFolderName);
-        public void RunDensitySweep() => Dispatcher.RunDensitySweep();
-        public void RunSectorSweep() => Dispatcher.RunSectorSweep();
-        public void RunConsecutiveSectorSweep() => Dispatcher.RunConsecutiveSectorSweep();
-        public void RunDensityOcclusionThresholdSweep() => Dispatcher.RunDensityOcclusionThresholdSweep();
-        public void CaptureSceneOverview() => Dispatcher.CaptureSceneOverview();
-
-        public void RunBatchReSweep(string parentDirectory = "")
-        {
-            if (string.IsNullOrEmpty(parentDirectory))
-            {
-                parentDirectory = Path.Combine(outputDirectory, casesParentFolder);
-            }
-            StartCoroutine(BatchReSweepRunner.RunBatchReSweepRoutine(parentDirectory));
-        }
-
-        public void RunGeneralizationBenchmark()
-        {
-            StartCoroutine(GeneralizationRunner.RunGeneralizationBenchmarkRoutine());
-        }
-
-        public void RunPresetBenchmark(List<SICESI_PresetPoseManager.PresetEntry> presets)
-        {
-            StartCoroutine(GeneralizationRunner.RunBenchmarkFromPresetsRoutine(presets));
-        }
-
-        #endregion
-
-        #region マテリアル・レイヤー委譲メソッド (MaterialSwapper 委譲)
-
-        public SICESI_MaterialSwapper.GroundTruthStateBackup SetGroundTruthState(bool enable = true)
-            => MaterialSwapper.SetGroundTruthState(groundTruthObject, groundTruthCaptureLayer, renderGroundTruthAsBlack);
-
-        public void RestoreGroundTruthState(SICESI_MaterialSwapper.GroundTruthStateBackup backup)
-            => MaterialSwapper.RestoreGroundTruthState(backup);
-
-        public SICESI_MaterialSwapper.VirtualObjectStateBackup SetVirtualObjectUnlitWhiteState(bool enable = true)
-            => MaterialSwapper.SetVirtualObjectUnlitWhiteState(virtualObject, renderVirtualObjectAsUnlitWhite);
-
-        public void RestoreVirtualObjectState(SICESI_MaterialSwapper.VirtualObjectStateBackup backup)
-            => MaterialSwapper.RestoreVirtualObjectState(backup);
-
-        public SICESI_MaterialSwapper.GroundTruthSkinColorBackup SetGroundTruthSkinState(bool enable = true)
-            => MaterialSwapper.SetGroundTruthSkinState(groundTruthObject, groundTruthCaptureLayer, groundTruthSkinColor);
-
-        public void RestoreGroundTruthSkinState(SICESI_MaterialSwapper.GroundTruthSkinColorBackup backup)
-            => MaterialSwapper.RestoreGroundTruthSkinState(groundTruthObject, backup);
-
-        #endregion
-
-        #region キャプチャ・JSON 委譲メソッド (ScreenCaptureUtil & SceneMetadataSerializer 委譲)
-
-        public void SaveCameraView(Camera cam, string destinationPath, bool bypassSRGBConversion = false)
-            => SICESI_ScreenCaptureUtil.SaveCameraView(cam, destinationPath, applySRGBConversion, bypassSRGBConversion);
-
-        public void CaptureStereoViews(string targetDir, string filePrefix, bool bypassSRGBConversion = false)
-            => SICESI_ScreenCaptureUtil.CaptureStereoViews(leftEyeCamera, rightEyeCamera, targetDir, filePrefix, applySRGBConversion, bypassSRGBConversion);
-
-        public void SaveEyeViewsForScene(string sceneDir)
-            => SICESI_ScreenCaptureUtil.SaveEyeViewsForScene(leftEyeCamera, rightEyeCamera, sceneDir, applySRGBConversion);
-
-        public void SaveSceneTransformsJson(string targetDir)
-            => SICESI_SceneMetadataSerializer.SaveSceneTransformsJson(targetDir, conditionName, groundTruthObject, virtualObject, leftEyeCamera, rightEyeCamera, sceneCaptureCamera);
-
-        public bool LoadAndApplySceneTransformsJson(string jsonPath)
-            => SICESI_SceneMetadataSerializer.LoadAndApplySceneTransformsJson(jsonPath, groundTruthObject, virtualObject, leftEyeCamera, rightEyeCamera, sceneCaptureCamera, out conditionName);
-
-        #endregion
-
-        #region パラメータ・ペア評価ヘルパー (Pure C# 委譲)
-
-        public string GetDensityUnitSuffix()
-            => SICESI_EvaluationParamsHelper.GetDensityUnitSuffix(densityUnit);
-
-        public static bool IsRedundantCombination(int rTh, int lTh, int K = 8)
-            => SICESI_ConsecutivePairEvaluator.IsRedundantCombination(rTh, lTh, K);
-
-        public List<(int sector, int maxZero)> GetValidConsecutivePairs()
-            => SICESI_ConsecutivePairEvaluator.GenerateValidPairs(sweepSectors, sweepMaxConsecutiveZeros, skipRedundantConditions);
-
-        #endregion
     }
 }

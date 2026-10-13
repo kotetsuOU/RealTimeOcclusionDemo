@@ -48,7 +48,7 @@ namespace SICESI
                     _controller.occlusionPipelineController.evaluationMode = PCDRendererFeature.PCD_OcclusionEvaluationMode.SectorThreshold;
                 }
 
-                string unitSuffix = _controller.GetDensityUnitSuffix();
+                string unitSuffix = SICESI_EvaluationParamsHelper.GetDensityUnitSuffix(_controller.densityUnit);
 
                 if (_controller.sweepDensitiesAcrossSectors && _controller.dummyPointCloudProvider != null)
                 {
