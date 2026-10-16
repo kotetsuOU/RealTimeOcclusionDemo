@@ -154,7 +154,7 @@ namespace SICESI
         [Range(1, 8)]
         public int fixedMinOccludedSectors = 1;
 
-        [Tooltip("スイープするオクルージョン判定閾値のリスト (0.0〜1.0)")]
+        [Tooltip("スイープするオクルージョン判定閾値のリスト (0.0〜1.0)。固定評価モードが Average の場合は T_ave、その他手法の場合は T_loc に適用されます")]
         public float[] sweepOcclusionThresholds = new float[] { 0.1f, 0.2f, 0.3f, 0.4f, 0.5f, 0.6f, 0.7f, 0.8f, 0.9f };
 
         [Header("Output Settings")]
@@ -206,6 +206,7 @@ namespace SICESI
         private SICESI_GeneralizationBenchmarkRunner _generalizationRunner;
         private SICESI_PythonOptimizationRunner _pythonOptimizationRunner;
         private SICESI_OptimizationPresetRunner _optimizationPresetRunner;
+        private SICESI_AverageThresholdOptimizationRunner _averageThresholdOptimizationRunner;
 
         public SICESI_MaterialSwapper MaterialSwapper => _materialSwapper ?? (_materialSwapper = new SICESI_MaterialSwapper());
         public SICESI_SnapshotRunner SnapshotRunner => _snapshotRunner ?? (_snapshotRunner = new SICESI_SnapshotRunner(this, MaterialSwapper));
@@ -215,6 +216,7 @@ namespace SICESI
         public SICESI_GeneralizationBenchmarkRunner GeneralizationRunner => _generalizationRunner ?? (_generalizationRunner = new SICESI_GeneralizationBenchmarkRunner(this));
         public SICESI_PythonOptimizationRunner PythonOptimizationRunner => _pythonOptimizationRunner ?? (_pythonOptimizationRunner = new SICESI_PythonOptimizationRunner(this));
         public SICESI_OptimizationPresetRunner OptimizationPresetRunner => _optimizationPresetRunner ?? (_optimizationPresetRunner = new SICESI_OptimizationPresetRunner(this));
+        public SICESI_AverageThresholdOptimizationRunner AverageThresholdOptimizationRunner => _averageThresholdOptimizationRunner ?? (_averageThresholdOptimizationRunner = new SICESI_AverageThresholdOptimizationRunner(this));
 
         // 後方互換性エイリアス
         public SICESI_StereoSweepRunner SweepRunner => StereoSweepRunner;

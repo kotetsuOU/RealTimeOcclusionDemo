@@ -43,7 +43,10 @@ namespace Features.Haptics.Backends.Current
         /// <summary>
         /// 振幅変調（Modulation）設定を送信します。
         /// </summary>
-        public async void ApplyModulation(Client? client, Geometry? geometry, ModulationMode mode, float sineFreq, float staticAmp)
+        /// <summary>
+        /// 振幅変調（Modulation）設定を非同期送信します。
+        /// </summary>
+        public async Task ApplyModulationAsync(Client? client, Geometry? geometry, ModulationMode mode, float sineFreq, float staticAmp)
         {
             if (client == null || geometry == null) return;
             if (_prevModMode == mode && Mathf.Approximately(_prevSineFreq, sineFreq) && Mathf.Approximately(_prevStaticAmp, staticAmp)) return;
@@ -83,10 +86,13 @@ namespace Features.Haptics.Backends.Current
             }
         }
 
+        public void ApplyModulation(Client? client, Geometry? geometry, ModulationMode mode, float sineFreq, float staticAmp)
+            => _ = ApplyModulationAsync(client, geometry, mode, sineFreq, staticAmp);
+
         /// <summary>
-        /// サイレンサー（Silencer）設定を送信します。
+        /// サイレンサー（Silencer）設定を非同期送信します。
         /// </summary>
-        public async void ApplySilencer(Client? client, Geometry? geometry, SilencerMode mode, ushort stepPhase, ushort stepAmp)
+        public async Task ApplySilencerAsync(Client? client, Geometry? geometry, SilencerMode mode, ushort stepPhase, ushort stepAmp)
         {
             if (client == null || geometry == null) return;
             if (_prevSilencerMode == mode && _prevSilStepPhase == stepPhase && _prevSilStepAmp == stepAmp) return;
@@ -124,10 +130,13 @@ namespace Features.Haptics.Backends.Current
             }
         }
 
+        public void ApplySilencer(Client? client, Geometry? geometry, SilencerMode mode, ushort stepPhase, ushort stepAmp)
+            => _ = ApplySilencerAsync(client, geometry, mode, stepPhase, stepAmp);
+
         /// <summary>
-        /// 冷却ファンの ON/OFF を送信します。
+        /// 冷却ファンの ON/OFF を非同期送信します。
         /// </summary>
-        public async void ApplyFan(Client? client, Geometry? geometry, bool enableFan)
+        public async Task ApplyFanAsync(Client? client, Geometry? geometry, bool enableFan)
         {
             if (client == null || geometry == null) return;
             if (_prevFanState == enableFan) return;
@@ -149,6 +158,9 @@ namespace Features.Haptics.Backends.Current
                 AppLogger.LogWarning(null, HAP_LogTriggers.TagModulationService, $"[CurrentBackend] Failed to apply fan: {ex.Message}");
             }
         }
+
+        public void ApplyFan(Client? client, Geometry? geometry, bool enableFan)
+            => _ = ApplyFanAsync(client, geometry, enableFan);
 
         /// <summary>
         /// 出力停止（Null パターン）を非同期送信します。

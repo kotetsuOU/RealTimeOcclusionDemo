@@ -18,6 +18,8 @@ public class PCDSettingsBridge
         enableDensityBasedLOD = true,
         enableGradientCorrection = true,
         gradientThreshold_g_th = 0.05f,
+        occlusionThreshold_T_ave = 0.8f,
+        occlusionThreshold_T_loc = 0.8f,
         occlusionThreshold = 0.8f,
         occlusionFadeWidth = 0.1f,
         enableVirtualContactOcclusion = false,
@@ -174,6 +176,38 @@ public class PCDSettingsBridge
             if (Controller != null) Controller.gradientThreshold_g_th = value;
             else _fallbackSettings.gradientThreshold_g_th = value;
         }
+    }
+
+    public float occlusionThreshold_T_ave
+    {
+        get => Controller != null ? Controller.occlusionThreshold_T_ave : _fallbackSettings.occlusionThreshold_T_ave;
+        set
+        {
+            if (Controller != null) Controller.occlusionThreshold_T_ave = value;
+            else _fallbackSettings.occlusionThreshold_T_ave = value;
+        }
+    }
+
+    public float occlusionThreshold_T_loc
+    {
+        get => Controller != null ? Controller.occlusionThreshold_T_loc : _fallbackSettings.occlusionThreshold_T_loc;
+        set
+        {
+            if (Controller != null) Controller.occlusionThreshold_T_loc = value;
+            else _fallbackSettings.occlusionThreshold_T_loc = value;
+        }
+    }
+
+    public float T_ave
+    {
+        get => occlusionThreshold_T_ave;
+        set => occlusionThreshold_T_ave = value;
+    }
+
+    public float T_loc
+    {
+        get => occlusionThreshold_T_loc;
+        set => occlusionThreshold_T_loc = value;
     }
 
     public float occlusionThreshold
@@ -443,12 +477,18 @@ public class PCDSettingsBridge
     {
         if (Controller != null)
         {
-            float maxFade = Mathf.Min(Controller.occlusionThreshold, 1.0f - Controller.occlusionThreshold) * 2.0f;
+            float currentTh = Controller.evaluationMode == PCDRendererFeature.PCD_OcclusionEvaluationMode.Average
+                ? Controller.occlusionThreshold_T_ave
+                : Controller.occlusionThreshold_T_loc;
+            float maxFade = Mathf.Min(currentTh, 1.0f - currentTh) * 2.0f;
             Controller.occlusionFadeWidth = Mathf.Clamp(Controller.occlusionFadeWidth, 0f, maxFade);
         }
         else
         {
-            float maxFadeWidth = Mathf.Min(_fallbackSettings.occlusionThreshold, 1.0f - _fallbackSettings.occlusionThreshold) * 2.0f;
+            float currentTh = _fallbackSettings.evaluationMode == PCDRendererFeature.PCD_OcclusionEvaluationMode.Average
+                ? _fallbackSettings.occlusionThreshold_T_ave
+                : _fallbackSettings.occlusionThreshold_T_loc;
+            float maxFadeWidth = Mathf.Min(currentTh, 1.0f - currentTh) * 2.0f;
             _fallbackSettings.occlusionFadeWidth = Mathf.Clamp(_fallbackSettings.occlusionFadeWidth, 0f, maxFadeWidth);
         }
     }

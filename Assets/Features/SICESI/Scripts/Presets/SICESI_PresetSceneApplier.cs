@@ -60,19 +60,13 @@ namespace SICESI
                     }
                 }
 
-                // 3. カメラの Transform 適用
-                if (data.leftCamera != null && controller.leftEyeCamera != null)
-                {
-                    data.leftCamera.ApplyToTransform(controller.leftEyeCamera.transform);
-                }
-                if (data.rightCamera != null && controller.rightEyeCamera != null)
-                {
-                    data.rightCamera.ApplyToTransform(controller.rightEyeCamera.transform);
-                }
-                if (data.sceneCamera != null && controller.sceneCaptureCamera != null)
-                {
-                    data.sceneCamera.ApplyToTransform(controller.sceneCaptureCamera.transform);
-                }
+                // 3. カメラの Transform 適用 (SRD カメラは姿勢破壊・残像を防ぐため動的追従を優先し、localPose を安全に保護)
+                SICESI_SceneMetadataSerializer.RestoreCameraTransformSafely(controller.leftEyeCamera, data.leftCamera);
+                SICESI_SceneMetadataSerializer.RestoreCameraTransformSafely(controller.rightEyeCamera, data.rightCamera);
+                SICESI_SceneMetadataSerializer.RestoreCameraTransformSafely(controller.sceneCaptureCamera, data.sceneCamera);
+                // 残像防止: シーン・プリセット切り替え時に両眼カメラの targetTexture をクリア
+                ClearCameraTargetTexture(controller.leftEyeCamera);
+                ClearCameraTargetTexture(controller.rightEyeCamera);
 
                 if (!string.IsNullOrEmpty(data.conditionName))
                 {
@@ -114,6 +108,15 @@ namespace SICESI
             }
 
             return fallback;
+        }
+
+        private static void ClearCameraTargetTexture(Camera cam)
+        {
+            if (cam == null || cam.targetTexture == null) return;
+            RenderTexture current = RenderTexture.active;
+            RenderTexture.active = cam.targetTexture;
+            GL.Clear(true, true, Color.black);
+            RenderTexture.active = current;
         }
     }
 }

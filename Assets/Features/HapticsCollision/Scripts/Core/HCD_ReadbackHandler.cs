@@ -17,11 +17,18 @@ namespace Features.HapticsCollision.Core
             public bool hasPrecision;
         }
 
+        /// <summary>
+        /// GPU 読み出しの最大インフライト数。
+        /// キューの滞留による遅延（過去フレームの蓄積）および Unity の Readback バッファ枯渇エラーを防ぐため 1 に制限します。
+        /// </summary>
+        private const int MaxInFlightRequests = 1;
+
         private readonly Queue<ReadbackRequest> _readbackQueue = new Queue<ReadbackRequest>();
 
         public void RequestAsyncReadback(ComputeBuffer clusterBuffer, ComputeBuffer precisionBuffer, bool precisionMode)
         {
             if (clusterBuffer == null) return;
+            if (_readbackQueue.Count >= MaxInFlightRequests) return;
 
             bool hasPrecision = precisionMode && precisionBuffer != null;
 
@@ -43,9 +50,9 @@ namespace Features.HapticsCollision.Core
 
                 if (req.clusterReq.hasError || (req.hasPrecision && req.precisionReq.hasError))
                 {
-                    AppLogger.LogWarning(context, "HCD_Pipeline", "AsyncGPUReadback error. クラスタバッファ読み込みエラー。");
-                    _readbackQueue.Dequeue();
-                    continue;
+                    AppLogger.LogWarning(context, "HCD_Pipeline", "AsyncGPUReadback error. クラスタバッファ読み込みエラー。キューをリセットします。");
+                    _readbackQueue.Clear();
+                    return false;
                 }
 
                 if (!req.clusterReq.done || (req.hasPrecision && !req.precisionReq.done))

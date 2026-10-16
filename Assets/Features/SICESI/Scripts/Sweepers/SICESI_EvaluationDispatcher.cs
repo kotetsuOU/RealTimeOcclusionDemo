@@ -127,7 +127,7 @@ namespace SICESI
 
             if (string.IsNullOrEmpty(outputDir))
             {
-                outputDir = System.IO.Path.Combine(datasetRoot, "RuleOptimizationResults");
+                outputDir = System.IO.Path.Combine(datasetRoot, "Optimization", "RuleOptimization");
             }
 
             AppLogger.Log(_controller, $"[RunPythonOptimization] 最適化を実行します。\n  対象データセット: {datasetRoot}\n  結果出力先: {outputDir}", SICESI_StereoEvaluationController.TagCore);

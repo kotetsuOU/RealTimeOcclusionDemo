@@ -190,7 +190,8 @@ sequenceDiagram
 | `minSearchLevel` | `int` | `6` | 近傍探索の最小ピラミッドレベル（0〜6） |
 | `enableDensityBasedLOD` | `bool` | `true` | 点群密度に応じた動的 LOD 探索の有効化 |
 | `enableGradientCorrection` | `bool` | `true` | 深度急変エッジでのオクルージョン・リーク防止補正 |
-| `occlusionThreshold` | `float` | `0.8f` | オクルージョン判定の感度閾値 |
+| `occlusionThreshold_T_ave` (`T_ave`) | `float` | `0.8f` | Averageモード時のオクルージョン判定感度閾値 $T_{\mathrm{ave}}$ |
+| `occlusionThreshold_T_loc` (`T_loc`) | `float` | `0.8f` | セクター占有判定（その他全手法）用の局所閾値 $T_{\mathrm{loc}}$ |
 | `occlusionFadeWidth` | `float` | `0.1f` | 境界ソフトフェードの減衰幅 |
 | `debugSettings` | `PCDOcclusionDebugSettings` | (集約) | デバッグ・キャプチャ用パラメータ（Foldout 折りたたみ表示） |
 
@@ -206,7 +207,7 @@ sequenceDiagram
 | **Mode 36** | `RotationLUT36` | 36クラス<br/>幾何学回転不変LUT | `0x131F12EF1309E8EE130B0083E880A8EC574B518A5101800AF9D0D100DCD0ECA1` | **95.98%** | 8セクターの回転対称性を保持した幾何学的同値クラス判定。可視クラス: 13 / 36 クラス（105 パターン）。 |
 | **Mode 20** | `SectorConsecutiveZeros` | 連続非占有規則 | 最低占有数 $R_{\mathrm{th}} = 4$,<br/>最大連続非占有 $L_{\mathrm{th}} = 1$ | **95.93%** | 占有数 $N_{\mathrm{occ}} \ge 4$ かつ $L_{\max} \le 1$ で遮蔽。一方向の大きな隙間を許容しない連続性ルール。 |
 | **Mode 8** | `SectorThreshold` | 固定8候補<br/>占有数判定 | 最低占有数 $R_{\mathrm{th}} = 7$<br/>($N_{\mathrm{occ}} < 7$ で可視) | **95.92%** | 方向を考慮せず、占有セクター数のみで遮蔽を決定するベースライン手法。 |
-| **Legacy Average**| `Average` | 従来平均内積方式 | 内積平均値 $\text{avg} < \theta_{\mathrm{occ}}$ | — | Bouchiba らの初期手法。全8方向の内積平均値により判定。 |
+| **Legacy Average**| `Average` | 従来平均内積方式 | 内積平均値 $\text{avg} < T_{\mathrm{ave}}$ | — | Bouchiba らの初期手法。全8方向の内積平均値により判定。 |
 
 ### 4.2 1 クロック GPU テーブル参照の仕組み
 

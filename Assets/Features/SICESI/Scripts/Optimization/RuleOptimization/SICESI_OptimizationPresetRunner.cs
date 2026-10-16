@@ -108,7 +108,7 @@ namespace SICESI
             if (autoRunPython)
             {
                 string optDatasetRoot = !string.IsNullOrEmpty(firstCaseDir) ? Path.GetDirectoryName(firstCaseDir) : _controller.outputDirectory;
-                string optOutputDir = Path.Combine(optDatasetRoot, "RuleOptimizationResults");
+                string optOutputDir = Path.Combine(optDatasetRoot, "Optimization", "RuleOptimization");
                 AppLogger.Log(_controller, $"[SICESI_OptimizationPresetRunner] 8枚二値マスク収集完了に伴い、Python 256パターンLUT最適化を自動起動します。\n  対象データセット: {optDatasetRoot}\n  結果出力先フォルダ: {optOutputDir}", SICESI_StereoEvaluationController.TagCore);
                 _controller.Dispatcher.RunPythonOptimization(datasetRoot: optDatasetRoot, outputDir: optOutputDir);
             }

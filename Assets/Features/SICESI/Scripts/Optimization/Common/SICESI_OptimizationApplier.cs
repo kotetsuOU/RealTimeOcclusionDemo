@@ -56,6 +56,12 @@ namespace SICESI
             Undo.RecordObject(pipeline, "Apply Optimized Occlusion Parameters");
 #endif
 
+            // Mode Average パラメータ
+            if (result.averageMeanIoU > 0f || result.averageBestTAve > 0f)
+            {
+                pipeline.T_ave = result.averageBestTAve;
+            }
+
             // Mode 8 パラメータ
             pipeline.minOccludedSectorsMode8 = result.mode8ThresholdR;
 
@@ -63,7 +69,7 @@ namespace SICESI
             pipeline.minOccludedSectorsMode20 = result.mode20ThresholdR;
             pipeline.maxConsecutiveEmptySectors = result.mode20MaxConsecutiveEmptyL;
 
-            // Mode 36 / 256 パラメータ
+            // Mode 36 / 256 / Average パラメータ
             if (targetMode == PCDRendererFeature.PCD_OcclusionEvaluationMode.RotationLUT36)
             {
                 pipeline.customPatternLutHex = result.mode36Hex;
@@ -79,6 +85,10 @@ namespace SICESI
                 pipeline.evaluationMode = targetMode;
             }
             else if (targetMode == PCDRendererFeature.PCD_OcclusionEvaluationMode.SectorConsecutiveZeros)
+            {
+                pipeline.evaluationMode = targetMode;
+            }
+            else if (targetMode == PCDRendererFeature.PCD_OcclusionEvaluationMode.Average)
             {
                 pipeline.evaluationMode = targetMode;
             }

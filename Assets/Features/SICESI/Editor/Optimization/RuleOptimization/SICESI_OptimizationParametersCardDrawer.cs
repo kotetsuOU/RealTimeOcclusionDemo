@@ -23,8 +23,8 @@ namespace SICESI.Editor
             if (activeRes == null)
             {
                 // まだ未適用の場合は、既存の JSON があればプレビュー用として読み込みを試みる
-                string targetDataset = SICESI_OptimizationSettingsDrawer.GetEffectiveDatasetPath(controller);
-                string jsonPath = Path.Combine(targetDataset, "RuleOptimizationResults", "optimized_parameters.json");
+                string optDir = SICESI_OptimizationSettingsDrawer.GetEffectiveOutputDir(controller);
+                string jsonPath = Path.Combine(optDir, "optimized_parameters.json");
                 var objective = SICESI_OptimizationSettingsDrawer.Objective;
 
                 if (File.Exists(jsonPath) && SICESI_OptimizationResult.TryLoadFromJson(jsonPath, objective, out var previewRes))

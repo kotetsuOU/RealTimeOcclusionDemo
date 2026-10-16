@@ -79,7 +79,9 @@ def parse_condition_metadata(cond_str: str, test_dir_abs: Optional[str] = None) 
         "Density_Unit": "",
         "Sector": "",
         "Max_Consecutive_Zeros": "",
-        "Threshold": ""
+        "Threshold": "",
+        "T_ave": "",
+        "T_loc": ""
     }
 
     if test_dir_abs:
@@ -90,10 +92,23 @@ def parse_condition_metadata(cond_str: str, test_dir_abs: Optional[str] = None) 
                     data = json.load(jf)
                     meta["Density_Value"] = float(data.get("densityValue", 0.0))
                     meta["Density_Unit"] = str(data.get("densityUnit", ""))
-                    meta["Threshold"] = float(data.get("occlusionThreshold", 0.0))
                     meta["Fixed_Mode"] = str(data.get("evaluationMode", ""))
                     meta["Sector"] = str(data.get("minOccludedSectors", ""))
                     meta["Max_Consecutive_Zeros"] = str(data.get("maxConsecutiveEmptySectors", ""))
+
+                    t_ave_val = data.get("T_ave")
+                    t_loc_val = data.get("T_loc")
+                    meta["T_ave"] = float(t_ave_val) if t_ave_val is not None else ""
+                    meta["T_loc"] = float(t_loc_val) if t_loc_val is not None else ""
+
+                    if "occlusionThreshold" in data:
+                        meta["Threshold"] = float(data["occlusionThreshold"])
+                    elif meta["Fixed_Mode"] == "Average" and t_ave_val is not None:
+                        meta["Threshold"] = float(t_ave_val)
+                    elif t_loc_val is not None:
+                        meta["Threshold"] = float(t_loc_val)
+                    else:
+                        meta["Threshold"] = 0.0
                     return meta
             except Exception:
                 pass

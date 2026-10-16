@@ -64,7 +64,14 @@ namespace SICESI
 
                         if (_controller.occlusionPipelineController != null)
                         {
-                            _controller.occlusionPipelineController.occlusionThreshold = threshold;
+                            if (_controller.fixedEvaluationMode == PCDRendererFeature.PCD_OcclusionEvaluationMode.Average)
+                            {
+                                _controller.occlusionPipelineController.T_ave = threshold;
+                            }
+                            else
+                            {
+                                _controller.occlusionPipelineController.T_loc = threshold;
+                            }
                         }
 
                         for (int f = 0; f < 2; f++) yield return null;
@@ -72,7 +79,10 @@ namespace SICESI
 
                         string targetDir = Path.Combine(conditionRootDir, $"density_{densityStr}{unitSuffix}", $"th_{thStr}");
                         SICESI_ScreenCaptureUtil.CaptureStereoViews(_controller.leftEyeCamera, _controller.rightEyeCamera, targetDir, $"test_{densityStr}_th{thStr}", _controller.applySRGBConversion);
-                        SICESI_ScreenCaptureUtil.SaveEvaluationParamsJson(targetDir, _controller.conditionName, density, _controller.densityUnit.ToString(), threshold, _controller.fixedEvaluationMode.ToString(), _controller.fixedMinOccludedSectors, 8, _controller.groundTruthObject, _controller.virtualObject);
+                        
+                        float tAve = _controller.occlusionPipelineController != null ? _controller.occlusionPipelineController.T_ave : (_controller.fixedEvaluationMode == PCDRendererFeature.PCD_OcclusionEvaluationMode.Average ? threshold : 0.8f);
+                        float tLoc = _controller.occlusionPipelineController != null ? _controller.occlusionPipelineController.T_loc : (_controller.fixedEvaluationMode != PCDRendererFeature.PCD_OcclusionEvaluationMode.Average ? threshold : 0.8f);
+                        SICESI_ScreenCaptureUtil.SaveEvaluationParamsJson(targetDir, _controller.conditionName, density, _controller.densityUnit.ToString(), threshold, _controller.fixedEvaluationMode.ToString(), _controller.fixedMinOccludedSectors, 8, _controller.groundTruthObject, _controller.virtualObject, tAve, tLoc);
                     }
                 }
 

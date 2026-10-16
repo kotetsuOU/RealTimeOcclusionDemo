@@ -21,11 +21,12 @@ namespace SICESI
         #endregion
 
         /// <summary>
-        /// 指定カメラの描画結果からピクセルを読み出してPNG保存します。
+        /// 指定カメラの描画結果からピクセルを読み出して Texture2D として直接取得します（ディスク保存なし）。
+        /// 取得した Texture2D は不要になった際に呼び出し側で DestroyImmediate / Destroy する必要があります。
         /// </summary>
-        public static void SaveCameraView(Camera cam, string destinationPath, bool applySRGBConversion, bool bypassSRGBConversion = false)
+        public static Texture2D CaptureCameraTexture(Camera cam, bool applySRGBConversion, bool bypassSRGBConversion = false)
         {
-            if (cam == null) return;
+            if (cam == null) return null;
 
             int width = cam.pixelWidth > 0 ? cam.pixelWidth : Screen.width;
             int height = cam.pixelHeight > 0 ? cam.pixelHeight : Screen.height;
@@ -62,7 +63,20 @@ namespace SICESI
                 screenshot.ReadPixels(new Rect(x, y, width, height), 0, 0);
             }
 
+            screenshot.Apply();
             RenderTexture.active = prevActive;
+            return screenshot;
+        }
+
+        /// <summary>
+        /// 指定カメラの描画結果からピクセルを読み出してPNG保存します。
+        /// </summary>
+        public static void SaveCameraView(Camera cam, string destinationPath, bool applySRGBConversion, bool bypassSRGBConversion = false)
+        {
+            if (cam == null) return;
+
+            Texture2D screenshot = CaptureCameraTexture(cam, applySRGBConversion, bypassSRGBConversion);
+            if (screenshot == null) return;
 
             Directory.CreateDirectory(Path.GetDirectoryName(destinationPath));
             byte[] pngBytes = screenshot.EncodeToPNG();
@@ -197,8 +211,8 @@ namespace SICESI
         /// <summary>
         /// 撮影時の正確な評価設定値を JSON として記録します。
         /// </summary>
-        public static void SaveEvaluationParamsJson(string targetDir, string conditionName, float density, string densityUnit, float threshold, string mode, int sectors, int maxZeros, GameObject gtObj, GameObject voObj)
-            => SICESI_SceneMetadataSerializer.SaveEvaluationParamsJson(targetDir, conditionName, density, densityUnit, threshold, mode, sectors, maxZeros, gtObj, voObj);
+        public static void SaveEvaluationParamsJson(string targetDir, string conditionName, float density, string densityUnit, float threshold, string mode, int sectors, int maxZeros, GameObject gtObj, GameObject voObj, float tAve = -1f, float tLoc = -1f)
+            => SICESI_SceneMetadataSerializer.SaveEvaluationParamsJson(targetDir, conditionName, density, densityUnit, threshold, mode, sectors, maxZeros, gtObj, voObj, tAve, tLoc);
 
         #endregion
     }

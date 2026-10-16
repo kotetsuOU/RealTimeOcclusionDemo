@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright 2019-2025 Sony Corporation
  */
 
@@ -251,7 +251,7 @@ namespace SRD.Utils
             public const string SRD2DViewImageDefaultName = "RenderImage";
             public const string MultiDisplayControllerDefaultName = "SRDMultiDisplayController";
 
-            public const string SRDProjectSettingsAssetPath = "Assets/SRDisplayUnityPlugin/Resources/SRDProjectSettings.asset";
+            public const string SRDProjectSettingsAssetPath = "Assets/ThirdParty/SRDisplayUnityPlugin/Resources/SRDProjectSettings.asset";
 
             public const string XRRuntimeWrapperDLLName = "xr_runtime_unity_wrapper";
         }

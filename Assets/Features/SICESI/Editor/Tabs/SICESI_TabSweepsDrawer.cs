@@ -109,13 +109,14 @@ namespace SICESI.Editor
             {
                 EditorGUILayout.LabelField("🎯 密度 × オクルージョン閾値 2D グリッドスイープ", EditorStyles.boldLabel);
 
+                string thName = (controller.fixedEvaluationMode == PCDRendererFeature.PCD_OcclusionEvaluationMode.Average) ? "T_ave" : "T_loc";
                 string fixedModeStr = (controller.fixedEvaluationMode == PCDRendererFeature.PCD_OcclusionEvaluationMode.Average)
                     ? "固定: Average"
                     : $"固定: R_th={controller.fixedMinOccludedSectors}";
                 int dCount = controller.sweepDensities != null ? controller.sweepDensities.Length : 0;
                 int tCount = controller.sweepOcclusionThresholds != null ? controller.sweepOcclusionThresholds.Length : 0;
                 int totalGridCount = dCount * tCount;
-                string gridBtnLabel = $"🚀 密度 × 閾値スイープ ({fixedModeStr}, {dCount}密度 × {tCount}閾値: 計{totalGridCount}組)";
+                string gridBtnLabel = $"🚀 密度 × 閾値({thName})スイープ ({fixedModeStr}, {dCount}密度 × {tCount}閾値: 計{totalGridCount}組)";
 
                 GUI.backgroundColor = new Color(0.4f, 0.85f, 0.95f);
                 if (GUILayout.Button(gridBtnLabel, GUILayout.Height(36)))

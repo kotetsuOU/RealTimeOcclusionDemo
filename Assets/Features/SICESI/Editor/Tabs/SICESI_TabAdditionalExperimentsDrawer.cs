@@ -43,6 +43,11 @@ namespace SICESI.Editor
 
             EditorGUILayout.Space(8);
 
+            // 3.5 Average手法 T_ave 最適化スイープセクション (委譲)
+            SICESI_AverageThresholdOptimizationDrawer.Draw(controller, canExecute);
+
+            EditorGUILayout.Space(8);
+
             // 4. 保存済み JSON プリセット一覧 & 一括ベンチマーク実行 (委譲)
             SICESI_PresetListSectionDrawer.Draw(controller, canExecute);
         }

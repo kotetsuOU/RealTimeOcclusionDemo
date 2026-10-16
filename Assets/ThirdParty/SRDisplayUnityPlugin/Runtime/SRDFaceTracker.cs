@@ -29,6 +29,8 @@ namespace SRD.Core
         private FaceProjectionMatrix _prevProjMat;
         private Transform _currentOrigin;
         private SRDManager _srdManager;
+        private bool _hasCapturedStablePose = false;
+        private bool _hasCapturedStableProj = false;
 
         public SRDFaceTracker(SRDManager srdManager)
         {
@@ -40,17 +42,33 @@ namespace SRD.Core
         public void UpdateState(Transform srdWorldOrigin)
         {
             _currentOrigin = srdWorldOrigin;
+            if (_srdManager != null && _srdManager.lockFixedFacePose && _hasCapturedStablePose)
+            {
+                return;
+            }
             _srdManager.Session.UpdateTrackingResultCache();
         }
 
         public SrdXrResult GetCurrentFacePose(out FacePose facePose)
         {
+            if (_srdManager != null && !_srdManager.lockFixedFacePose)
+            {
+                _hasCapturedStablePose = false;
+            }
+
+            if (_srdManager != null && _srdManager.lockFixedFacePose && _hasCapturedStablePose)
+            {
+                facePose = _prevFacePose.GetTransformedBy(_currentOrigin);
+                return SrdXrResult.SUCCESS;
+            }
+
             var xrResult = _srdManager.Session.GetFacePose(out var headPose, out var eyePoseL, out var eyePoseR);
             if ((xrResult == SrdXrResult.SUCCESS)
             ||  (xrResult == SrdXrResult.ERROR_POSE_INVALID))
             {
                 facePose = new FacePose(headPose, eyePoseL, eyePoseR);
                 _prevFacePose = facePose;
+                _hasCapturedStablePose = true;
             }
             else
             {
@@ -62,6 +80,17 @@ namespace SRD.Core
 
         public SrdXrResult GetCurrentProjMatrix(float nearClip, float farClip, out FaceProjectionMatrix projMat)
         {
+            if (_srdManager != null && !_srdManager.lockFixedFacePose)
+            {
+                _hasCapturedStableProj = false;
+            }
+
+            if (_srdManager != null && _srdManager.lockFixedFacePose && _hasCapturedStableProj)
+            {
+                projMat = _prevProjMat;
+                return SrdXrResult.SUCCESS;
+            }
+
             var xrResult = _srdManager.Session.GetProjectionMatrix(nearClip, farClip,
                                                              out var headMat, out var leftMat, out var rightMat);
             if ((xrResult == SrdXrResult.SUCCESS)
@@ -69,6 +98,7 @@ namespace SRD.Core
             {
                 projMat = new FaceProjectionMatrix(headMat, leftMat, rightMat);
                 _prevProjMat = projMat;
+                _hasCapturedStableProj = true;
             }
             else
             {

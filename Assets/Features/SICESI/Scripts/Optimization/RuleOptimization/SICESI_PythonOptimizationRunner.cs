@@ -52,7 +52,7 @@ namespace SICESI
         /// Python 最適化プロセスを非同期実行し、結果を読み込むコルーチン。
         /// </summary>
         /// <param name="datasetRoot">探索対象のデータセットルートディレクトリ</param>
-        /// <param name="outputDir">最適化結果出力先ディレクトリ (省略時は <datasetRoot>/RuleOptimizationResults)</param>
+        /// <param name="outputDir">最適化結果出力先ディレクトリ (省略時は <datasetRoot>/Optimization/RuleOptimization)</param>
         /// <param name="pythonPath">Python 実行可能バイナリのパス (デフォルト: "python")</param>
         /// <param name="skipDiffMaps">diff_map 画像出力をスキップして高速実行するか</param>
         /// <param name="forceRegenerate">真値集計キャッシュを無視して強制再集計するか</param>
@@ -102,7 +102,7 @@ namespace SICESI
 
             if (string.IsNullOrEmpty(outputDir))
             {
-                outputDir = Path.Combine(datasetRoot, "RuleOptimizationResults");
+                outputDir = Path.Combine(datasetRoot, "Optimization", "RuleOptimization");
             }
 
             Directory.CreateDirectory(outputDir);

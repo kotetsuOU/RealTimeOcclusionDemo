@@ -50,8 +50,12 @@ internal static class PCDShaderConstants
     public static readonly int MinSearchLevel = Shader.PropertyToID("_MinSearchLevel");
     /// <summary> 指数カーネルのアルファパラメータ </summary>
     public static readonly int Alpha = Shader.PropertyToID("_Alpha");
-    /// <summary> オクルージョン判定の閾値 (0〜1) </summary>
+    /// <summary> オクルージョン判定の閾値 (0〜1) (互換用) </summary>
     public static readonly int OcclusionThreshold = Shader.PropertyToID("_OcclusionThreshold");
+    /// <summary> Average モード用オクルージョン閾値 T_ave (0〜1) </summary>
+    public static readonly int OcclusionThreshold_T_ave = Shader.PropertyToID("_OcclusionThreshold_T_ave");
+    /// <summary> セクター占有判定（その他手法）用局所閾値 T_loc (0〜1) </summary>
+    public static readonly int OcclusionThreshold_T_loc = Shader.PropertyToID("_OcclusionThreshold_T_loc");
     /// <summary> ソフトオクルージョンのフェード幅 </summary>
     public static readonly int OcclusionFadeWidth = Shader.PropertyToID("_OcclusionFadeWidth");
     /// <summary> 256パターンLUT (uint[8] 配列) </summary>

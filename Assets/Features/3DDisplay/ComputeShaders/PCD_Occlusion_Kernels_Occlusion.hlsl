@@ -150,6 +150,10 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
         }
     }
 
+    // 占有判定閾値 (その他手法用 T_loc) および Average用閾値 (T_ave) の取得 (フォールバック対応)
+    float locTh = (_OcclusionThreshold_T_loc >= 0.0) ? _OcclusionThreshold_T_loc : _OcclusionThreshold;
+    float aveTh = (_OcclusionThreshold_T_ave >= 0.0) ? _OcclusionThreshold_T_ave : _OcclusionThreshold;
+
     // 各セクタの代表値（最小値）に基づいて占有ビット・有効セクタ数・メトリクスを集計
     [unroll]
     for (int s = 0; s < 8; ++s)
@@ -162,8 +166,8 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
             validSectorCount++;
         }
 
-        // 占有ビット: セクタ s の最小値 < T_loc (_OcclusionThreshold)
-        if (sVal < _OcclusionThreshold)
+        // 占有ビット: セクタ s の最小値 < T_loc
+        if (sVal < locTh)
         {
             binaryOccludedCount++; // N_occ(x)
             occupiedSectorMask |= (1u << s); // b_k(x) = 1 (占有セクタ)
@@ -172,8 +176,8 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
         if (_EnableSoftOcclusionFade > 0 && _OcclusionFadeWidth > 1e-4)
         {
             float halfFade = _OcclusionFadeWidth * 0.5;
-            float fadeStart = max(0.0, _OcclusionThreshold - halfFade);
-            float fadeEnd = min(2.0, _OcclusionThreshold + halfFade);
+            float fadeStart = max(0.0, locTh - halfFade);
+            float fadeEnd = min(2.0, locTh + halfFade);
             float sectorAlpha = smoothstep(fadeStart, fadeEnd, sVal);
             softOccludedCount += (1.0 - sectorAlpha);
         }
@@ -212,13 +216,13 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
         if (_EnableSoftOcclusionFade > 0 && _OcclusionFadeWidth > 1e-4)
         {
             float halfFade = _OcclusionFadeWidth * 0.5;
-            float fadeStart = max(0.0, _OcclusionThreshold - halfFade);
-            float fadeEnd = min(2.0, _OcclusionThreshold + halfFade);
+            float fadeStart = max(0.0, aveTh - halfFade);
+            float fadeEnd = min(2.0, aveTh + halfFade);
             alpha = smoothstep(fadeStart, fadeEnd, avgOcclusion);
         }
         else
         {
-            if (avgOcclusion < _OcclusionThreshold)
+            if (avgOcclusion < aveTh)
                 alpha = 0.0;
         }
     }
@@ -267,21 +271,15 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
         // ビットが 1 なら可視 (alpha = 1.0)、0 なら遮蔽 (alpha = 0.0)
         uint wordIdx = (occupiedSectorMask >> 5u) & 7u;
         uint bitIdx = occupiedSectorMask & 31u;
-        bool isVisible = ((_PatternLUT[wordIdx] >> bitIdx) & 1u) != 0u;
+        uint wordVal = (wordIdx < 4u) ? _PatternLUT[0][wordIdx] : _PatternLUT[1][wordIdx - 4u];
+        bool isVisible = ((wordVal >> bitIdx) & 1u) != 0u;
 
-        if (_EnableSoftOcclusionFade > 0 && _OcclusionFadeWidth > 1e-4)
-        {
-            float countFadeStart = max(0.0, (float)_MinOccludedSectors - 1.0);
-            float countFadeEnd = (float)_MinOccludedSectors;
-            float baseAlpha = 1.0 - smoothstep(countFadeStart, countFadeEnd, softOccludedCount);
-            alpha = isVisible ? 1.0 : baseAlpha;
-            avgOcclusion = 1.0 - (softOccludedCount / 8.0);
-        }
-        else
-        {
-            alpha = isVisible ? 1.0 : 0.0;
-            avgOcclusion = 1.0 - ((float)binaryOccludedCount / 8.0);
-        }
+        // LUT判定: isVisible が false (0) なら完全に遮蔽 (alpha = 0.0)。
+        // 誤った baseAlpha フォールバックによる遮蔽消失 (FP大量発生) を防止。
+        alpha = isVisible ? 1.0 : 0.0;
+        avgOcclusion = (_EnableSoftOcclusionFade > 0 && _OcclusionFadeWidth > 1e-4)
+            ? (1.0 - (softOccludedCount / 8.0))
+            : (1.0 - ((float)binaryOccludedCount / 8.0));
     }
 
     if (alpha <= 0.0)

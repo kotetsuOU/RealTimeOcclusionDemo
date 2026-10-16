@@ -75,6 +75,8 @@ namespace SICESI
             public float densityValue;
             public string densityUnit;
             public float occlusionThreshold;
+            public float T_ave;
+            public float T_loc;
             public string evaluationMode;
             public int minOccludedSectors;
             public int maxConsecutiveEmptySectors;
@@ -160,9 +162,9 @@ namespace SICESI
 
                 if (data.handMesh != null && gtObj != null) data.handMesh.ApplyToTransform(gtObj.transform);
                 if (data.virtualObject != null && voObj != null) data.virtualObject.ApplyToTransform(voObj.transform);
-                if (data.leftCamera != null && leftCam != null) data.leftCamera.ApplyToTransform(leftCam.transform);
-                if (data.rightCamera != null && rightCam != null) data.rightCamera.ApplyToTransform(rightCam.transform);
-                if (data.sceneCamera != null && sceneCam != null) data.sceneCamera.ApplyToTransform(sceneCam.transform);
+                RestoreCameraTransformSafely(leftCam, data.leftCamera);
+                RestoreCameraTransformSafely(rightCam, data.rightCamera);
+                RestoreCameraTransformSafely(sceneCam, data.sceneCamera);
 
                 if (!string.IsNullOrEmpty(data.conditionName))
                 {
@@ -180,6 +182,44 @@ namespace SICESI
         }
 
         /// <summary>
+        /// カメラの Transform 情報を安全に適用します。
+        /// SRD (Spatial Reality Display) のステレオカメラ (LeftEyeCamera / RightEyeCamera) は
+        /// FaceTracker / SRD ランタイムが EyeAnchor を介して姿勢を動的制御するため、
+        /// ワールド Transform の上書きをスキップし、ズレている場合は localPosition / localRotation をゼロにリセットします。
+        /// 俯瞰カメラなどの通常カメラの場合は通常通り Transform を復元します。
+        /// </summary>
+        public static void RestoreCameraTransformSafely(Camera cam, SerializableTransformData camData)
+        {
+            if (cam == null) return;
+
+            if (IsSrdEyeCamera(cam))
+            {
+                // SRD カメラの場合: 子カメラの localPose がズレて残像・Zoom歪みが生じないよう、常に (0,0,0) / Identity を保証
+                cam.transform.localPosition = Vector3.zero;
+                cam.transform.localRotation = Quaternion.identity;
+                return;
+            }
+
+            if (camData != null)
+            {
+                camData.ApplyToTransform(cam.transform);
+            }
+        }
+
+        /// <summary>
+        /// 指定されたカメラが SRD (Spatial Reality Display) の両眼カメラかどうかを判定します。
+        /// </summary>
+        public static bool IsSrdEyeCamera(Camera cam)
+        {
+            if (cam == null) return false;
+            if (cam.transform.parent != null && cam.transform.parent.name.Contains("EyeAnchor"))
+            {
+                return true;
+            }
+            return cam.name.Contains("LeftEyeCamera") || cam.name.Contains("RightEyeCamera");
+        }
+
+        /// <summary>
         /// 撮影時の正確な評価設定値を JSON として記録します。
         /// </summary>
         public static void SaveEvaluationParamsJson(
@@ -192,16 +232,24 @@ namespace SICESI
             int sectors,
             int maxZeros,
             GameObject gtObj,
-            GameObject voObj)
+            GameObject voObj,
+            float tAve = -1f,
+            float tLoc = -1f)
         {
             try
             {
+                bool isAvg = string.Equals(mode, "Average", StringComparison.OrdinalIgnoreCase);
+                float resolvedTAve = tAve >= 0f ? tAve : (isAvg ? threshold : 0.8f);
+                float resolvedTLoc = tLoc >= 0f ? tLoc : (!isAvg ? threshold : 0.8f);
+
                 var data = new EvaluationParamsData
                 {
                     conditionName = conditionName,
                     densityValue = density,
                     densityUnit = densityUnit,
                     occlusionThreshold = threshold,
+                    T_ave = resolvedTAve,
+                    T_loc = resolvedTLoc,
                     evaluationMode = mode,
                     minOccludedSectors = sectors,
                     maxConsecutiveEmptySectors = maxZeros,

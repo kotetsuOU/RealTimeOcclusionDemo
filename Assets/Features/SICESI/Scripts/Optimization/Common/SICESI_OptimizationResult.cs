@@ -21,6 +21,10 @@ namespace SICESI
         public string timestamp = "";
         public string sourceFilePath = "";
 
+        // Mode Average
+        public float averageBestTAve = 0.5f;
+        public float averageMeanIoU = 0f;
+
         // Mode 8
         public int mode8ThresholdR = 7;
         public string mode8RuleDesc = "Occ < 7";

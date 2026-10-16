@@ -82,8 +82,9 @@ namespace SICESI
                             string targetDir = Path.Combine(conditionRootDir, $"density_{densityStr}{unitSuffix}", folderName);
                             SICESI_ScreenCaptureUtil.CaptureStereoViews(_controller.leftEyeCamera, _controller.rightEyeCamera, targetDir, $"test_{densityStr}_{folderName}", _controller.applySRGBConversion);
 
-                            float occTh = _controller.occlusionPipelineController != null ? _controller.occlusionPipelineController.occlusionThreshold : 0.8f;
-                            SICESI_ScreenCaptureUtil.SaveEvaluationParamsJson(targetDir, _controller.conditionName, density, _controller.densityUnit.ToString(), occTh, PCDRendererFeature.PCD_OcclusionEvaluationMode.SectorConsecutiveZeros.ToString(), sector, maxZero, _controller.groundTruthObject, _controller.virtualObject);
+                            float tAve = _controller.occlusionPipelineController != null ? _controller.occlusionPipelineController.T_ave : 0.8f;
+                            float occTh = _controller.occlusionPipelineController != null ? _controller.occlusionPipelineController.T_loc : 0.8f;
+                            SICESI_ScreenCaptureUtil.SaveEvaluationParamsJson(targetDir, _controller.conditionName, density, _controller.densityUnit.ToString(), occTh, PCDRendererFeature.PCD_OcclusionEvaluationMode.SectorConsecutiveZeros.ToString(), sector, maxZero, _controller.groundTruthObject, _controller.virtualObject, tAve, occTh);
                         }
                     }
                 }
@@ -110,8 +111,9 @@ namespace SICESI
                         string targetDir = Path.Combine(conditionRootDir, folderName);
                         SICESI_ScreenCaptureUtil.CaptureStereoViews(_controller.leftEyeCamera, _controller.rightEyeCamera, targetDir, $"test_{densityStr}_{folderName}", _controller.applySRGBConversion);
 
-                        float occTh = _controller.occlusionPipelineController != null ? _controller.occlusionPipelineController.occlusionThreshold : 0.8f;
-                        SICESI_ScreenCaptureUtil.SaveEvaluationParamsJson(targetDir, _controller.conditionName, curDensity, _controller.densityUnit.ToString(), occTh, PCDRendererFeature.PCD_OcclusionEvaluationMode.SectorConsecutiveZeros.ToString(), sector, maxZero, _controller.groundTruthObject, _controller.virtualObject);
+                        float tAve = _controller.occlusionPipelineController != null ? _controller.occlusionPipelineController.T_ave : 0.8f;
+                        float occTh = _controller.occlusionPipelineController != null ? _controller.occlusionPipelineController.T_loc : 0.8f;
+                        SICESI_ScreenCaptureUtil.SaveEvaluationParamsJson(targetDir, _controller.conditionName, curDensity, _controller.densityUnit.ToString(), occTh, PCDRendererFeature.PCD_OcclusionEvaluationMode.SectorConsecutiveZeros.ToString(), sector, maxZero, _controller.groundTruthObject, _controller.virtualObject, tAve, occTh);
                     }
                 }
 

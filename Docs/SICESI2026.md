@@ -65,9 +65,17 @@ Assets/Features/SICESI/
 │   │   ├── SICESI_PresetListSectionDrawer.cs        # プリセット一覧・シーン復元
 │   │   ├── SICESI_PresetSaveSectionDrawer.cs        # シーン配置プリセット JSON 保存
 │   │   └── SICESI_PresetSelectionManager.cs         # プリセット個別ON/OFF選択 & 開閉永続化
-│   └── Optimization/                 # 【最適化】Python 最適化実行 & パイプライン自動置換
-│       ├── SICESI_OptimizationActionDrawer.cs       # 最適化実行アクションボタン
-│       └── SICESI_OptimizationSectionDrawer.cs      # 最適化パラメータ設定・置換セクション
+│   └── Optimization/                 # 【最適化】最適化実行 & パイプライン自動置換
+│       ├── Average/                  # Average 手法 T_ave 最適化スイープ
+│       │   ├── SICESI_AverageThresholdOptimizationDrawer.cs         # 統括 Facade
+│       │   ├── SICESI_AverageThresholdOptimizationSettingsDrawer.cs # パラメータ設定
+│       │   ├── SICESI_AverageThresholdOptimizationActionDrawer.cs   # 実行アクション
+│       │   └── SICESI_AverageThresholdOptimizationCardDrawer.cs     # 結果サマリーカード
+│       └── RuleOptimization/         # Python ルール最適化 (MILP / 局所探索)
+│           ├── SICESI_OptimizationSectionDrawer.cs                  # セクション統括 Facade
+│           ├── SICESI_OptimizationSettingsDrawer.cs                 # パラメータ設定
+│           ├── SICESI_OptimizationActionDrawer.cs                   # 実行アクション
+│           └── SICESI_OptimizationParametersCardDrawer.cs           # 結果パラメータカード
 ├── Python/                           # Python 解析・最適化・可視化スイート
 │   ├── sicesi_core/                  # 【共通コアパッケージ】
 │   │   ├── constants.py              # 配色定義 (TP/TN/FN/FP), 二値化閾値 (128)
@@ -121,11 +129,18 @@ Assets/Features/SICESI/
     │   ├── SICESI_ConsecutiveSweepRunner.cs      # 連続非占有スイープ (20代表条件)
     │   ├── SICESI_ThresholdSweepRunner.cs        # 密度×オクルージョン閾値スイープ
     │   └── SICESI_SnapshotRunner.cs              # GT撮影・単発撮影・シーン俯瞰撮影
-    ├── Optimization/                 # 【Python 最適化連携 & パイプライン置換】
-    │   ├── SICESI_PythonOptimizationRunner.cs    # Python 最適化バックグラウンド非同期実行ランナー
-    │   ├── SICESI_OptimizationPresetRunner.cs    # プリセット最適化バッチ実行
-    │   ├── SICESI_OptimizationApplier.cs         # パイプライン & レジストリへのパラメータ自動置換
-    │   └── SICESI_OptimizationResult.cs          # 最適化パラメータデータモデル (JSON/CSV パース)
+    ├── Optimization/                 # 【最適化連携 & パイプライン置換】
+    │   ├── Average/                  # Average 手法 T_ave 最適化
+    │   │   ├── SICESI_AverageThresholdOptimizationRunner.cs   # T_ave 最適化スイープ統括ランナー
+    │   │   ├── SICESI_AverageThresholdSweepEvaluator.cs       # メモリ内 IoU 高速スイープ評価エンジン
+    │   │   ├── SICESI_AverageThresholdOptimalImageCapturer.cs # 最適値における画像・差分撮影保存
+    │   │   └── SICESI_AverageThresholdOptimizationReporter.cs # サマリー CSV 出力 & テキスト構築
+    │   ├── RuleOptimization/         # Python ルール最適化 (8/20/36/256)
+    │   │   ├── SICESI_PythonOptimizationRunner.cs           # Python 最適化バックグラウンド非同期実行ランナー
+    │   │   └── SICESI_OptimizationPresetRunner.cs           # プリセット最適化バッチ実行
+    │   └── Common/                   # 最適化共通基盤
+    │       ├── SICESI_OptimizationResult.cs                 # 最適化パラメータデータモデル (JSON/CSV パース)
+    │       └── SICESI_OptimizationApplier.cs                # パイプライン & レジストリへのパラメータ自動置換
     ├── Capture/                      # 【画像撮影 & メタデータ保存】
     │   ├── SICESI_MaterialSwapper.cs             # GT・仮想物体のマテリアル/Layer 一時変更・復元
     │   ├── SICESI_ScreenCaptureUtil.cs           # カメラPNG保存・URP直接レンダリング・ステレオ視点保存

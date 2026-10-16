@@ -35,7 +35,8 @@ public class PCDOcclusionPipelineControllerEditor : Editor
     private SerializedProperty _gradientThreshold_g_th;
 
     // フィルタリング & フェード
-    private SerializedProperty _occlusionThreshold;
+    private SerializedProperty _occlusionThreshold_T_ave;
+    private SerializedProperty _occlusionThreshold_T_loc;
     private SerializedProperty _occlusionFadeWidth;
 
     // 仮想接触
@@ -99,7 +100,8 @@ public class PCDOcclusionPipelineControllerEditor : Editor
         _enableGradientCorrection = serializedObject.FindProperty("enableGradientCorrection");
         _gradientThreshold_g_th = serializedObject.FindProperty("gradientThreshold_g_th");
 
-        _occlusionThreshold = serializedObject.FindProperty("occlusionThreshold");
+        _occlusionThreshold_T_ave = serializedObject.FindProperty("occlusionThreshold_T_ave");
+        _occlusionThreshold_T_loc = serializedObject.FindProperty("occlusionThreshold_T_loc");
         _occlusionFadeWidth = serializedObject.FindProperty("occlusionFadeWidth");
 
         _enableVirtualContactOcclusion = serializedObject.FindProperty("enableVirtualContactOcclusion");
@@ -173,7 +175,9 @@ public class PCDOcclusionPipelineControllerEditor : Editor
             }
 
             EditorGUILayout.Space(4);
-            EditorGUILayout.PropertyField(_occlusionThreshold);
+            EditorGUILayout.LabelField("オクルージョン判定閾値 (Thresholds)", EditorStyles.miniBoldLabel);
+            EditorGUILayout.PropertyField(_occlusionThreshold_T_ave, new GUIContent("閾値 T_ave (Average手法)"));
+            EditorGUILayout.PropertyField(_occlusionThreshold_T_loc, new GUIContent("閾値 T_loc (セクター占有・その他手法)"));
             EditorGUILayout.PropertyField(_occlusionFadeWidth);
             EditorGUI.indentLevel--;
         }

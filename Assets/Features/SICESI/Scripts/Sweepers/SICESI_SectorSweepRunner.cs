@@ -69,7 +69,9 @@ namespace SICESI
 
                             string avgTargetDir = Path.Combine(conditionRootDir, $"density_{densityStr}{unitSuffix}", "mode_Average");
                             SICESI_ScreenCaptureUtil.CaptureStereoViews(_controller.leftEyeCamera, _controller.rightEyeCamera, avgTargetDir, $"test_{densityStr}_avg", _controller.applySRGBConversion);
-                            SICESI_ScreenCaptureUtil.SaveEvaluationParamsJson(avgTargetDir, _controller.conditionName, density, _controller.densityUnit.ToString(), _controller.occlusionPipelineController.occlusionThreshold, PCDRendererFeature.PCD_OcclusionEvaluationMode.Average.ToString(), 1, 8, _controller.groundTruthObject, _controller.virtualObject);
+                            float tAve = _controller.occlusionPipelineController != null ? _controller.occlusionPipelineController.T_ave : 0.8f;
+                            float tLoc = _controller.occlusionPipelineController != null ? _controller.occlusionPipelineController.T_loc : 0.8f;
+                            SICESI_ScreenCaptureUtil.SaveEvaluationParamsJson(avgTargetDir, _controller.conditionName, density, _controller.densityUnit.ToString(), tAve, PCDRendererFeature.PCD_OcclusionEvaluationMode.Average.ToString(), 1, 8, _controller.groundTruthObject, _controller.virtualObject, tAve, tLoc);
                         }
 
                         if (_controller.occlusionPipelineController != null)
@@ -91,8 +93,9 @@ namespace SICESI
 
                             string targetDir = Path.Combine(conditionRootDir, $"density_{densityStr}{unitSuffix}", $"sector_{sector}");
                             SICESI_ScreenCaptureUtil.CaptureStereoViews(_controller.leftEyeCamera, _controller.rightEyeCamera, targetDir, $"test_{densityStr}_sec{sector}", _controller.applySRGBConversion);
-                            float occTh = _controller.occlusionPipelineController != null ? _controller.occlusionPipelineController.occlusionThreshold : 0.8f;
-                            SICESI_ScreenCaptureUtil.SaveEvaluationParamsJson(targetDir, _controller.conditionName, density, _controller.densityUnit.ToString(), occTh, PCDRendererFeature.PCD_OcclusionEvaluationMode.SectorThreshold.ToString(), sector, 8, _controller.groundTruthObject, _controller.virtualObject);
+                            float tAve = _controller.occlusionPipelineController != null ? _controller.occlusionPipelineController.T_ave : 0.8f;
+                            float occTh = _controller.occlusionPipelineController != null ? _controller.occlusionPipelineController.T_loc : 0.8f;
+                            SICESI_ScreenCaptureUtil.SaveEvaluationParamsJson(targetDir, _controller.conditionName, density, _controller.densityUnit.ToString(), occTh, PCDRendererFeature.PCD_OcclusionEvaluationMode.SectorThreshold.ToString(), sector, 8, _controller.groundTruthObject, _controller.virtualObject, tAve, occTh);
                         }
                     }
                 }
@@ -109,7 +112,9 @@ namespace SICESI
 
                         string avgTargetDir = Path.Combine(conditionRootDir, "mode_Average");
                         SICESI_ScreenCaptureUtil.CaptureStereoViews(_controller.leftEyeCamera, _controller.rightEyeCamera, avgTargetDir, $"test_{densityStr}_avg", _controller.applySRGBConversion);
-                        SICESI_ScreenCaptureUtil.SaveEvaluationParamsJson(avgTargetDir, _controller.conditionName, curDensity, _controller.densityUnit.ToString(), _controller.occlusionPipelineController.occlusionThreshold, PCDRendererFeature.PCD_OcclusionEvaluationMode.Average.ToString(), 1, 8, _controller.groundTruthObject, _controller.virtualObject);
+                        float tAve = _controller.occlusionPipelineController != null ? _controller.occlusionPipelineController.T_ave : 0.8f;
+                        float tLoc = _controller.occlusionPipelineController != null ? _controller.occlusionPipelineController.T_loc : 0.8f;
+                        SICESI_ScreenCaptureUtil.SaveEvaluationParamsJson(avgTargetDir, _controller.conditionName, curDensity, _controller.densityUnit.ToString(), tAve, PCDRendererFeature.PCD_OcclusionEvaluationMode.Average.ToString(), 1, 8, _controller.groundTruthObject, _controller.virtualObject, tAve, tLoc);
                     }
 
                     if (_controller.occlusionPipelineController != null)
@@ -131,8 +136,9 @@ namespace SICESI
 
                         string targetDir = Path.Combine(conditionRootDir, $"sector_{sector}");
                         SICESI_ScreenCaptureUtil.CaptureStereoViews(_controller.leftEyeCamera, _controller.rightEyeCamera, targetDir, $"test_sec{sector}", _controller.applySRGBConversion);
-                        float occTh = _controller.occlusionPipelineController != null ? _controller.occlusionPipelineController.occlusionThreshold : 0.8f;
-                        SICESI_ScreenCaptureUtil.SaveEvaluationParamsJson(targetDir, _controller.conditionName, curDensity, _controller.densityUnit.ToString(), occTh, PCDRendererFeature.PCD_OcclusionEvaluationMode.SectorThreshold.ToString(), sector, 8, _controller.groundTruthObject, _controller.virtualObject);
+                        float tAve = _controller.occlusionPipelineController != null ? _controller.occlusionPipelineController.T_ave : 0.8f;
+                        float occTh = _controller.occlusionPipelineController != null ? _controller.occlusionPipelineController.T_loc : 0.8f;
+                        SICESI_ScreenCaptureUtil.SaveEvaluationParamsJson(targetDir, _controller.conditionName, curDensity, _controller.densityUnit.ToString(), occTh, PCDRendererFeature.PCD_OcclusionEvaluationMode.SectorThreshold.ToString(), sector, 8, _controller.groundTruthObject, _controller.virtualObject, tAve, occTh);
                     }
                 }
 

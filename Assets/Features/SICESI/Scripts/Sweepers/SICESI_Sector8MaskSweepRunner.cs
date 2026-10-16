@@ -202,7 +202,8 @@ namespace SICESI
                     SetDebugSectorId(-1);
                     yield return null;
 
-                    SaveParamsJson(targetDir, density, _controller.occlusionPipelineController != null ? _controller.occlusionPipelineController.occlusionThreshold : 0.1f);
+                    float tLoc = _controller.occlusionPipelineController != null ? _controller.occlusionPipelineController.T_loc : 0.8f;
+                    SaveParamsJson(targetDir, density, tLoc);
                     AppLogger.Log("SICESI", $"[{d + 1}/{densities.Length}] 密度 {densityStr} の統合セクターマスク収集完了: {targetDir}");
                 }
 
@@ -265,6 +266,9 @@ namespace SICESI
                 int minSec = pipe != null ? pipe.minOccludedSectors : 1;
                 int maxZeros = pipe != null ? pipe.maxConsecutiveEmptySectors : 8;
 
+                float tAve = pipe != null ? pipe.T_ave : 0.8f;
+                float tLoc = pipe != null ? pipe.T_loc : threshold;
+
                 SICESI_ScreenCaptureUtil.SaveEvaluationParamsJson(
                     targetDir,
                     _controller.conditionName,
@@ -275,7 +279,9 @@ namespace SICESI
                     minSec,
                     maxZeros,
                     _controller.groundTruthObject,
-                    _controller.virtualObject
+                    _controller.virtualObject,
+                    tAve,
+                    tLoc
                 );
             }
             catch (Exception ex)

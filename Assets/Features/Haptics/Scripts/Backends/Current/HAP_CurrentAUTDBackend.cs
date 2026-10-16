@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
 using Core.Logging;
@@ -37,6 +38,7 @@ namespace Features.Haptics.Backends.Current
         public bool IsConnected => _client != null && _geometry != null;
 
         private Task? _sendTask;
+        private readonly SemaphoreSlim _sendLock = new SemaphoreSlim(1, 1);
         private readonly HAP_CurrentPatternBuilder _patternBuilder = new HAP_CurrentPatternBuilder();
         private readonly HAP_CurrentHardwareConfigurator _hardwareConfigurator = new HAP_CurrentHardwareConfigurator();
 
@@ -68,7 +70,8 @@ namespace Features.Haptics.Backends.Current
                         break;
                 }
 
-                _client = await Client.OpenAsync(_geometry, link, new ClientConfig());
+                var clientConfig = new ClientConfig(lowLatency: true, timeoutCycles: 100);
+                _client = await Client.OpenAsync(_geometry, link, clientConfig);
 
                 if (IsConnected)
                 {
@@ -90,42 +93,50 @@ namespace Features.Haptics.Backends.Current
 
         public async Task CloseAsync()
         {
-            if (_client != null)
+            await _sendLock.WaitAsync().ConfigureAwait(false);
+            try
             {
-                try
+                if (_client != null)
                 {
-                    // 1. 出力を確実に停止（Null 送信および StopAsync）
-                    await _hardwareConfigurator.SendNullAsync(_client, _geometry);
-                    await _client.StopAsync();
+                    try
+                    {
+                        // 1. 出力を確実に停止（Null 送信および StopAsync）
+                        await _hardwareConfigurator.SendNullAsync(_client, _geometry).ConfigureAwait(false);
+                        await _client.StopAsync().ConfigureAwait(false);
 
-                    // 2. サイレンサーを無効化（初期状態へ復帰）
-                    await _hardwareConfigurator.SendSilencerDisableAsync(_client, _geometry);
+                        // 2. サイレンサーを無効化（初期状態へ復帰）
+                        await _hardwareConfigurator.SendSilencerDisableAsync(_client, _geometry).ConfigureAwait(false);
 
-                    // 3. 冷却ファンを確実に停止（ForceFan(false)）
-                    await _hardwareConfigurator.SendFanStopAsync(_client, _geometry);
+                        // 3. 冷却ファンを確実に停止（ForceFan(false)）
+                        await _hardwareConfigurator.SendFanStopAsync(_client, _geometry).ConfigureAwait(false);
 
-                    // 4. クライアント通信をクローズ
-                    await _client.CloseAsync();
-                    _client.Dispose();
+                        // 4. クライアント通信をクローズ
+                        await _client.CloseAsync().ConfigureAwait(false);
+                        _client.Dispose();
+                    }
+                    catch (Exception ex)
+                    {
+                        AppLogger.LogWarning(null, HAP_LogTriggers.TagLinkService, $"[CurrentBackend] Error during close: {ex.Message}");
+                    }
+                    finally
+                    {
+                        _client = null;
+                        _hardwareConfigurator.ResetCachedStates();
+                    }
                 }
-                catch (Exception ex)
+
+                if (_geometry != null)
                 {
-                    AppLogger.LogWarning(null, HAP_LogTriggers.TagLinkService, $"[CurrentBackend] Error during close: {ex.Message}");
+                    _geometry.Dispose();
+                    _geometry = null;
                 }
-                finally
-                {
-                    _client = null;
-                    _hardwareConfigurator.ResetCachedStates();
-                }
+
+                AppLogger.Log(null, HAP_LogTriggers.TagLinkService, "[CurrentBackend] AUTD3 connection closed.");
             }
-
-            if (_geometry != null)
+            finally
             {
-                _geometry.Dispose();
-                _geometry = null;
+                _sendLock.Release();
             }
-
-            AppLogger.Log(null, HAP_LogTriggers.TagLinkService, "[CurrentBackend] AUTD3 connection closed.");
         }
 
         public void SendNull()
@@ -135,7 +146,16 @@ namespace Features.Haptics.Backends.Current
             {
                 try
                 {
-                    await _hardwareConfigurator.SendNullAsync(_client, _geometry).ConfigureAwait(false);
+                    await _sendLock.WaitAsync().ConfigureAwait(false);
+                    try
+                    {
+                        if (_client == null || _geometry == null) return;
+                        await _hardwareConfigurator.SendNullAsync(_client, _geometry).ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        _sendLock.Release();
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -145,13 +165,79 @@ namespace Features.Haptics.Backends.Current
         }
 
         public void ApplyModulation(ModulationMode mode, float sineFreq, float staticAmp)
-            => _hardwareConfigurator.ApplyModulation(_client, _geometry, mode, sineFreq, staticAmp);
+        {
+            if (_client == null || _geometry == null) return;
+            Task.Run(async () =>
+            {
+                try
+                {
+                    await _sendLock.WaitAsync().ConfigureAwait(false);
+                    try
+                    {
+                        if (_client == null || _geometry == null) return;
+                        await _hardwareConfigurator.ApplyModulationAsync(_client, _geometry, mode, sineFreq, staticAmp).ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        _sendLock.Release();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    AppLogger.LogWarning(null, HAP_LogTriggers.TagModulationService, $"[CurrentBackend] Failed to apply modulation: {ex.Message}");
+                }
+            });
+        }
 
         public void ApplySilencer(SilencerMode mode, ushort stepPhase, ushort stepAmp)
-            => _hardwareConfigurator.ApplySilencer(_client, _geometry, mode, stepPhase, stepAmp);
+        {
+            if (_client == null || _geometry == null) return;
+            Task.Run(async () =>
+            {
+                try
+                {
+                    await _sendLock.WaitAsync().ConfigureAwait(false);
+                    try
+                    {
+                        if (_client == null || _geometry == null) return;
+                        await _hardwareConfigurator.ApplySilencerAsync(_client, _geometry, mode, stepPhase, stepAmp).ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        _sendLock.Release();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    AppLogger.LogWarning(null, HAP_LogTriggers.TagModulationService, $"[CurrentBackend] Failed to apply silencer: {ex.Message}");
+                }
+            });
+        }
 
         public void ApplyFan(bool enableFan)
-            => _hardwareConfigurator.ApplyFan(_client, _geometry, enableFan);
+        {
+            if (_client == null || _geometry == null) return;
+            Task.Run(async () =>
+            {
+                try
+                {
+                    await _sendLock.WaitAsync().ConfigureAwait(false);
+                    try
+                    {
+                        if (_client == null || _geometry == null) return;
+                        await _hardwareConfigurator.ApplyFanAsync(_client, _geometry, enableFan).ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        _sendLock.Release();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    AppLogger.LogWarning(null, HAP_LogTriggers.TagModulationService, $"[CurrentBackend] Failed to apply fan: {ex.Message}");
+                }
+            });
+        }
 
         public void ApplyTemperature(float temperature)
             => _hardwareConfigurator.ApplyTemperature(temperature);
@@ -187,27 +273,57 @@ namespace Features.Haptics.Backends.Current
             profiler?.BeginSend();
             if (synchronousSend)
             {
-                foreach (var frame in frames)
+                try
                 {
-                    _client.SendCheckedAsync(frame).GetAwaiter().GetResult();
+                    _sendLock.Wait();
+                    try
+                    {
+                        if (_client != null)
+                        {
+                            foreach (var frame in frames)
+                            {
+                                _client.SendCheckedAsync(frame).GetAwaiter().GetResult();
+                            }
+                        }
+                    }
+                    finally
+                    {
+                        _sendLock.Release();
+                    }
                 }
-                profiler?.EndSend();
+                catch (Exception ex)
+                {
+                    AppLogger.LogWarning(null, HAP_LogTriggers.TagLinkService, $"[CurrentBackend] Error in synchronous SendFoci: {ex.Message}");
+                }
+                finally
+                {
+                    profiler?.EndSend();
+                }
             }
             else
             {
-                if (_sendTask == null || _sendTask.IsCompleted)
+                // 非同期送信: 先行送信中（SendFoci または SendNull等）であればフレームドロップ（最新フレーム優先）
+                if (_sendLock.Wait(0))
                 {
                     _sendTask = Task.Run(async () =>
                     {
                         try
                         {
-                            foreach (var frame in frames)
+                            if (_client != null)
                             {
-                                await _client.SendCheckedAsync(frame);
+                                foreach (var frame in frames)
+                                {
+                                    await _client.SendCheckedAsync(frame).ConfigureAwait(false);
+                                }
                             }
+                        }
+                        catch (Exception ex)
+                        {
+                            AppLogger.LogWarning(null, HAP_LogTriggers.TagLinkService, $"[CurrentBackend] Error in SendFoci: {ex.Message}");
                         }
                         finally
                         {
+                            _sendLock.Release();
                             profiler?.EndSend();
                         }
                     });
@@ -247,6 +363,12 @@ namespace Features.Haptics.Backends.Current
                 _geometry.Dispose();
                 _geometry = null;
             }
+
+            try
+            {
+                _sendLock.Dispose();
+            }
+            catch { }
         }
     }
 }

@@ -56,11 +56,19 @@ namespace SICESI.Editor
         }
 
         /// <summary>
-        /// 解析結果出力先 (RuleOptimizationResults) の絶対パスを取得します。
+        /// 解析結果出力先 (Optimization/RuleOptimization) の絶対パスを取得します。
+        /// 既存の RuleOptimizationResults が存在する場合はフォールバック互換性を提供します。
         /// </summary>
         public static string GetEffectiveOutputDir(SICESI_StereoEvaluationController controller)
         {
-            return Path.Combine(GetEffectiveDatasetPath(controller), "RuleOptimizationResults");
+            string basePath = GetEffectiveDatasetPath(controller);
+            string newPath = Path.Combine(basePath, "Optimization", "RuleOptimization");
+            string legacyPath = Path.Combine(basePath, "RuleOptimizationResults");
+            if (!Directory.Exists(newPath) && Directory.Exists(legacyPath))
+            {
+                return legacyPath;
+            }
+            return newPath;
         }
 
         /// <summary>

@@ -62,11 +62,13 @@ namespace SICESI
                     SICESI_ScreenCaptureUtil.CaptureStereoViews(_controller.leftEyeCamera, _controller.rightEyeCamera, targetDir, $"test_{densityStr}", _controller.applySRGBConversion);
 
                     var curMode = _controller.occlusionPipelineController != null ? _controller.occlusionPipelineController.evaluationMode : PCDRendererFeature.PCD_OcclusionEvaluationMode.Average;
-                    float occThreshold = _controller.occlusionPipelineController != null ? _controller.occlusionPipelineController.occlusionThreshold : 0.8f;
+                    float tAve = _controller.occlusionPipelineController != null ? _controller.occlusionPipelineController.T_ave : 0.8f;
+                    float tLoc = _controller.occlusionPipelineController != null ? _controller.occlusionPipelineController.T_loc : 0.8f;
+                    float occThreshold = curMode == PCDRendererFeature.PCD_OcclusionEvaluationMode.Average ? tAve : tLoc;
                     int minSec = _controller.occlusionPipelineController != null ? _controller.occlusionPipelineController.minOccludedSectors : 1;
                     int maxZeros = _controller.occlusionPipelineController != null ? _controller.occlusionPipelineController.maxConsecutiveEmptySectors : 8;
 
-                    SICESI_ScreenCaptureUtil.SaveEvaluationParamsJson(targetDir, _controller.conditionName, density, _controller.densityUnit.ToString(), occThreshold, curMode.ToString(), minSec, maxZeros, _controller.groundTruthObject, _controller.virtualObject);
+                    SICESI_ScreenCaptureUtil.SaveEvaluationParamsJson(targetDir, _controller.conditionName, density, _controller.densityUnit.ToString(), occThreshold, curMode.ToString(), minSec, maxZeros, _controller.groundTruthObject, _controller.virtualObject, tAve, tLoc);
                 }
 
                 _controller.statusMessage = "Density Sweep Completed!";

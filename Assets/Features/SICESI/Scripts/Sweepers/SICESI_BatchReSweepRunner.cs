@@ -159,19 +159,10 @@ namespace SICESI
                     }
                 }
 
-                // 4. カメラ群の Transform 適用
-                if (data.leftCamera != null && _controller.leftEyeCamera != null)
-                {
-                    data.leftCamera.ApplyToTransform(_controller.leftEyeCamera.transform);
-                }
-                if (data.rightCamera != null && _controller.rightEyeCamera != null)
-                {
-                    data.rightCamera.ApplyToTransform(_controller.rightEyeCamera.transform);
-                }
-                if (data.sceneCamera != null && _controller.sceneCaptureCamera != null)
-                {
-                    data.sceneCamera.ApplyToTransform(_controller.sceneCaptureCamera.transform);
-                }
+                // 4. カメラ群の Transform 適用 (SRD カメラは姿勢破壊・残像を防ぐため動的追従を優先し、localPose を安全に保護)
+                SICESI_SceneMetadataSerializer.RestoreCameraTransformSafely(_controller.leftEyeCamera, data.leftCamera);
+                SICESI_SceneMetadataSerializer.RestoreCameraTransformSafely(_controller.rightEyeCamera, data.rightCamera);
+                SICESI_SceneMetadataSerializer.RestoreCameraTransformSafely(_controller.sceneCaptureCamera, data.sceneCamera);
 
                 return true;
             }

@@ -121,7 +121,9 @@ float4x4 _ProjectionMatrix;         // ビュー => プロジェクション変�
 float _DensityThreshold_e;          // 密度計算時、表面近傍の点を判定するための厚み閾値
 float _NeighborhoodParam_p_prime;   // フィルタリング(サンプリング)範囲を決めるための基本係数
 float _GradientThreshold_g_th;      // 輪郭(エッジ)判定の強さ。超える場合は近傍範囲を縮小する
-float _OcclusionThreshold;          // オクルージョン強度のカットオフ閾値
+float _OcclusionThreshold_T_ave;    // Averageモード用オクルージョン閾値 T_ave
+float _OcclusionThreshold_T_loc;    // セクター占有判定（その他手法）用局所閾値 T_loc
+float _OcclusionThreshold;          // 互換用フォールバック閾値
 float _OcclusionFadeWidth;          // ピクセルを滑らかにフェードアウトさせるための幅
 uint _StaticMeshDensityMultiplier;  // 仮想オブジェクト(メッシュ)の密度を点群と同スケールに合わせるための補正スカラー値(x)
 
@@ -137,7 +139,7 @@ int _MinOccludedSectors;
 int _MaxConsecutiveEmptySectors;
 int _MinSearchLevel;
 float _Alpha;
-uint _PatternLUT[8];
+uint4 _PatternLUT[2];
 
 int _PullPushMaxLevel;
 int _PullPushCurrentLevel;

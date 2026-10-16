@@ -92,7 +92,11 @@ public class PCDRendererFeature : ScriptableRendererFeature
         public bool enableDensityBasedLOD;
         public bool enableGradientCorrection;
         public float gradientThreshold_g_th;
+        [Range(0f, 1f)] public float occlusionThreshold_T_ave;
+        [Range(0f, 1f)] public float occlusionThreshold_T_loc;
         [Range(0f, 1f)] public float occlusionThreshold;
+        public float T_ave { get => occlusionThreshold_T_ave; set => occlusionThreshold_T_ave = value; }
+        public float T_loc { get => occlusionThreshold_T_loc; set => occlusionThreshold_T_loc = value; }
         [Range(0f, 1f)] public float occlusionFadeWidth;
         public bool enableVirtualContactOcclusion;
         public float virtualContactRadius;

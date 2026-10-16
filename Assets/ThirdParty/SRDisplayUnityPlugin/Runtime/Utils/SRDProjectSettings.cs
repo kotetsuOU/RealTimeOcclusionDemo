@@ -81,6 +81,7 @@ namespace SRD.Utils
             }
             _instance = ScriptableObject.CreateInstance<SRDProjectSettings>();
             _instance.RunWithoutSpatialRealityDisplay = false;
+            _instance.BehaviorWhenNoSRDisplay = BehaviorOptionWhenNoSRDisplay.RunWithDisabled;
             _instance.MultiDisplayMode = MultiSRDMode.SingleDisplay;
             _instance.NumberOfDisplays = 2;
             _instance.PositionChangeTime = 3f;

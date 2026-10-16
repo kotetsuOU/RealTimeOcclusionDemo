@@ -1,5 +1,6 @@
 using System;
 using UnityEngine;
+using UnityEngine.Serialization;
 using Core.Logging;
 using static PCDRendererFeature;
 
@@ -17,23 +18,23 @@ public class PCDOcclusionPipelineController : MonoBehaviour, IAppLoggable
     #region 定数・事前定義LUT (Fixed Classification 最適解)
 
     /// <summary> 256パターン独立最適LUTの最良解 (HEX: 64文字) </summary>
-    public const string DEFAULT_HEX_256 = "014FDA4F0008E08812098009C00080C805025088000244005000C020C080D083";
+    public const string DEFAULT_HEX_256 = "000BC04F0000018B0003000D8001908D000100010001000080000001D000DD45";
 
-    /// <summary> 36クラス幾何学回転不変LUTの最良解 (HEX: 64文字, 13/36クラス可視) </summary>
-    public const string DEFAULT_HEX_36 = "131F12EF1309E8EE130B0083E880A8EC574B518A5101800AF9D0D100DCD0ECA1";
+    /// <summary> 36クラス幾何学回転不変LUTの最良解 (HEX: 64文字) </summary>
+    public const string DEFAULT_HEX_36 = "130B008B0000808B000000008000808B5101000100000001D1010001D101D1DF";
 
     /// <summary> Mode 256 最適解の uint[8] ワード表現 </summary>
     private static readonly uint[] LUT_WORDS_256_DEFAULT = new uint[8]
     {
-        0xC080D083u, 0x5000C020u, 0x00024400u, 0x05025088u,
-        0xC00080C8u, 0x12098009u, 0x0008E088u, 0x014FDA4Fu
+        0xD000DD45u, 0x80000001u, 0x00010000u, 0x00010001u,
+        0x8001908Du, 0x0003000Du, 0x0000018Bu, 0x000BC04Fu
     };
 
     /// <summary> Mode 36 最適解の uint[8] ワード表現 </summary>
     private static readonly uint[] LUT_WORDS_36_DEFAULT = new uint[8]
     {
-        0xDCD0ECA1u, 0xF9D0D100u, 0x5101800Au, 0x574B518Au,
-        0xE880A8ECu, 0x130B0083u, 0x1309E8EEu, 0x131F12EFu
+        0xD101D1DFu, 0xD1010001u, 0x00000001u, 0x51010001u,
+        0x8000808Bu, 0x00000000u, 0x0000808Bu, 0x130B008Bu
     };
 
     #endregion
@@ -62,9 +63,9 @@ public class PCDOcclusionPipelineController : MonoBehaviour, IAppLoggable
     [Range(1, 8)]
     public int minOccludedSectorsMode8 = 7;
 
-    [Tooltip("【Mode 20 用】オクルージョン判定となるために必要な最小占有セクター数 R_th (1〜8。最適値: 4)")]
+    [Tooltip("【Mode 20 用】オクルージョン判定となるために必要な最小占有セクター数 R_th (1〜8。最新最適値: 3)")]
     [Range(1, 8)]
-    public int minOccludedSectorsMode20 = 4;
+    public int minOccludedSectorsMode20 = 3;
 
     /// <summary>
     /// 後方互換性プロパティ。現在の評価モードに応じた R_th を取得・設定します。
@@ -81,9 +82,9 @@ public class PCDOcclusionPipelineController : MonoBehaviour, IAppLoggable
         }
     }
 
-    [Tooltip("【Mode 20 用】許容最大連続非占有セクター数 L_th (0〜8。Mode 20 最適値: 1, 8で方向制限無効)")]
+    [Tooltip("【Mode 20 用】許容最大連続非占有セクター数 L_th (0〜8。最新最適値: 2, 8で方向制限無効)")]
     [Range(0, 8)]
-    public int maxConsecutiveEmptySectors = 1;
+    public int maxConsecutiveEmptySectors = 2;
 
     [Tooltip("【Mode 36 / 256 用】カスタム LUT 16進数文字列 (空欄の場合は最適化済みデフォルト解が使用されます)")]
     public string customPatternLutHex = "";
@@ -125,9 +126,49 @@ public class PCDOcclusionPipelineController : MonoBehaviour, IAppLoggable
     #region オクルージョンフィルタリング & フェード
 
     [Header("Occlusion Filtering")]
-    [Tooltip("オクルージョン判定のしきい値 (論文 2.4.2節)")]
+    [FormerlySerializedAs("occlusionThreshold")]
+    [Tooltip("Averageモード時のオクルージョン判定閾値 T_ave (論文 2.4.2節)")]
     [Range(0f, 1f)]
-    public float occlusionThreshold = 0.8f;
+    public float occlusionThreshold_T_ave = 0.5f;
+
+    [Tooltip("セクター占有判定（その他全手法）用の局所閾値 T_loc")]
+    [Range(0f, 1f)]
+    public float occlusionThreshold_T_loc = 0.1f;
+
+    /// <summary> Average手法用閾値 T_ave のエイリアスプロパティ </summary>
+    public float T_ave
+    {
+        get => occlusionThreshold_T_ave;
+        set => occlusionThreshold_T_ave = value;
+    }
+
+    /// <summary> セクター占有判定・その他手法用閾値 T_loc のエイリアスプロパティ </summary>
+    public float T_loc
+    {
+        get => occlusionThreshold_T_loc;
+        set => occlusionThreshold_T_loc = value;
+    }
+
+    /// <summary>
+    /// 現在の評価モードに応じたオクルージョン閾値。
+    /// Averageモードなら T_ave、その他モードなら T_loc を返します。
+    /// （後方互換性用プロパティ）
+    /// </summary>
+    public float occlusionThreshold
+    {
+        get => evaluationMode == PCD_OcclusionEvaluationMode.Average ? occlusionThreshold_T_ave : occlusionThreshold_T_loc;
+        set
+        {
+            if (evaluationMode == PCD_OcclusionEvaluationMode.Average)
+            {
+                occlusionThreshold_T_ave = value;
+            }
+            else
+            {
+                occlusionThreshold_T_loc = value;
+            }
+        }
+    }
 
     [Tooltip("境界を滑らかにするためのフェード幅（閾値からの減衰範囲）")]
     [Range(0f, 1f)]
@@ -251,7 +292,8 @@ public class PCDOcclusionPipelineController : MonoBehaviour, IAppLoggable
 
     private void OnValidate()
     {
-        float maxFadeWidth = Mathf.Min(occlusionThreshold, 1.0f - occlusionThreshold) * 2.0f;
+        float currentTh = evaluationMode == PCD_OcclusionEvaluationMode.Average ? occlusionThreshold_T_ave : occlusionThreshold_T_loc;
+        float maxFadeWidth = Mathf.Min(currentTh, 1.0f - currentTh) * 2.0f;
         occlusionFadeWidth = Mathf.Clamp(occlusionFadeWidth, 0f, maxFadeWidth);
     }
 
@@ -403,6 +445,8 @@ public class PCDOcclusionPipelineController : MonoBehaviour, IAppLoggable
             enableDensityBasedLOD = this.enableDensityBasedLOD,
             enableGradientCorrection = this.enableGradientCorrection,
             gradientThreshold_g_th = this.gradientThreshold_g_th,
+            occlusionThreshold_T_ave = this.occlusionThreshold_T_ave,
+            occlusionThreshold_T_loc = this.occlusionThreshold_T_loc,
             occlusionThreshold = this.occlusionThreshold,
             occlusionFadeWidth = this.occlusionFadeWidth,
             enableVirtualContactOcclusion = this.enableVirtualContactOcclusion,

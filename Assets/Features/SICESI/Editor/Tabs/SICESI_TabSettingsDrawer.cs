@@ -65,9 +65,16 @@ namespace SICESI.Editor
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
             {
                 EditorGUILayout.LabelField("オクルージョン判定閾値グリッド設定", EditorStyles.boldLabel);
-                EditorGUILayout.PropertyField(serializedObject.FindProperty("fixedEvaluationMode"), new GUIContent("固定評価モード"));
-                EditorGUILayout.PropertyField(serializedObject.FindProperty("fixedMinOccludedSectors"), new GUIContent("固定セクター数 (R_th)"));
-                EditorGUILayout.PropertyField(serializedObject.FindProperty("sweepOcclusionThresholds"), new GUIContent("閾値一覧 (0.1〜0.9)"), true);
+                var fixedModeProp = serializedObject.FindProperty("fixedEvaluationMode");
+                EditorGUILayout.PropertyField(fixedModeProp, new GUIContent("固定評価モード"));
+                if (fixedModeProp.enumValueIndex == (int)PCDRendererFeature.PCD_OcclusionEvaluationMode.SectorThreshold)
+                {
+                    EditorGUILayout.PropertyField(serializedObject.FindProperty("fixedMinOccludedSectors"), new GUIContent("固定セクター数 (R_th)"));
+                }
+                string thLabel = fixedModeProp.enumValueIndex == (int)PCDRendererFeature.PCD_OcclusionEvaluationMode.Average
+                    ? "閾値一覧 T_ave (0.1〜0.9)"
+                    : "閾値一覧 T_loc (0.1〜0.9)";
+                EditorGUILayout.PropertyField(serializedObject.FindProperty("sweepOcclusionThresholds"), new GUIContent(thLabel), true);
             }
             EditorGUILayout.EndVertical();
 

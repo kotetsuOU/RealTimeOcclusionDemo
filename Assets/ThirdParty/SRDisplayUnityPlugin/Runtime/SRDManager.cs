@@ -37,6 +37,14 @@ namespace SRD.Core
         private bool prevIsSRRenderingActive = false;
 
         /// <summary>
+        /// A flag to lock face tracking pose to a fixed standard position for remote evaluation.
+        /// When enabled, SR 3D rendering remains fully active with stable fixed viewpoint.
+        /// </summary>
+        [Header("Remote Evaluation / Fixed Viewpoint")]
+        [Tooltip("顔検知のトラッキング動的変化を停止し、正面中央の基準位置に視点をロックします（3D立体視レンダリングは維持）。リモート評価時などに有効です。")]
+        public bool lockFixedFacePose = true;
+
+        /// <summary>
         /// A flag for Spatial Clipping
         /// </summary>
         /// <remarks>

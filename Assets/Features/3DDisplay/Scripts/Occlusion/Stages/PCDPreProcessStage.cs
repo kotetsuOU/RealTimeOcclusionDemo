@@ -102,6 +102,8 @@ internal class PCDPreProcessStage : IPCDPipelineStage
         cmd.SetComputeIntParam(cs, PCDShaderConstants.MinSearchLevel, s.minSearchLevel);
         cmd.SetComputeFloatParam(cs, PCDShaderConstants.Alpha, s.exponentAlpha);
         cmd.SetComputeFloatParam(cs, PCDShaderConstants.OcclusionThreshold, s.occlusionThreshold);
+        cmd.SetComputeFloatParam(cs, PCDShaderConstants.OcclusionThreshold_T_ave, s.occlusionThreshold_T_ave);
+        cmd.SetComputeFloatParam(cs, PCDShaderConstants.OcclusionThreshold_T_loc, s.occlusionThreshold_T_loc);
         cmd.SetComputeFloatParam(cs, PCDShaderConstants.OcclusionFadeWidth, s.occlusionFadeWidth);
 
         if (s.patternLutWords != null && s.patternLutWords.Length >= 8)

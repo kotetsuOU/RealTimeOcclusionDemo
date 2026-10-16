@@ -70,6 +70,8 @@ namespace SICESI
 
             AppLogger.Log(_controller, $"=== [GeneralizationBenchmark] 追加実験開始 (VO: {voList.Count}種 × Hand: {handList.Count}種) ===", SICESI_StereoEvaluationController.TagCore);
 
+            var evaluationMethods = SICESI_BenchmarkMethodRegistry.GetEvaluationMethods(_controller.occlusionPipelineController);
+
             int totalPairs = voList.Count * handList.Count;
             int pairIndex = 0;
 
@@ -121,7 +123,7 @@ namespace SICESI
                         }
 
                         // 3. 5手法のスイープ評価 & IoU 計測
-                        yield return ExecuteMethodsSweepRoutine(pairSubDir, csvPath, curVo.name, curHand.name, gtLeftTex, gtRightTex, accumulators);
+                        yield return ExecuteMethodsSweepRoutine(pairSubDir, csvPath, curVo.name, curHand.name, gtLeftTex, gtRightTex, accumulators, evaluationMethods);
 
                         Object.DestroyImmediate(gtLeftTex);
                         Object.DestroyImmediate(gtRightTex);
@@ -178,6 +180,9 @@ namespace SICESI
 
             AppLogger.Log(_controller, $"=== [GeneralizationBenchmark] プリセット一括ベンチマーク開始 (全 {presets.Count} 件) ===", SICESI_StereoEvaluationController.TagCore);
 
+            // 評価対象の5手法設定をベンチマーク開始時に一括固定取得（プリセットループ中のパラメータ汚染・手法名分裂を防止）
+            var evaluationMethods = SICESI_BenchmarkMethodRegistry.GetEvaluationMethods(_controller.occlusionPipelineController);
+
             for (int pi = 0; pi < presets.Count; pi++)
             {
                 var preset = presets[pi];
@@ -220,7 +225,7 @@ namespace SICESI
                     }
 
                     // 3. 5手法のスイープ評価 & IoU 計測
-                    yield return ExecuteMethodsSweepRoutine(caseSubDir, csvPath, preset.virtualObjectName, preset.handMeshName, gtLeftTex, gtRightTex, accumulators, preset.caseName);
+                    yield return ExecuteMethodsSweepRoutine(caseSubDir, csvPath, preset.virtualObjectName, preset.handMeshName, gtLeftTex, gtRightTex, accumulators, evaluationMethods, preset.caseName);
 
                     Object.DestroyImmediate(gtLeftTex);
                     Object.DestroyImmediate(gtRightTex);
@@ -255,9 +260,13 @@ namespace SICESI
             Texture2D gtLeftTex,
             Texture2D gtRightTex,
             Dictionary<string, SICESI_MethodMetricsAccumulator> accumulators,
+            List<SICESI_BenchmarkMethodRegistry.MethodConfig> evaluationMethods = null,
             string logPrefix = "")
         {
-            var evaluationMethods = SICESI_BenchmarkMethodRegistry.GetEvaluationMethods();
+            if (evaluationMethods == null || evaluationMethods.Count == 0)
+            {
+                evaluationMethods = SICESI_BenchmarkMethodRegistry.GetEvaluationMethods(_controller.occlusionPipelineController);
+            }
             float[] densities = _controller.sweepDensities != null && _controller.sweepDensities.Length > 0
                 ? _controller.sweepDensities
                 : new float[] { 2.0f };
@@ -330,7 +339,10 @@ namespace SICESI
                             }
 
                             string tag = string.IsNullOrEmpty(logPrefix) ? method.methodName : $"{logPrefix} | {method.methodName}";
-                            AppLogger.Log(_controller, $"[{tag}] Density={density:F1} IoU: {stereoMetrics.meanIoU:P2} (L: {leftMetrics.iou:P2}, R: {rightMetrics.iou:P2}) L-FP(遮蔽漏れ): {leftMetrics.fpPixels}, L-FN(過剰遮蔽): {leftMetrics.fnPixels}", SICESI_StereoEvaluationController.TagMaskSweep);
+                            string thInfo = (method.mode == PCDRendererFeature.PCD_OcclusionEvaluationMode.Average)
+                                ? $"T_ave={method.tAve:F2}"
+                                : $"T_loc={method.tLoc:F2}";
+                            AppLogger.Log(_controller, $"[{tag}] ({thInfo}) Density={density:F1} IoU: {stereoMetrics.meanIoU:P2} (L: {leftMetrics.iou:P2}, R: {rightMetrics.iou:P2}) L-FP(遮蔽漏れ): {leftMetrics.fpPixels}, L-FN(過剰遮蔽): {leftMetrics.fnPixels}", SICESI_StereoEvaluationController.TagMaskSweep);
 
                             SICESI_BenchmarkReporter.AppendCsvRecord(csvPath, voName, handName, density, method.methodName, stereoMetrics);
                             SICESI_BenchmarkImageIO.SaveDiffImage(gtLeftTex, testLeftTex, Path.Combine(testDir, "diff_left.png"));
