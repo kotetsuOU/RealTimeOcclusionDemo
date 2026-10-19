@@ -39,8 +39,8 @@ public class CylinderMover : MonoBehaviour
     [SerializeField] private int palmMeasureMinFrames = 3;
 
     [Header("見た目の微調整")]
-    [Tooltip("見た目のスティック位置だけをY方向にずらす微調整値(触覚焦点の計算には影響しない)")]
-    [SerializeField] private float visualHeightOffset = 0f;
+    [Tooltip("見た目のスティック位置だけをずらす微調整値(ワールド座標, m)。触覚焦点の計算には影響しない。Play中も反映される")]
+    [SerializeField] private Vector3 visualOffset = Vector3.zero;
 
     private float capturedPalmY;
     private bool hasStarted = false;
@@ -222,7 +222,7 @@ public class CylinderMover : MonoBehaviour
         if (movementPattern != MovementPattern.Blink) IsVisible = true;
 
         TipPosition = tipPosition;
-        transform.position = tipPosition + Vector3.up * (cylinderHalfLength + visualHeightOffset);
+        transform.position = tipPosition + Vector3.up * cylinderHalfLength + visualOffset;
         cylinderRenderer.enabled = IsVisible && visualEnabled;
     }
 

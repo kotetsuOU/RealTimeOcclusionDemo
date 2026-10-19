@@ -12,6 +12,9 @@ public class DownTargetFollower : MonoBehaviour
     [Tooltip("ハーフミラーの鏡映を補正するため、X軸方向を反転する")]
     [SerializeField] private bool mirrorX = true;
 
+    [Tooltip("触覚焦点の位置だけをずらす微調整値(ワールド座標, m)。見た目の棒には影響しない。慣らしの焦点にも適用される")]
+    [SerializeField] private Vector3 hapticOffset = Vector3.zero;
+
     [Header("条件設定(実験コンダクター使用時は上書きされる)")]
     [SerializeField] private bool hapticEnabled = true;
 
@@ -40,7 +43,7 @@ public class DownTargetFollower : MonoBehaviour
             x = 2f * centerX - tip.x;  // centerXを軸にXを反転
         }
 
-        return new Vector3(x, tip.y - handThickness, tip.z);
+        return new Vector3(x, tip.y - handThickness, tip.z) + hapticOffset;
     }
 
     public void StopOutput()
