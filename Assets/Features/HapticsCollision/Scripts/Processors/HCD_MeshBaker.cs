@@ -11,6 +11,14 @@ namespace Features.HapticsCollision.Processors
         private Mesh _bakedMesh;
         private Mesh[] _tempBakedMeshes;
         private CombineInstance[] _combineInstances;
+        private readonly List<CombineInstance> _validInstancesList = new List<CombineInstance>();
+        private readonly List<Vector3> _verticesList = new List<Vector3>();
+        private readonly List<Vector3> _normalsList = new List<Vector3>();
+        private readonly List<int> _trianglesList = new List<int>();
+
+        private Vector3[] _verticesArray;
+        private Vector3[] _normalsArray;
+        private int[] _trianglesArray;
 
         public Vector3[] Vertices { get; private set; }
         public Vector3[] Normals { get; private set; }
@@ -48,7 +56,7 @@ namespace Features.HapticsCollision.Processors
 
             if (TargetTransform == null) return false;
 
-            var validInstances = new List<CombineInstance>();
+            _validInstancesList.Clear();
 
             if (targetSkinnedMeshes != null && targetSkinnedMeshes.Length > 0)
             {
@@ -72,7 +80,7 @@ namespace Features.HapticsCollision.Processors
                     CombineInstance ci = new CombineInstance();
                     ci.mesh = _tempBakedMeshes[i];
                     ci.transform = TargetTransform.worldToLocalMatrix * smr.transform.localToWorldMatrix;
-                    validInstances.Add(ci);
+                    _validInstancesList.Add(ci);
 
                     if (!boundsInitialized)
                     {
@@ -104,7 +112,7 @@ namespace Features.HapticsCollision.Processors
                     CombineInstance ci = new CombineInstance();
                     ci.mesh = mf.sharedMesh;
                     ci.transform = TargetTransform.worldToLocalMatrix * mf.transform.localToWorldMatrix;
-                    validInstances.Add(ci);
+                    _validInstancesList.Add(ci);
 
                     var renderer = mf.GetComponent<MeshRenderer>();
                     var mfBounds = renderer != null ? renderer.bounds : new Bounds(mf.transform.position, mf.transform.lossyScale);
@@ -123,14 +131,42 @@ namespace Features.HapticsCollision.Processors
                 }
             }
 
-            if (validInstances.Count == 0) return false;
+            if (_validInstancesList.Count == 0) return false;
 
-            _combineInstances = validInstances.ToArray();
+            if (_combineInstances == null || _combineInstances.Length != _validInstancesList.Count)
+            {
+                _combineInstances = new CombineInstance[_validInstancesList.Count];
+            }
+            _validInstancesList.CopyTo(_combineInstances);
             _bakedMesh.CombineMeshes(_combineInstances, true, true);
             
-            Vertices = _bakedMesh.vertices;
-            Normals = _bakedMesh.normals;
-            Triangles = _bakedMesh.triangles;
+            _verticesList.Clear();
+            _normalsList.Clear();
+            _trianglesList.Clear();
+
+            _bakedMesh.GetVertices(_verticesList);
+            _bakedMesh.GetNormals(_normalsList);
+            _bakedMesh.GetTriangles(_trianglesList, 0);
+
+            int vCount = _verticesList.Count;
+            if (_verticesArray == null || _verticesArray.Length != vCount)
+            {
+                _verticesArray = new Vector3[vCount];
+                _normalsArray = new Vector3[vCount];
+            }
+            _verticesList.CopyTo(_verticesArray, 0);
+            _normalsList.CopyTo(_normalsArray, 0);
+
+            int tCount = _trianglesList.Count;
+            if (_trianglesArray == null || _trianglesArray.Length != tCount)
+            {
+                _trianglesArray = new int[tCount];
+            }
+            _trianglesList.CopyTo(_trianglesArray, 0);
+
+            Vertices = _verticesArray;
+            Normals = _normalsArray;
+            Triangles = _trianglesArray;
 
             // smr.bounds の遅延・キャッシュ狂いによる判定欠落を防ぐため、実際のBake頂点から真のワールドBoundsを補正
             if (Vertices != null && Vertices.Length > 0 && TargetTransform != null)

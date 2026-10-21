@@ -12,6 +12,11 @@ internal class PCDContextBuilder
 {
     private PCDPointBufferManager.Point[] _virtualContactPointsArray;
 
+    // 同一フレーム内の重複計算抑止用キャッシュ (左右カメラ等の重複防止)
+    private int _lastCalculatedFrame = -1;
+    private ComputeBuffer _cachedActiveBuffer;
+    private int _cachedActiveCount;
+
     // デバッグログ用状態キャプチャ
     private bool _lastShouldSkip = false;
     private bool _lastHasVirtualObjects = false;
@@ -53,132 +58,34 @@ internal class PCDContextBuilder
         }
 
         // =========================================================================
-        // 仮想接触ポイントの生成
-        // =========================================================================
-        bool shouldUseExternal = (PCDRendererFeature.Instance != null && PCDRendererFeature.Instance.IsGlobalBufferMode) || (RsGlobalPointCloudManager.Instance != null);
-
-        if (settings.enableVirtualContactOcclusion && HCD_Pipeline.Instance != null)
-        {
-            var trackedClusters = HCD_Pipeline.Instance.GetTrackedClusters();
-            int estimatedMaxPoints = 0;
-            float radius = settings.virtualContactRadius;
-            float spacing = Mathf.Max(0.001f, settings.virtualContactSpacing);
-            int pointsPerCluster = (int)(Mathf.PI * radius * radius / (spacing * spacing)) + 100;
-
-            foreach (var c in trackedClusters)
-            {
-                if (c.IsAlive) estimatedMaxPoints += pointsPerCluster;
-            }
-
-            if (_virtualContactPointsArray == null || _virtualContactPointsArray.Length < estimatedMaxPoints)
-            {
-                _virtualContactPointsArray = new PCDPointBufferManager.Point[Mathf.Max(1024, estimatedMaxPoints * 2)];
-            }
-
-            int idx = 0;
-            foreach (var c in trackedClusters)
-            {
-                if (!c.IsAlive) continue;
-
-                Vector3 centroid = c.Centroid;
-                Vector3 normal = c.Normal.normalized;
-                if (normal.sqrMagnitude < 0.1f) normal = Vector3.up;
-
-                float offset = HCD_Pipeline.Instance.distanceProcessor != null ? HCD_Pipeline.Instance.distanceProcessor.surfaceDistanceThreshold : 0f;
-                centroid += normal * offset;
-
-                Vector3 tangent = Vector3.Cross(normal, Vector3.up);
-                if (tangent.sqrMagnitude < 0.001f) tangent = Vector3.Cross(normal, Vector3.right);
-                tangent.Normalize();
-                Vector3 bitangent = Vector3.Cross(normal, tangent).normalized;
-
-                int steps = Mathf.CeilToInt(radius / spacing);
-                for (int x = -steps; x <= steps; x++)
-                {
-                    for (int y = -steps; y <= steps; y++)
-                    {
-                        float dx = x * spacing;
-                        float dy = y * spacing;
-                        if (dx * dx + dy * dy <= radius * radius)
-                        {
-                            if (idx >= _virtualContactPointsArray.Length) break;
-                            _virtualContactPointsArray[idx++] = new PCDPointBufferManager.Point
-                            {
-                                position = centroid + tangent * dx + bitangent * dy,
-                                color = new Vector3(settings.virtualContactColor.r, settings.virtualContactColor.g, settings.virtualContactColor.b),
-                                originType = 0
-                            };
-                        }
-                    }
-                }
-            }
-            bufferManager.SetVirtualContactPoints(idx > 0 ? _virtualContactPointsArray : null, idx);
-        }
-        else
-        {
-            bufferManager.SetVirtualContactPoints(null, 0);
-        }
-
-        // =========================================================================
-        // 外部バッファの設定
-        // =========================================================================
-        if (shouldUseExternal && RsGlobalPointCloudManager.Instance != null)
-        {
-            var globalBuffer = RsGlobalPointCloudManager.Instance.GetOcclusionGlobalBuffer();
-            var globalCount = RsGlobalPointCloudManager.Instance.OcclusionTotalCount;
-            bufferManager.SetExternalBuffer(globalBuffer, globalCount);
-        }
-        else
-        {
-            bufferManager.SetExternalBuffer(null, 0);
-        }
-
-        bufferManager.Update();
-
-        // =========================================================================
-        // アクティブバッファの決定
-        // =========================================================================
-        if (bufferManager.UseExternalBuffer && bufferManager.ExternalPointBuffer != null)
-        {
-            int extCount = bufferManager.ExternalPointCount >= 0 ? bufferManager.ExternalPointCount : bufferManager.ExternalPointBuffer.count;
-            if (bufferManager.PointCount > 0)
-            {
-                int totalCount = extCount + bufferManager.PointCount;
-                bufferManager.EnsureCombinedBuffer(totalCount);
-                data.ActiveBuffer = bufferManager.CombinedBuffer;
-                data.ActiveCount = totalCount;
-            }
-            else
-            {
-                data.ActiveBuffer = bufferManager.ExternalPointBuffer;
-                data.ActiveCount = extCount;
-            }
-        }
-        else
-        {
-            data.ActiveBuffer = bufferManager.PointBuffer;
-            data.ActiveCount = bufferManager.PointCount;
-        }
-
-        // =========================================================================
-        // カメラ・リソース情報の取得と行列計算
+        // 1. カメラ・リソース情報の取得とカメラ先行カリング判定
         // =========================================================================
         var cameraData = frameData.Get<UniversalCameraData>();
         data.ResourceData = frameData.Get<UniversalResourceData>();
         data.Camera = cameraData.camera;
 
-        // CullingMask が 0 のカメラ、またはカメラターゲットモードのフィルタ条件に合致しない場合はスキップ
+        // CullingMask が 0 のカメラ、またはカメラターゲットモードのフィルタ条件に合致しない場合は即座にスキップ
         bool isCullingMaskZero = data.Camera != null && data.Camera.cullingMask == 0;
         bool isCameraFiltered = false;
         if (data.Camera != null)
         {
             if (settings.cameraTargetMode == PCDRendererFeature.PCD_CameraTargetMode.VirtualCamerasOnly)
             {
-                isCameraFiltered = string.IsNullOrEmpty(data.Camera.name) || !data.Camera.name.ToLowerInvariant().Contains("virtual");
+                isCameraFiltered = string.IsNullOrEmpty(data.Camera.name) ||
+                                   data.Camera.name.IndexOf("virtual", System.StringComparison.OrdinalIgnoreCase) < 0;
             }
             else if (settings.cameraTargetMode == PCDRendererFeature.PCD_CameraTargetMode.CustomFilter && !string.IsNullOrEmpty(settings.cameraNameFilter))
             {
-                isCameraFiltered = string.IsNullOrEmpty(data.Camera.name) || !data.Camera.name.ToLowerInvariant().Contains(settings.cameraNameFilter.ToLowerInvariant());
+                isCameraFiltered = string.IsNullOrEmpty(data.Camera.name) ||
+                                   data.Camera.name.IndexOf(settings.cameraNameFilter, System.StringComparison.OrdinalIgnoreCase) < 0;
+            }
+            else // AllValidCameras
+            {
+                // 評価用・補助・プレビューカメラ（SICESISceneCameraAdditional, Preview, SceneCamera等）は不要なため除外
+                isCameraFiltered = !string.IsNullOrEmpty(data.Camera.name) &&
+                                   (data.Camera.name.IndexOf("Additional", System.StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                    data.Camera.name.IndexOf("Preview", System.StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                    data.Camera.name.IndexOf("SICESI", System.StringComparison.OrdinalIgnoreCase) >= 0);
             }
         }
 
@@ -196,6 +103,119 @@ internal class PCDContextBuilder
             }
             return data;
         }
+
+        // =========================================================================
+        // 2. 点群バッファおよび仮想接触ポイントの更新（同一フレーム内はキャッシュ再利用）
+        // =========================================================================
+        if (_lastCalculatedFrame != Time.frameCount)
+        {
+            _lastCalculatedFrame = Time.frameCount;
+
+            // 仮想接触ポイントの生成
+            bool shouldUseExternal = (PCDRendererFeature.Instance != null && PCDRendererFeature.Instance.IsGlobalBufferMode) || (RsGlobalPointCloudManager.Instance != null);
+
+            if (settings.enableVirtualContactOcclusion && HCD_Pipeline.Instance != null)
+            {
+                var trackedClusters = HCD_Pipeline.Instance.GetTrackedClusters();
+                int estimatedMaxPoints = 0;
+                float radius = settings.virtualContactRadius;
+                float spacing = Mathf.Max(0.001f, settings.virtualContactSpacing);
+                int pointsPerCluster = (int)(Mathf.PI * radius * radius / (spacing * spacing)) + 100;
+
+                foreach (var c in trackedClusters)
+                {
+                    if (c.IsAlive) estimatedMaxPoints += pointsPerCluster;
+                }
+
+                if (_virtualContactPointsArray == null || _virtualContactPointsArray.Length < estimatedMaxPoints)
+                {
+                    _virtualContactPointsArray = new PCDPointBufferManager.Point[Mathf.Max(1024, estimatedMaxPoints * 2)];
+                }
+
+                int idx = 0;
+                foreach (var c in trackedClusters)
+                {
+                    if (!c.IsAlive) continue;
+
+                    Vector3 centroid = c.Centroid;
+                    Vector3 normal = c.Normal.normalized;
+                    if (normal.sqrMagnitude < 0.1f) normal = Vector3.up;
+
+                    float offset = HCD_Pipeline.Instance.distanceProcessor != null ? HCD_Pipeline.Instance.distanceProcessor.surfaceDistanceThreshold : 0f;
+                    centroid += normal * offset;
+
+                    Vector3 tangent = Vector3.Cross(normal, Vector3.up);
+                    if (tangent.sqrMagnitude < 0.001f) tangent = Vector3.Cross(normal, Vector3.right);
+                    tangent.Normalize();
+                    Vector3 bitangent = Vector3.Cross(normal, tangent).normalized;
+
+                    int steps = Mathf.CeilToInt(radius / spacing);
+                    for (int x = -steps; x <= steps; x++)
+                    {
+                        for (int y = -steps; y <= steps; y++)
+                        {
+                            float dx = x * spacing;
+                            float dy = y * spacing;
+                            if (dx * dx + dy * dy <= radius * radius)
+                            {
+                                if (idx >= _virtualContactPointsArray.Length) break;
+                                _virtualContactPointsArray[idx++] = new PCDPointBufferManager.Point
+                                {
+                                    position = centroid + tangent * dx + bitangent * dy,
+                                    color = new Vector3(settings.virtualContactColor.r, settings.virtualContactColor.g, settings.virtualContactColor.b),
+                                    originType = 0
+                                };
+                            }
+                        }
+                    }
+                }
+                bufferManager.SetVirtualContactPoints(idx > 0 ? _virtualContactPointsArray : null, idx);
+            }
+            else
+            {
+                bufferManager.SetVirtualContactPoints(null, 0);
+            }
+
+            // 外部バッファの設定
+            if (shouldUseExternal && RsGlobalPointCloudManager.Instance != null)
+            {
+                var globalBuffer = RsGlobalPointCloudManager.Instance.GetOcclusionGlobalBuffer();
+                var globalCount = RsGlobalPointCloudManager.Instance.OcclusionTotalCount;
+                bufferManager.SetExternalBuffer(globalBuffer, globalCount);
+            }
+            else
+            {
+                bufferManager.SetExternalBuffer(null, 0);
+            }
+
+            bufferManager.Update();
+
+            // アクティブバッファの決定とキャッシュ記録
+            if (bufferManager.UseExternalBuffer && bufferManager.ExternalPointBuffer != null)
+            {
+                int extCount = bufferManager.ExternalPointCount >= 0 ? bufferManager.ExternalPointCount : bufferManager.ExternalPointBuffer.count;
+                if (bufferManager.PointCount > 0)
+                {
+                    int totalCount = extCount + bufferManager.PointCount;
+                    bufferManager.EnsureCombinedBuffer(totalCount);
+                    _cachedActiveBuffer = bufferManager.CombinedBuffer;
+                    _cachedActiveCount = totalCount;
+                }
+                else
+                {
+                    _cachedActiveBuffer = bufferManager.ExternalPointBuffer;
+                    _cachedActiveCount = extCount;
+                }
+            }
+            else
+            {
+                _cachedActiveBuffer = bufferManager.PointBuffer;
+                _cachedActiveCount = bufferManager.PointCount;
+            }
+        }
+
+        data.ActiveBuffer = _cachedActiveBuffer;
+        data.ActiveCount = _cachedActiveCount;
 
         // =========================================================================
         // 点群データ有無のスキップ判定

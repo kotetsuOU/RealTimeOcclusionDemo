@@ -92,7 +92,6 @@ internal class PCDPipelineContext
         (Settings.kernelType != PCDRendererFeature.PCD_OcclusionKernel.Skip ||
          (NeedsNeighborhoodSize && Settings.enableGradientCorrection));
 
-    /// <summary> 勾配補正に使用する近傍サイズマップを返す </summary>
-    public RTHandle ActiveNeighborhoodSizeMap =>
-        Settings.enableGradientCorrection ? Resources.CorrectedNeighborhoodSizeMap : Resources.NeighborhoodSizeMap;
+    /// <summary> 勾配補正・オクルージョン判定・ホールフィリングに使用する近傍サイズマップを返す </summary>
+    public RTHandle ActiveNeighborhoodSizeMap => Resources.CorrectedNeighborhoodSizeMap;
 }

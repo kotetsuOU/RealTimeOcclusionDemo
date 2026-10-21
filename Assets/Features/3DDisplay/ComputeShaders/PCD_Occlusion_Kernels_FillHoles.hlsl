@@ -49,7 +49,8 @@ void FillHoles(uint3 id : SV_DispatchThreadID)
         _OcclusionResultMap_RW[id.xy] = accumulatedColor / 8.0;
         
         // 穴を埋めたのでタイプを更新
-        _OriginMap_RW[id.xy] = float4(0, 0, 0, 1);
+        if (_EnableDebugDisplay > 0)
+            _OriginMap_RW[id.xy] = float4(0, 0, 0, 1);
         _OriginTypeMap_RW[id.xy] = 0u;
     }
 }
@@ -153,7 +154,8 @@ void FillHolesPullPushFinalize(uint3 id : SV_DispatchThreadID)
             {
                 _OcclusionResultMap_RW[id.xy] = float4(pulled.rgb / pulled.a, 1.0);
                 _OriginTypeMap_RW[id.xy] = 0u; 
-                _OriginMap_RW[id.xy] = float4(0, 0, 0, 1);
+                if (_EnableDebugDisplay > 0)
+                    _OriginMap_RW[id.xy] = float4(0, 0, 0, 1);
             }
         }
     }

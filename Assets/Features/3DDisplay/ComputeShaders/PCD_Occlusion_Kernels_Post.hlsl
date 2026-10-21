@@ -50,10 +50,13 @@ void Interpolate(uint3 id : SV_DispatchThreadID)
     {
         _FinalImage_RW[id.xy] = accumulatedColor / (float) count;
 
-        if (chosenOriginType == 0u)
-            _OriginMap_RW[id.xy] = float4(0, 0, 0, 1);
-        else if (chosenOriginType == 1u)
-            _OriginMap_RW[id.xy] = float4(1, 1, 1, 1);
+        if (_EnableDebugDisplay > 0)
+        {
+            if (chosenOriginType == 0u)
+                _OriginMap_RW[id.xy] = float4(0, 0, 0, 1);
+            else if (chosenOriginType == 1u)
+                _OriginMap_RW[id.xy] = float4(1, 1, 1, 1);
+        }
     }
     else
     {
@@ -83,7 +86,10 @@ void InitFromCamera(uint3 id : SV_DispatchThreadID, uint groupIndex : SV_GroupIn
         uint2 writeUV = uint2(targetX, id.y);
 
         // ClearMaps の代わりとして OriginMap もここでクリアしておく
-        _OriginMap_RW[writeUV] = float4(0, 0, 0, 1);
+        if (_EnableDebugDisplay > 0)
+        {
+            _OriginMap_RW[writeUV] = float4(0, 0, 0, 1);
+        }
 
         float rawDepth = _VirtualDepthMap[id.xy];
         float cameraDepth = _IsReversedZ > 0 ? (1.0 - rawDepth) : rawDepth;

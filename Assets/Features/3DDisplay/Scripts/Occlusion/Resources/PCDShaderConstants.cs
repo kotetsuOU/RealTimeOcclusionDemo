@@ -189,6 +189,7 @@ internal static class PCDShaderConstants
     public static readonly int DebugSectorId = Shader.PropertyToID("_DebugSectorId");
     public static readonly int OcclusionValueMap_RW = Shader.PropertyToID("_OcclusionValueMap_RW");
     public static readonly int RecordOcclusionDebug = Shader.PropertyToID("_RecordOcclusionDebug");
+    public static readonly int EnableDebugDisplay = Shader.PropertyToID("_EnableDebugDisplay");
 
     // =====================================================================
     // バッファマージ / 静的メッシュ

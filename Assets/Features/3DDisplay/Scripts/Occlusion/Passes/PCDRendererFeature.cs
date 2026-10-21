@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering.Universal;
@@ -216,7 +217,7 @@ public class PCDRendererFeature : ScriptableRendererFeature
         var currentSettings = GetSettings();
         if (currentSettings.cameraTargetMode == PCD_CameraTargetMode.VirtualCamerasOnly)
         {
-            if (string.IsNullOrEmpty(cam.name) || !cam.name.ToLowerInvariant().Contains("virtual"))
+            if (string.IsNullOrEmpty(cam.name) || cam.name.IndexOf("virtual", StringComparison.OrdinalIgnoreCase) < 0)
             {
                 return;
             }
@@ -224,7 +225,18 @@ public class PCDRendererFeature : ScriptableRendererFeature
         else if (currentSettings.cameraTargetMode == PCD_CameraTargetMode.CustomFilter)
         {
             if (!string.IsNullOrEmpty(currentSettings.cameraNameFilter) &&
-                (string.IsNullOrEmpty(cam.name) || !cam.name.ToLowerInvariant().Contains(currentSettings.cameraNameFilter.ToLowerInvariant())))
+                (string.IsNullOrEmpty(cam.name) || cam.name.IndexOf(currentSettings.cameraNameFilter, StringComparison.OrdinalIgnoreCase) < 0))
+            {
+                return;
+            }
+        }
+        else // AllValidCameras
+        {
+            // 評価用・補助・プレビューカメラ（SICESISceneCameraAdditional, Preview, SceneCamera等）は不要なため除外
+            if (!string.IsNullOrEmpty(cam.name) &&
+                (cam.name.IndexOf("Additional", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                 cam.name.IndexOf("Preview", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                 cam.name.IndexOf("SICESI", StringComparison.OrdinalIgnoreCase) >= 0))
             {
                 return;
             }

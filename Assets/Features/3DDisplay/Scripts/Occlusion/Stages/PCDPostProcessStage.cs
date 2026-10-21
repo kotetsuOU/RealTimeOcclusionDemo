@@ -13,6 +13,15 @@ using UnityEngine.Rendering;
 /// </summary>
 internal class PCDPostProcessStage : IPCDPipelineStage
 {
+    private bool _isReadbackPending = false;
+    private int _lastTotalPoints = 0;
+    private readonly System.Action<AsyncGPUReadbackRequest> _readbackCallback;
+
+    public PCDPostProcessStage()
+    {
+        _readbackCallback = OnStaticMeshCounterReadback;
+    }
+
     public bool ShouldExecute(PCDPipelineContext ctx) => true; // 内部で分岐
 
     public void Execute(CommandBuffer cmd, PCDPipelineContext ctx)
@@ -93,30 +102,41 @@ internal class PCDPostProcessStage : IPCDPipelineStage
 
     /// <summary>
     /// 仮想メッシュのピクセルカウントを非同期で読み戻す。
-    /// 次フレームの密度倍率の計算に使用される。
+    /// 未完了リクエストがある場合はスキップし、固定コールバックで GC Alloc をゼロ化する。
     /// </summary>
     private void RequestStaticMeshCounterReadback(PCDPipelineContext ctx)
     {
-        int totalPoints = ctx.PointCount;
-        UnityEngine.Rendering.AsyncGPUReadback.Request(ctx.StaticMeshCounterBuffer, (request) =>
+        if (_isReadbackPending || ctx.StaticMeshCounterBuffer == null || !ctx.StaticMeshCounterBuffer.IsValid())
         {
-            if (request.hasError || PCDRendererFeature.Instance == null)
-            {
-                return;
-            }
-            var data = request.GetData<uint>();
-            uint virtualMeshPixelCount = data[0];
-            PCDRendererFeature.Instance.LastFrameVirtualMeshPixelCount = virtualMeshPixelCount;
+            return;
+        }
 
-            if (totalPoints > 0)
-            {
-                uint multiplier = System.Math.Max(1u, virtualMeshPixelCount / (uint)totalPoints);
-                PCDRendererFeature.Instance._internalDynamicMultiplier = multiplier;
-            }
-            else
-            {
-                PCDRendererFeature.Instance._internalDynamicMultiplier = 1;
-            }
-        });
+        _lastTotalPoints = ctx.PointCount;
+        _isReadbackPending = true;
+        AsyncGPUReadback.Request(ctx.StaticMeshCounterBuffer, _readbackCallback);
+    }
+
+    private void OnStaticMeshCounterReadback(AsyncGPUReadbackRequest request)
+    {
+        _isReadbackPending = false;
+
+        if (request.hasError || PCDRendererFeature.Instance == null)
+        {
+            return;
+        }
+
+        var data = request.GetData<uint>();
+        uint virtualMeshPixelCount = data[0];
+        PCDRendererFeature.Instance.LastFrameVirtualMeshPixelCount = virtualMeshPixelCount;
+
+        if (_lastTotalPoints > 0)
+        {
+            uint multiplier = System.Math.Max(1u, virtualMeshPixelCount / (uint)_lastTotalPoints);
+            PCDRendererFeature.Instance._internalDynamicMultiplier = multiplier;
+        }
+        else
+        {
+            PCDRendererFeature.Instance._internalDynamicMultiplier = 1;
+        }
     }
 }

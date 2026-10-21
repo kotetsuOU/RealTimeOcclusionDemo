@@ -29,7 +29,7 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
         }
 
         _OcclusionResultMap_RW[fullResUV] = _ColorMap[fullResUV];
-        if (originType == 0u)
+        if (_EnableDebugDisplay > 0 && originType == 0u)
             _OriginMap_RW[fullResUV] = float4(0, 0, 0, 1);
         return;
     }
@@ -299,7 +299,8 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
         float4 col = _ColorMap[fullResUV];
         col.a *= alpha;
         _OcclusionResultMap_RW[fullResUV] = col;
-        _OriginMap_RW[fullResUV] = float4(1, 1, 1, 1);
+        if (_EnableDebugDisplay > 0)
+            _OriginMap_RW[fullResUV] = float4(1, 1, 1, 1);
     }
 
     // デバッグ情報の記録

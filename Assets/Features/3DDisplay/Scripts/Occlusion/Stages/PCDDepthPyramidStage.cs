@@ -81,12 +81,13 @@ internal class PCDDepthPyramidStage : IPCDPipelineStage
             cmd.SetComputeTextureParam(cs, k.ApplyGradient, PCDShaderConstants.DepthPyramidRead[i], r.DepthPyramid[i]);
         }
 
-        var neighborhoodIn = ctx.Settings.recordNeighborhoodMap && !ctx.Settings.enableGradientCorrection
-            ? r.NeighborhoodMap : r.NeighborhoodSizeMap;
+        // グリッドLODレベルマップおよびOriginTypeMapを直接バインド
+        cmd.SetComputeTextureParam(cs, k.ApplyGradient, PCDShaderConstants.FilteredGridLevelMap, r.FilteredGridLevelMap);
+        cmd.SetComputeTextureParam(cs, k.ApplyGradient, PCDShaderConstants.OriginTypeMap, r.OriginTypeMap);
+
         var neighborhoodOut = ctx.Settings.recordNeighborhoodMap && ctx.Settings.enableGradientCorrection
             ? r.NeighborhoodMap : r.CorrectedNeighborhoodSizeMap;
 
-        cmd.SetComputeTextureParam(cs, k.ApplyGradient, PCDShaderConstants.NeighborhoodSizeMap, neighborhoodIn);
         cmd.SetComputeTextureParam(cs, k.ApplyGradient, PCDShaderConstants.CorrectedNeighborhoodSizeMap_RW, neighborhoodOut);
         cmd.DispatchCompute(cs, k.ApplyGradient, ctx.ThreadGroupsX, ctx.ThreadGroupsY, 1);
     }

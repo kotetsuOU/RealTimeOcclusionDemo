@@ -11,7 +11,7 @@ public class PCDSettingsBridge
         evaluationMode = PCD_OcclusionEvaluationMode.PatternLUT256,
         minOccludedSectors = 7,
         maxConsecutiveEmptySectors = 1,
-        minSearchLevel = 6,
+        minSearchLevel = 1,
         exponentAlpha = 0f,
         densityThreshold_e = 0.04f,
         neighborhoodParam_p_prime = 4.8f,

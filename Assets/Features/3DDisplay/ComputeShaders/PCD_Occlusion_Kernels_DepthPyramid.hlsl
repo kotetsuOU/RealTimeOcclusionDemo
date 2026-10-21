@@ -81,7 +81,18 @@ void ApplyAdaptiveGradientCorrection(uint3 id : SV_DispatchThreadID)
         return;
 
     uint2 fullResUV = id.xy;
-    int level = _NeighborhoodSizeMap[fullResUV];
+    uint2 gridID = fullResUV / GRID_SIZE;
+    int level = max(_MinSearchLevel, _FilteredGridLevelMap[gridID]);
+
+    // 仮想物体 (originType == 1u) 以外のピクセル (物理点群 0u や背景 2u) は
+    // オクルージョン判定を行わないため、重いソーベル勾配計算をスキップして即座に終了する
+    uint originType = _OriginTypeMap[fullResUV];
+    if (originType != 1u)
+    {
+        _CorrectedNeighborhoodSizeMap_RW[fullResUV] = level;
+        return;
+    }
+
     int correctedLevel = level;
 
     // 粗いレベル（大きい探索半径）から細かいレベルへ向かって回帰的にチェックし、境界を絞り込む

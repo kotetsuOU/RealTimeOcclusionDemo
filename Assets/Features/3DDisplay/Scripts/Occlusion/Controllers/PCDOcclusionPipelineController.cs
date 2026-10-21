@@ -37,6 +37,20 @@ public class PCDOcclusionPipelineController : MonoBehaviour, IAppLoggable
         0x8000808Bu, 0x00000000u, 0x0000808Bu, 0x130B008Bu
     };
 
+    /// <summary> Mode 256 最適解の int[8] ワード表現 (GC Alloc 回避用キャッシュ) </summary>
+    private static readonly int[] LUT_WORDS_256_DEFAULT_INT = new int[8]
+    {
+        unchecked((int)0xD000DD45u), unchecked((int)0x80000001u), unchecked((int)0x00010000u), unchecked((int)0x00010001u),
+        unchecked((int)0x8001908Du), unchecked((int)0x0003000Du), unchecked((int)0x0000018Bu), unchecked((int)0x000BC04Fu)
+    };
+
+    /// <summary> Mode 36 最適解の int[8] ワード表現 (GC Alloc 回避用キャッシュ) </summary>
+    private static readonly int[] LUT_WORDS_36_DEFAULT_INT = new int[8]
+    {
+        unchecked((int)0xD101D1DFu), unchecked((int)0xD1010001u), unchecked((int)0x00000001u), unchecked((int)0x51010001u),
+        unchecked((int)0x8000808Bu), unchecked((int)0x00000000u), unchecked((int)0x0000808Bu), unchecked((int)0x130B008Bu)
+    };
+
     #endregion
 
     #region カメラターゲット & カリング設定
@@ -91,7 +105,7 @@ public class PCDOcclusionPipelineController : MonoBehaviour, IAppLoggable
 
     [Tooltip("オクルージョン近傍探索のベース/最小レベル(0〜6)。OFF時は固定レベルとして使用され、ON時は探索レベルの下限および空領域のデフォルト値として使用されます。")]
     [Range(0, 6)]
-    public int minSearchLevel = 6;
+    public int minSearchLevel = 1;
 
     #endregion
 
@@ -295,34 +309,76 @@ public class PCDOcclusionPipelineController : MonoBehaviour, IAppLoggable
         float currentTh = evaluationMode == PCD_OcclusionEvaluationMode.Average ? occlusionThreshold_T_ave : occlusionThreshold_T_loc;
         float maxFadeWidth = Mathf.Min(currentTh, 1.0f - currentTh) * 2.0f;
         occlusionFadeWidth = Mathf.Clamp(occlusionFadeWidth, 0f, maxFadeWidth);
+        MarkLutDirty();
     }
 
     #endregion
 
     #region 設定出力 & LUT 生成ロジック
 
+    private readonly uint[] _tempUintWords = new uint[8];
+    private readonly int[] _cachedLutWords = new int[8];
+    private bool _isLutDirty = true;
+    private PCD_OcclusionEvaluationMode _lastEvaluationMode = (PCD_OcclusionEvaluationMode)(-1);
+    private int _lastMin8 = -1;
+    private int _lastMin20 = -1;
+    private int _lastMaxEmpty = -1;
+    private string _lastCustomHex = null;
+
     /// <summary>
-    /// 現在の評価モードおよび設定に応じた 256bit LUT の uint[8] ワード配列を取得します。
+    /// LUT の再計算フラグを立てます。設定パラメータを変更した際に呼び出してください。
+    /// </summary>
+    public void MarkLutDirty()
+    {
+        _isLutDirty = true;
+    }
+
+    /// <summary>
+    /// 現在の評価モードおよび設定に応じた 256bit LUT の int[8] ワード配列を取得します。
+    /// パラメータが変化していない通常フレームではキャッシュ配列を返し、GC Alloc と計算コストをゼロ化します。
     /// </summary>
     public int[] GetActiveLutWords()
     {
-        uint[] words = new uint[8];
+        bool settingsChanged = _isLutDirty ||
+                               _lastEvaluationMode != evaluationMode ||
+                               _lastMin8 != minOccludedSectorsMode8 ||
+                               _lastMin20 != minOccludedSectorsMode20 ||
+                               _lastMaxEmpty != maxConsecutiveEmptySectors ||
+                               _lastCustomHex != customPatternLutHex;
+
+        if (!settingsChanged)
+        {
+            return _cachedLutWords;
+        }
+
+        _isLutDirty = false;
+        _lastEvaluationMode = evaluationMode;
+        _lastMin8 = minOccludedSectorsMode8;
+        _lastMin20 = minOccludedSectorsMode20;
+        _lastMaxEmpty = maxConsecutiveEmptySectors;
+        _lastCustomHex = customPatternLutHex;
+
+        Array.Clear(_tempUintWords, 0, 8);
 
         if (evaluationMode == PCD_OcclusionEvaluationMode.PatternLUT256)
         {
-            if (!string.IsNullOrEmpty(customPatternLutHex) && TryParseHexToWords(customPatternLutHex, words))
+            if (!string.IsNullOrEmpty(customPatternLutHex) && TryParseHexToWords(customPatternLutHex, _tempUintWords))
             {
-                return ConvertToIntArray(words);
+                CopyToIntArray(_tempUintWords, _cachedLutWords);
+                return _cachedLutWords;
             }
-            return ConvertToIntArray(LUT_WORDS_256_DEFAULT);
+            Array.Copy(LUT_WORDS_256_DEFAULT_INT, _cachedLutWords, 8);
+            return _cachedLutWords;
         }
         else if (evaluationMode == PCD_OcclusionEvaluationMode.RotationLUT36)
         {
-            if (!string.IsNullOrEmpty(customPatternLutHex) && TryParseHexToWords(customPatternLutHex, words))
+            if (!string.IsNullOrEmpty(customPatternLutHex) && TryParseHexToWords(customPatternLutHex, _tempUintWords))
             {
-                return ConvertToIntArray(words);
+                CopyToIntArray(_tempUintWords, _cachedLutWords);
+                return _cachedLutWords;
             }
-            return ConvertToIntArray(LUT_WORDS_36_DEFAULT);
+            Array.Copy(LUT_WORDS_36_DEFAULT_INT, _cachedLutWords, 8);
+            return _cachedLutWords;
         }
         else if (evaluationMode == PCD_OcclusionEvaluationMode.SectorThreshold) // Mode 8
         {
@@ -332,10 +388,11 @@ public class PCDOcclusionPipelineController : MonoBehaviour, IAppLoggable
                 int occ = CountBits((byte)m);
                 if (occ < minOccludedSectorsMode8)
                 {
-                    words[m >> 5] |= (1u << (m & 31));
+                    _tempUintWords[m >> 5] |= (1u << (m & 31));
                 }
             }
-            return ConvertToIntArray(words);
+            CopyToIntArray(_tempUintWords, _cachedLutWords);
+            return _cachedLutWords;
         }
         else if (evaluationMode == PCD_OcclusionEvaluationMode.SectorConsecutiveZeros) // Mode 20
         {
@@ -347,25 +404,24 @@ public class PCDOcclusionPipelineController : MonoBehaviour, IAppLoggable
                 bool isOccluded = (occ >= minOccludedSectorsMode20) && (lMax <= maxConsecutiveEmptySectors);
                 if (!isOccluded)
                 {
-                    words[m >> 5] |= (1u << (m & 31));
+                    _tempUintWords[m >> 5] |= (1u << (m & 31));
                 }
             }
-            return ConvertToIntArray(words);
+            CopyToIntArray(_tempUintWords, _cachedLutWords);
+            return _cachedLutWords;
         }
 
         // デフォルト (全可視)
-        for (int i = 0; i < 8; i++) words[i] = 0xFFFFFFFFu;
-        return ConvertToIntArray(words);
+        for (int i = 0; i < 8; i++) _cachedLutWords[i] = unchecked((int)0xFFFFFFFFu);
+        return _cachedLutWords;
     }
 
-    private static int[] ConvertToIntArray(uint[] words)
+    private static void CopyToIntArray(uint[] source, int[] destination)
     {
-        int[] result = new int[8];
         for (int i = 0; i < 8; i++)
         {
-            result[i] = unchecked((int)words[i]);
+            destination[i] = unchecked((int)source[i]);
         }
-        return result;
     }
 
     private static bool TryParseHexToWords(string hex, uint[] outWords)

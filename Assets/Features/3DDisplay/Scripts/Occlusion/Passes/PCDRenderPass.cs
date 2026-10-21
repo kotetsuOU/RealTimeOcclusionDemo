@@ -47,8 +47,21 @@ public class PCDRenderPass : ScriptableRenderPass
     // コンポーネント
     // =========================================================================
     private readonly PCDKernelRegistry _kernels = new PCDKernelRegistry();
-    private readonly PCDResourcePool _resources = new PCDResourcePool();
-    internal PCDResourcePool Resources => _resources;
+    private readonly System.Collections.Generic.Dictionary<int, PCDResourcePool> _cameraPools = new System.Collections.Generic.Dictionary<int, PCDResourcePool>();
+    private PCDResourcePool _currentResources;
+    internal PCDResourcePool Resources => _currentResources ?? GetOrCreatePool(null);
+
+    private PCDResourcePool GetOrCreatePool(Camera camera)
+    {
+        int camId = camera != null ? camera.GetInstanceID() : 0;
+        if (!_cameraPools.TryGetValue(camId, out var pool))
+        {
+            pool = new PCDResourcePool();
+            _cameraPools[camId] = pool;
+        }
+        return pool;
+    }
+
     private readonly PCDPointBufferManager _bufferManager = new PCDPointBufferManager();
     private readonly PCDDebugReadbackManager _debugManager = new PCDDebugReadbackManager();
 
@@ -143,8 +156,8 @@ public class PCDRenderPass : ScriptableRenderPass
         bool isDebug = _settings.enablePixelTagMap || _settings.enableOcclusionMap
             || (_settings.debugPatternId >= 0 && _settings.debugPatternId < 256)
             || (_settings.debugSectorId >= 0 && _settings.debugSectorId <= 9);
-        if (isDebug && _resources.DebugDisplayMap != null)
-            return _resources.DebugDisplayMap;
+        if (isDebug && Resources.DebugDisplayMap != null)
+            return Resources.DebugDisplayMap;
         return null;
     }
 
@@ -195,17 +208,21 @@ public class PCDRenderPass : ScriptableRenderPass
             return;
         }
 
-        // リソースのアロケーション
-        _resources.EnsureAllocated(preData.ScreenWidth, preData.ScreenHeight, _settings.gridSize);
+        // 2.5 カメラ対応リソースプールの取得とアロケーション
+        var resources = GetOrCreatePool(preData.Camera);
+        _currentResources = resources;
+
+        var req = PCDResourceRequirements.FromSettings(_settings);
+        resources.EnsureAllocated(preData.ScreenWidth, preData.ScreenHeight, _settings.gridSize, req);
 
         // 3. コンピュートパスの登録
         var outHandles = _computePassBuilder.EnqueueComputePass(
-            renderGraph, preData, _settings, _resources, _bufferManager, 
+            renderGraph, preData, _settings, resources, _bufferManager, 
             _staticMeshCounterBuffer, _kernels, _computeShader, _stages);
 
         // 4. デバッグ読み戻しパスの登録
         _debugManager.EnqueueReadbackPasses(
-            renderGraph, _settings, _resources,
+            renderGraph, _settings, resources,
             preData.ScreenWidth, preData.ScreenHeight,
             outHandles.occlusionValueMap,
             outHandles.integratedDepthMap,
@@ -223,7 +240,12 @@ public class PCDRenderPass : ScriptableRenderPass
 
     public void Cleanup()
     {
-        _resources.Dispose();
+        foreach (var pool in _cameraPools.Values)
+        {
+            pool?.Dispose();
+        }
+        _cameraPools.Clear();
+        _currentResources = null;
         _bufferManager.Cleanup();
 
         _directGpuImageMapHandle?.Release();

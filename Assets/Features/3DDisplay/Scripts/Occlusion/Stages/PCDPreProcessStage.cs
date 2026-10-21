@@ -125,6 +125,13 @@ internal class PCDPreProcessStage : IPCDPipelineStage
         uint densityMultiplier = System.Math.Max(1u, s._dynamicMultiplierRuntimeValue);
         cmd.SetComputeIntParam(cs, Shader.PropertyToID("_StaticMeshDensityMultiplier"), (int)densityMultiplier);
 
+        // デバッグ表示有効フラグ (無効時は1x1ダミーOriginMapへのUAV書き込みをスキップして競合防止)
+        bool isDebugDisplay = s.enablePixelTagMap || s.enableOcclusionMap ||
+                              (s.debugPatternId >= 0 && s.debugPatternId < 256) ||
+                              (s.debugSectorId >= 0 && s.debugSectorId <= 10) ||
+                              s.recordPixelTagMap;
+        cmd.SetComputeIntParam(cs, PCDShaderConstants.EnableDebugDisplay, isDebugDisplay ? 1 : 0);
+
         // グリッドサイズに対応するシェーダーキーワードを切り替え
         int gs = (int)s.gridSize;
         if (gs == 0) gs = 16;
@@ -258,19 +265,27 @@ internal class PCDPreProcessStage : IPCDPipelineStage
             cmd.SetComputeTextureParam(cs, k.GridMedianFilter, PCDShaderConstants.GridLevelMap, r.GridLevelMap);
             cmd.SetComputeTextureParam(cs, k.GridMedianFilter, PCDShaderConstants.FilteredGridLevelMap_RW, r.FilteredGridLevelMap);
             cmd.DispatchCompute(cs, k.GridMedianFilter, Mathf.Max(1, gridThreadX), Mathf.Max(1, gridThreadY), 1);
-
-            // ステージ8: フィルター処理されたLODに基づいて近傍サイズを算出
-            cmd.SetComputeTextureParam(cs, k.CalcNeighborhoodSize, PCDShaderConstants.FilteredGridLevelMap, r.FilteredGridLevelMap);
-            cmd.SetComputeTextureParam(cs, k.CalcNeighborhoodSize, PCDShaderConstants.NeighborhoodSizeMap_RW,
-                s.recordNeighborhoodMap && !s.enableGradientCorrection ? r.NeighborhoodMap : r.NeighborhoodSizeMap);
-            cmd.DispatchCompute(cs, k.CalcNeighborhoodSize, ctx.ThreadGroupsX, ctx.ThreadGroupsY, 1);
         }
-        else
+
+        // ステージ8: 勾配補正が無効な場合（またはデバッグ記録時）のみフル解像度展開を行う。
+        // 勾配補正が有効な場合は後続の ApplyGradient が FilteredGridLevelMap を直接サンプリングして
+        // CorrectedNeighborhoodSizeMap に書き込むため、ここでの全画面書き込み (約39MB) はスキップする。
+        if (!s.enableGradientCorrection || s.recordNeighborhoodMap)
         {
-            // ステージ8（代替）: 密度計算をスキップし、MinSearchLevel で一括初期化
-            cmd.SetComputeTextureParam(cs, k.FillNeighborhoodSizeWithMinLevel, PCDShaderConstants.NeighborhoodSizeMap_RW,
-                s.recordNeighborhoodMap && !s.enableGradientCorrection ? r.NeighborhoodMap : r.NeighborhoodSizeMap);
-            cmd.DispatchCompute(cs, k.FillNeighborhoodSizeWithMinLevel, ctx.ThreadGroupsX, ctx.ThreadGroupsY, 1);
+            var targetMap = s.recordNeighborhoodMap && !s.enableGradientCorrection
+                ? r.NeighborhoodMap : r.CorrectedNeighborhoodSizeMap;
+
+            if (s.enableDensityBasedLOD)
+            {
+                cmd.SetComputeTextureParam(cs, k.CalcNeighborhoodSize, PCDShaderConstants.FilteredGridLevelMap, r.FilteredGridLevelMap);
+                cmd.SetComputeTextureParam(cs, k.CalcNeighborhoodSize, PCDShaderConstants.NeighborhoodSizeMap_RW, targetMap);
+                cmd.DispatchCompute(cs, k.CalcNeighborhoodSize, ctx.ThreadGroupsX, ctx.ThreadGroupsY, 1);
+            }
+            else
+            {
+                cmd.SetComputeTextureParam(cs, k.FillNeighborhoodSizeWithMinLevel, PCDShaderConstants.NeighborhoodSizeMap_RW, targetMap);
+                cmd.DispatchCompute(cs, k.FillNeighborhoodSizeWithMinLevel, ctx.ThreadGroupsX, ctx.ThreadGroupsY, 1);
+            }
         }
     }
 }
