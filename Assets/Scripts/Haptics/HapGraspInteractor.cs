@@ -76,6 +76,10 @@ public class HapGraspInteractor : MonoBehaviour
     [Tooltip("押した速度を引き継いで、はじいた後に少し滑らせる")]
     public bool pushInertia = true;
 
+    [Header("Physics (転がす)")]
+    [Tooltip("Rigidbody があれば物理演算で動かす。床(コライダー)に置くと転がる。握っている間だけ Kinematic になる")]
+    public bool usePhysics = true;
+
     [Header("Follow")]
     [Tooltip("手への追従の滑らかさ(秒)。小さいほどキビキビ、大きいほどなめらか")]
     public float followSmoothTime = 0.04f;
@@ -152,12 +156,31 @@ public class HapGraspInteractor : MonoBehaviour
 
         _radius = sphereRadius;
         if (autoSphereRadius)
-        {
-            var rend = GetComponent<Renderer>();
-            if (rend != null)
-                _radius = Mathf.Max(rend.bounds.extents.x, rend.bounds.extents.y, rend.bounds.extents.z);
-        }
+            _radius = MeasureRadius(_radius);
+
+        // Update(フレーム単位)で動かす位置が物理の更新周期とずれても滑らかに見えるようにする
+        if (usePhysics && _rigidbody != null)
+            _rigidbody.interpolation = RigidbodyInterpolation.Interpolate;
     }
+
+    /// <summary>SphereCollider があればその大きさ、なければ Renderer の大きさから半径を求める</summary>
+    private float MeasureRadius(float fallback)
+    {
+        var sc = GetComponent<SphereCollider>();
+        if (sc != null)
+        {
+            Vector3 s = transform.lossyScale;
+            return sc.radius * Mathf.Max(Mathf.Abs(s.x), Mathf.Abs(s.y), Mathf.Abs(s.z));
+        }
+
+        var rend = GetComponent<Renderer>();
+        if (rend != null)
+            return Mathf.Max(rend.bounds.extents.x, rend.bounds.extents.y, rend.bounds.extents.z);
+        return fallback;
+    }
+
+    /// <summary>物理演算(動的なRigidbody)で動かしているか。握っている間はKinematicなので false</summary>
+    private bool UsesPhysics => usePhysics && _rigidbody != null && !_rigidbody.isKinematic;
 
     private void Update()
     {
@@ -259,6 +282,12 @@ public class HapGraspInteractor : MonoBehaviour
 
         if (_rigidbody != null)
         {
+            // Kinematic の Rigidbody に速度を入れると警告になるため、先に止めてから切り替える
+            if (UsesPhysics)
+            {
+                _rigidbody.linearVelocity = Vector3.zero;
+                _rigidbody.angularVelocity = Vector3.zero;
+            }
             _rigidbodyWasKinematic = _rigidbody.isKinematic;
             _rigidbody.isKinematic = true;
         }
@@ -271,7 +300,16 @@ public class HapGraspInteractor : MonoBehaviour
         _inertiaVelocity = inheritVelocityOnRelease ? _followVelocity : Vector3.zero;
 
         if (_rigidbody != null)
+        {
             _rigidbody.isKinematic = _rigidbodyWasKinematic;
+
+            // 物理で動かす場合は、手の速度をそのまま Rigidbody に渡して投げる/転がす
+            if (UsesPhysics)
+            {
+                _rigidbody.linearVelocity = _inertiaVelocity;
+                _inertiaVelocity = Vector3.zero;
+            }
+        }
     }
 
     private void FollowHand(Vector3 target)
@@ -293,6 +331,20 @@ public class HapGraspInteractor : MonoBehaviour
         push = Vector3.ClampMagnitude(push, maxPushPerFrame);
         transform.position += push;
 
+        if (UsesPhysics)
+        {
+            // 押した方向の速度を、押した速さまで引き上げる（逆向きや横向きの速度はそのまま残す）
+            if (Time.deltaTime > 0f)
+            {
+                Vector3 dir = push.normalized;
+                float want = Mathf.Min(push.magnitude / Time.deltaTime, maxFollowSpeed);
+                float have = Vector3.Dot(_rigidbody.linearVelocity, dir);
+                if (have < want)
+                    _rigidbody.linearVelocity += dir * (want - have);
+            }
+            return;
+        }
+
         if (pushInertia && Time.deltaTime > 0f)
         {
             Vector3 v = Vector3.ClampMagnitude(push / Time.deltaTime, maxFollowSpeed);
@@ -302,6 +354,7 @@ public class HapGraspInteractor : MonoBehaviour
 
     private void ApplyInertia()
     {
+        if (UsesPhysics) return; // 物理演算に任せる
         if (_inertiaVelocity.sqrMagnitude < 1e-6f) return;
 
         transform.position += _inertiaVelocity * Time.deltaTime;
@@ -324,6 +377,46 @@ public class HapGraspInteractor : MonoBehaviour
     }
 
 #if UNITY_EDITOR
+    [ContextMenu("Setup Physics (Rigidbody + SphereCollider + Floor)")]
+    private void SetupPhysics()
+    {
+        float r = autoSphereRadius ? MeasureRadius(sphereRadius) : sphereRadius;
+        Vector3 s = transform.lossyScale;
+        float maxScale = Mathf.Max(Mathf.Abs(s.x), Mathf.Abs(s.y), Mathf.Abs(s.z));
+
+        var sc = GetComponent<SphereCollider>();
+        if (sc == null)
+        {
+            sc = UnityEditor.Undo.AddComponent<SphereCollider>(gameObject);
+            sc.radius = r / Mathf.Max(maxScale, 1e-6f);
+        }
+
+        var rb = GetComponent<Rigidbody>();
+        if (rb == null)
+        {
+            rb = UnityEditor.Undo.AddComponent<Rigidbody>(gameObject);
+            rb.mass = 0.1f;
+            rb.linearDamping = 0.3f;
+            rb.angularDamping = 0.3f;
+            rb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
+            rb.interpolation = RigidbodyInterpolation.Interpolate;
+        }
+
+        if (GameObject.Find("HapFloor") == null)
+        {
+            // Plane は 10m 四方。0.05 倍で約 0.5m 四方。球の真下に置く。
+            // AR 映像に床が映り込まないよう、見た目(MeshRenderer)は消してコライダーだけ残す
+            var floor = GameObject.CreatePrimitive(PrimitiveType.Plane);
+            floor.name = "HapFloor";
+            floor.transform.position = transform.position + Vector3.down * r;
+            floor.transform.localScale = new Vector3(0.05f, 1f, 0.05f);
+            floor.GetComponent<MeshRenderer>().enabled = false;
+            UnityEditor.Undo.RegisterCreatedObjectUndo(floor, "Create HapFloor");
+        }
+
+        Debug.Log("[HapGraspInteractor] Rigidbody / SphereCollider / HapFloor を設定しました。床の位置・大きさは手に合わせて調整してください。", this);
+    }
+
     private void OnDrawGizmos()
     {
         if (!showDebugGizmo) return;
