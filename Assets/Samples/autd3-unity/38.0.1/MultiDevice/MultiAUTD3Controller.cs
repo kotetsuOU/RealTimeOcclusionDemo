@@ -16,7 +16,8 @@ public class MultiAUTD3Controller : MonoBehaviour
     {
         TargetOnly,         // 常に Target の位置にフォーカスを出力するモード
         CollisionBased,     // HapCollisionDetectors の接触判定を使うモード
-        IndependentFocus    // 左右のデバイスがそれぞれ独立してフォーカスを出力するモード
+        IndependentFocus,   // 左右のデバイスがそれぞれ独立してフォーカスを出力するモード
+        GraspBased          // 握り込み中は手の接触位置ごとに複数フォーカスを出力し、それ以外は CollisionBased と同じ挙動のモード
     }
 
     public enum NonCollisionBehavior
@@ -51,6 +52,10 @@ public class MultiAUTD3Controller : MonoBehaviour
     public int[] rightDeviceIndices = new[] { 4, 5, 6, 7 };
 
     private Controller? _autd = null;
+    private HapGraspInteractor? _graspInteractor;
+    private Vector3[] _deviceCenters = Array.Empty<Vector3>();
+    private readonly List<Vector3> _lastGraspFoci = new List<Vector3>();
+    private bool _isGraspOutput = false;
     private Vector3 _oldPosition;
     private Vector3 _oldPosition2;
     private HapCollisionDetectors? _collisionDetector;
@@ -59,11 +64,15 @@ public class MultiAUTD3Controller : MonoBehaviour
     void Awake()
     {
         _collisionDetector = GetComponent<HapCollisionDetectors>();
+        _graspInteractor = GetComponent<HapGraspInteractor>();
 
         try
         {
-            var devices = FindObjectsByType<AUTD3Device>(FindObjectsSortMode.None)
+            var deviceObjects = FindObjectsByType<AUTD3Device>(FindObjectsSortMode.None)
                 .OrderBy(obj => obj.ID)
+                .ToArray();
+            _deviceCenters = deviceObjects.Select(GetDeviceCenter).ToArray();
+            var devices = deviceObjects
                 .Select(obj => new AUTD3(pos: obj.transform.position, rot: obj.transform.rotation));
 
             if (useMock)
@@ -116,9 +125,86 @@ public class MultiAUTD3Controller : MonoBehaviour
         _autd!.Send(gain);
     }
 
+    // デバイス(の子Renderer)の中心位置。握り込み時に各デバイスへ最寄りのフォーカスを割り当てるために使う
+    private static Vector3 GetDeviceCenter(AUTD3Device device)
+    {
+        var renderers = device.GetComponentsInChildren<Renderer>();
+        if (renderers.Length == 0) return device.transform.position;
+
+        var bounds = renderers[0].bounds;
+        for (int i = 1; i < renderers.Length; i++)
+            bounds.Encapsulate(renderers[i].bounds);
+        return bounds.center;
+    }
+
+    /// <summary>
+    /// 複数のフォーカスを同時に出力する。各デバイスは最寄りのフォーカス1つを担当する
+    /// （どのデバイスからも最寄りにならなかったフォーカスは出力されない）。
+    /// </summary>
+    private void SendMultiFocus(IReadOnlyList<Vector3> foci)
+    {
+        var deviceKeys = new string?[_deviceCenters.Length];
+        var gainMap = new Dictionary<object, IGain>();
+
+        for (int d = 0; d < _deviceCenters.Length; d++)
+        {
+            int nearest = 0;
+            float nearestSqr = float.MaxValue;
+            for (int f = 0; f < foci.Count; f++)
+            {
+                float sqr = (foci[f] - _deviceCenters[d]).sqrMagnitude;
+                if (sqr < nearestSqr)
+                {
+                    nearestSqr = sqr;
+                    nearest = f;
+                }
+            }
+
+            string key = "focus" + nearest;
+            deviceKeys[d] = key;
+            if (!gainMap.ContainsKey(key))
+                gainMap[key] = new Focus(pos: foci[nearest], option: new FocusOption());
+        }
+
+        var gain = new GainGroup(
+            keyMap: dev => tr => deviceKeys[dev.Idx()],
+            gainMap: gainMap
+        );
+        _autd!.Send(gain);
+    }
+
+    /// <summary>握り込み中の複数フォーカス出力。フォーカスがほとんど動いていなければ再送しない</summary>
+    private void UpdateGraspOutput(List<Vector3> foci)
+    {
+        const float resendThresholdSqr = 0.0005f * 0.0005f; // 0.5mm
+
+        bool changed = !_isGraspOutput || foci.Count != _lastGraspFoci.Count;
+        for (int i = 0; !changed && i < foci.Count; i++)
+            changed = (foci[i] - _lastGraspFoci[i]).sqrMagnitude > resendThresholdSqr;
+
+        _isGraspOutput = true;
+        _isCurrentlyOff = false;
+        _oldPosition = new Vector3(float.MaxValue, float.MaxValue, float.MaxValue);
+
+        if (!changed) return;
+
+        SendMultiFocus(foci);
+        _lastGraspFoci.Clear();
+        _lastGraspFoci.AddRange(foci);
+    }
+
     private void Update()
     {
         if (_autd == null) return;
+
+        if (mode == ControlMode.GraspBased
+            && _graspInteractor != null && _graspInteractor.IsGrasped
+            && _graspInteractor.GraspFoci.Count > 0 && _deviceCenters.Length > 0)
+        {
+            UpdateGraspOutput(_graspInteractor.GraspFoci);
+            return;
+        }
+        _isGraspOutput = false;
 
         if (mode == ControlMode.IndependentFocus)
         {
@@ -148,7 +234,7 @@ public class MultiAUTD3Controller : MonoBehaviour
                 shouldUpdateFocus = true;
             }
         }
-        else if (mode == ControlMode.CollisionBased)
+        else if (mode == ControlMode.CollisionBased || mode == ControlMode.GraspBased)
         {
             if (_collisionDetector != null && _collisionDetector.IsColliding)
             {
