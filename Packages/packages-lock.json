@@ -1,7 +1,7 @@
 {
   "dependencies": {
     "com.github.homuler.mediapipe": {
-      "version": "file:C:/Users/hongo/Downloads/com.github.homuler.mediapipe-0.16.3.tgz",
+      "version": "file:com.github.homuler.mediapipe-0.16.3.tgz",
       "depth": 0,
       "source": "local-tarball",
       "dependencies": {

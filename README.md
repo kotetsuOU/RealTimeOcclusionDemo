@@ -93,6 +93,22 @@ git lfs pull
 - `Record Integrated Depth Map` も保存後に自動で `false` に戻ります。
 - `Enable Tag Based Optimization` が OFF のとき、実点群は「可視=緑 / 遮蔽=シアン」で確認できます。
 
+### 球の握り込み（Grasp）と触覚フィードバック
+
+手全体で球を握り込むと、球が手に追従して動かせるようになり、AUTD3 で手の接触位置ごとに触覚が提示されます。
+
+セットアップ（球のGameObjectに以下をアタッチ）:
+1. `HapCollisionDetectors`（`Detection Mode = TransformOnly`、`Target Object` に球自身、`Collision Compute Shader` を設定）
+2. `HapGraspInteractor`（`Grasp Compute Shader` は未指定なら 1. のものを使用）
+3. `SoftBodyDeform` + `HapDeformBridge`（任意。握った強さに応じたへこみ）
+4. `MultiAUTD3Controller` の `Mode` を `GraspBased` に設定
+
+動作:
+- 球の周囲（半径 + `Grab Margin`）の点群が「十分な点数」「複数方向（8分割中 `Grab Min Bins` 方向以上）」「一方向に偏っていない（`Grab Max Direction Bias` 以下）」を満たすと握り込みと判定します。手のひらを当てただけでは握り込みになりません。
+- 握っている間は、球の周囲（半径 + `Track Margin`）にある点群の重心の動きに合わせて球が移動します（開始時の相対位置を保持）。解除は `Release Hysteresis` / `Release Delay` でチャタリングを抑えています。離したときは `Inherit Velocity On Release` で手の速度を引き継ぎ、`Release Drag` で減速します。
+- 握っている間、手が球に触れている方向（オクタント）ごとの接触位置に複数フォーカスを出し、各AUTDデバイスは最寄りのフォーカスを担当します。握っていないときは `CollisionBased` と同じ挙動です。
+- 判定が厳しすぎる/緩すぎる場合は、Inspector の `debugStatus`（接触点数・偏り・フォーカス数）を見て `Grab Min Points` などを調整してください。
+
 ### 統合DepthMap出力形式
 
 - `IntegratedDepth_*.png`: 解読しやすいグラデーション可視化画像

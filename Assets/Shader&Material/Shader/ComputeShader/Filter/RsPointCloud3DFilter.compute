@@ -56,12 +56,14 @@ void CSMain(uint3 id : SV_DispatchThreadID)
     float4 global4 = mul(localToWorld, float4(local, 1.0));
     float3 global = global4.xyz;
 
+    /*
     if (global.x < globalThreshold1.x || global.x > globalThreshold2.x)
         return;
     if (global.y < globalThreshold1.y || global.y > globalThreshold2.y)
         return;
     if (global.z < globalThreshold1.z || global.z > globalThreshold2.z)
         return;
+*/
 
     float rnd = randomFloat(i ^ randomSeed);
     if (rnd < samplingRate)

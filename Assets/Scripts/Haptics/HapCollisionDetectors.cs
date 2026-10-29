@@ -63,6 +63,9 @@ public class HapCollisionDetectors : MonoBehaviour
     [Tooltip("接触時にシーンビュー上で境界枠や球（緑/赤）をGizmoとして表示するかどうか")]
     public bool showDebugGizmo = true;
 
+    [Tooltip("接触点(HitPositions)を示すGizmo球の半径")]
+    public float hitPointGizmoSize = 0.01f;
+
     /// <summary>現在、点群がターゲットに接触しているかどうか</summary>
     public bool IsColliding { get; private set; }
 
@@ -348,7 +351,7 @@ public class HapCollisionDetectors : MonoBehaviour
         foreach (var pos in HitPositions)
         {
             Gizmos.color = Color.magenta;
-            Gizmos.DrawSphere(pos, 0.03f);
+            Gizmos.DrawSphere(pos, hitPointGizmoSize);
         }
     }
 #endif
