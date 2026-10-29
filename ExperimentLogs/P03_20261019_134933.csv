@@ -1,0 +1,28 @@
+participant,orderIndex,condition,event,unityTime,systemTime,note
+3,0,,order,0.000,2026-10-19T13:49:33.354,LinearXVisuoHaptic>Blink>EllipseHapticOnly>EllipsePhaseShifted>EllipseVisuoHaptic>EllipseHighIntensity
+3,0,,masking_noise,0.000,2026-10-19T13:49:33.409,center=250.0Hz bandwidth=100.0Hz volume=1.00
+3,0,,familiarization_start,13.092,2026-10-19T13:49:48.177,palmY=0.2533 target=(0.3535 0.2283 0.2248) intensity=190
+3,0,,familiarization_end,28.099,2026-10-19T13:50:03.182,
+3,1,LinearXVisuoHaptic,prepare,50.569,2026-10-19T13:50:31.636,
+3,1,LinearXVisuoHaptic,start,62.541,2026-10-19T13:50:43.609,palmY=0.2690
+3,1,LinearXVisuoHaptic,end,92.547,2026-10-19T13:51:13.614,
+3,2,Blink,prepare,107.661,2026-10-19T13:51:28.729,
+3,2,Blink,start,108.840,2026-10-19T13:51:29.907,palmY=0.2705
+3,2,Blink,skipped,138.483,2026-10-19T13:51:59.550,
+3,2,Blink,end,138.483,2026-10-19T13:51:59.550,
+3,3,EllipseHapticOnly,prepare,140.151,2026-10-19T13:52:01.217,
+3,3,EllipseHapticOnly,start,141.381,2026-10-19T13:52:02.448,palmY=0.2712
+3,3,EllipseHapticOnly,skipped,143.635,2026-10-19T13:52:04.702,
+3,3,EllipseHapticOnly,end,143.635,2026-10-19T13:52:04.703,
+3,4,EllipsePhaseShifted,prepare,144.483,2026-10-19T13:52:05.551,
+3,4,EllipsePhaseShifted,start,145.520,2026-10-19T13:52:06.587,palmY=0.2712
+3,4,EllipsePhaseShifted,skipped,154.367,2026-10-19T13:52:15.437,
+3,4,EllipsePhaseShifted,end,154.367,2026-10-19T13:52:15.438,
+3,5,EllipseVisuoHaptic,prepare,155.958,2026-10-19T13:52:17.027,
+3,5,EllipseVisuoHaptic,start,156.986,2026-10-19T13:52:18.053,palmY=0.2715
+3,5,EllipseVisuoHaptic,skipped,159.927,2026-10-19T13:52:20.994,
+3,5,EllipseVisuoHaptic,end,159.927,2026-10-19T13:52:20.995,
+3,6,EllipseHighIntensity,prepare,160.977,2026-10-19T13:52:22.044,
+3,6,EllipseHighIntensity,start,162.221,2026-10-19T13:52:23.289,palmY=0.2715
+3,6,EllipseHighIntensity,skipped,164.582,2026-10-19T13:52:25.652,
+3,6,EllipseHighIntensity,end,164.582,2026-10-19T13:52:25.652,
