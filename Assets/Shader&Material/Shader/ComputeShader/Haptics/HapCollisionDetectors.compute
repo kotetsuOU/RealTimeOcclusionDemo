@@ -114,14 +114,18 @@ void CheckCollisionMesh(uint3 id : SV_DispatchThreadID)
 //   [7]      : 追従用領域(GraspTrackRadius以内)の点数
 //   [8..10]  : 同、球中心からのオフセット合計 (mm)
 //   [11+o*4+{0..3}] : オクタント o の (点数, オフセット合計x,y,z (mm))
+//   [44]     : 押し出し領域(GraspPushRadius以内)の点数
+//   [45..47] : 同、各点を球の外へ押し出すベクトル(めり込み量)の合計 (mm)
 // 整数アトミック加算で集計するため、座標は球中心基準のmm固定小数にしている
 #define GRASP_FIXED_SCALE 1000.0
 #define GRASP_OCTANT_BASE 11
+#define GRASP_PUSH_BASE 44
 
 RWStructuredBuffer<int> GraspStats;
 float3 GraspCenter;
 float GraspRadiusSqr;
 float GraspTrackRadiusSqr;
+float GraspPushRadius;
 
 [numthreads(256, 1, 1)]
 void AccumulateGrasp(uint3 id : SV_DispatchThreadID)
@@ -140,6 +144,18 @@ void AccumulateGrasp(uint3 id : SV_DispatchThreadID)
     InterlockedAdd(GraspStats[8], q.x);
     InterlockedAdd(GraspStats[9], q.y);
     InterlockedAdd(GraspStats[10], q.z);
+
+    // 指などが球にめり込んだ分を、球を押し出す方向(中心から点と逆向き)のベクトルとして集計する
+    if (distSqr < GraspPushRadius * GraspPushRadius)
+    {
+        float dist = sqrt(distSqr);
+        float3 push = -diff * ((GraspPushRadius - dist) / max(dist, 1e-5));
+        int3 pq = (int3) round(push * GRASP_FIXED_SCALE);
+        InterlockedAdd(GraspStats[GRASP_PUSH_BASE], 1);
+        InterlockedAdd(GraspStats[GRASP_PUSH_BASE + 1], pq.x);
+        InterlockedAdd(GraspStats[GRASP_PUSH_BASE + 2], pq.y);
+        InterlockedAdd(GraspStats[GRASP_PUSH_BASE + 3], pq.z);
+    }
 
     if (distSqr > GraspRadiusSqr)
         return;

@@ -11,6 +11,7 @@ using UnityEngine;
 ///   接触殻  : 球の半径 + grabMargin 以内の点群 → 握り込み判定・接触位置の算出
 ///   追従領域: 球の半径 + trackMargin 以内の点群 → 手の移動量(重心)の推定
 /// 「点数が十分あり」「複数方向から囲まれていて」「一方向に偏っていない」ときに握っているとみなす。
+/// 握っていないときは、指などが球にめり込んだ分だけ球を押し出す（指で押して動かせる）。
 /// </summary>
 public class HapGraspInteractor : MonoBehaviour
 {
@@ -52,6 +53,29 @@ public class HapGraspInteractor : MonoBehaviour
     [Tooltip("条件を満たさなくなってから実際に離すまでの猶予時間(秒)")]
     public float releaseDelay = 0.15f;
 
+    [Header("Push (指で押す)")]
+    [Tooltip("握っていないとき、点群が球にめり込んだ分だけ球を押し出す")]
+    public bool enablePush = true;
+
+    [Tooltip("球の表面からこの距離(メートル)手前から押し始める。0なら実際にめり込んでから。grabMargin を超えない")]
+    public float pushMargin = 0.005f;
+
+    [Tooltip("押し出しに必要な最小点数。点群のノイズ対策")]
+    public int pushMinPoints = 5;
+
+    [Tooltip("押し出し量(メートル)がこれ未満なら無視する。点群の揺れで球が震えるのを防ぐ")]
+    public float pushDeadZone = 0.001f;
+
+    [Tooltip("押し出し量の倍率。1で指が球の表面に当たったまま押し出す。小さいと指が球にめり込む")]
+    [Range(0.1f, 1.5f)]
+    public float pushGain = 1f;
+
+    [Tooltip("1フレームの最大押し出し量(メートル)")]
+    public float maxPushPerFrame = 0.03f;
+
+    [Tooltip("押した速度を引き継いで、はじいた後に少し滑らせる")]
+    public bool pushInertia = true;
+
     [Header("Follow")]
     [Tooltip("手への追従の滑らかさ(秒)。小さいほどキビキビ、大きいほどなめらか")]
     public float followSmoothTime = 0.04f;
@@ -86,8 +110,9 @@ public class HapGraspInteractor : MonoBehaviour
     public float DirectionBias { get; private set; }
 
     // GraspStats のレイアウト。HapCollisionDetectors.compute と一致させること
-    private const int STATS_SIZE = 44;
+    private const int STATS_SIZE = 48;
     private const int OCTANT_BASE = 11;
+    private const int PUSH_BASE = 44;
     private const float FIXED_SCALE = 1000f;
 
     private ComputeShader _shader;
@@ -178,6 +203,7 @@ public class HapGraspInteractor : MonoBehaviour
         }
         else
         {
+            if (enablePush) ApplyPush();
             ApplyInertia();
         }
 
@@ -199,6 +225,7 @@ public class HapGraspInteractor : MonoBehaviour
         _shader.SetVector("GraspCenter", center);
         _shader.SetFloat("GraspRadiusSqr", graspRadius * graspRadius);
         _shader.SetFloat("GraspTrackRadiusSqr", trackRadius * trackRadius);
+        _shader.SetFloat("GraspPushRadius", _radius + Mathf.Clamp(pushMargin, 0f, grabMargin));
 
         _shader.Dispatch(_kernel, Mathf.CeilToInt(pointsCount / 256.0f), 1, 1);
         _statsBuffer.GetData(_stats);
@@ -251,6 +278,26 @@ public class HapGraspInteractor : MonoBehaviour
     {
         transform.position = Vector3.SmoothDamp(
             transform.position, target, ref _followVelocity, followSmoothTime, maxFollowSpeed);
+    }
+
+    /// <summary>球にめり込んだ点群の平均めり込みベクトルだけ、球を押し出す</summary>
+    private void ApplyPush()
+    {
+        int count = _stats[PUSH_BASE];
+        if (count < pushMinPoints) return;
+
+        Vector3 push = new Vector3(_stats[PUSH_BASE + 1], _stats[PUSH_BASE + 2], _stats[PUSH_BASE + 3])
+                       / (FIXED_SCALE * count) * pushGain;
+        if (push.magnitude < pushDeadZone) return;
+
+        push = Vector3.ClampMagnitude(push, maxPushPerFrame);
+        transform.position += push;
+
+        if (pushInertia && Time.deltaTime > 0f)
+        {
+            Vector3 v = Vector3.ClampMagnitude(push / Time.deltaTime, maxFollowSpeed);
+            _inertiaVelocity = Vector3.Lerp(_inertiaVelocity, v, 0.5f);
+        }
     }
 
     private void ApplyInertia()

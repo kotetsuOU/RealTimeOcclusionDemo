@@ -107,6 +107,7 @@ git lfs pull
 - 球の周囲（半径 + `Grab Margin`）の点群が「十分な点数」「複数方向（8分割中 `Grab Min Bins` 方向以上）」「一方向に偏っていない（`Grab Max Direction Bias` 以下）」を満たすと握り込みと判定します。手のひらを当てただけでは握り込みになりません。
 - 握っている間は、球の周囲（半径 + `Track Margin`）にある点群の重心の動きに合わせて球が移動します（開始時の相対位置を保持）。解除は `Release Hysteresis` / `Release Delay` でチャタリングを抑えています。離したときは `Inherit Velocity On Release` で手の速度を引き継ぎ、`Release Drag` で減速します。
 - 握っている間、手が球に触れている方向（オクタント）ごとの接触位置に複数フォーカスを出し、各AUTDデバイスは最寄りのフォーカスを担当します。握っていないときは `CollisionBased` と同じ挙動です。
+- 握っていないときは、指などが球にめり込んだ分だけ球が押し出されます（`Enable Push`）。指で押して動かせます。握り込みとは独立で、握っている間は押し出しは働きません。
 - 判定が厳しすぎる/緩すぎる場合は、Inspector の `debugStatus`（接触点数・偏り・フォーカス数）を見て `Grab Min Points` などを調整してください。
 
 ### 統合DepthMap出力形式
