@@ -1,9 +1,0 @@
-﻿<Solution>
-  <Project Path="RealSense.csproj" />
-  <Project Path="Assembly-CSharp.csproj" />
-  <Project Path="Mediapipe.Unity.Sample.csproj" />
-  <Project Path="Assembly-CSharp-Editor.csproj" />
-  <Project Path="RealSense.Editor.csproj" />
-  <Project Path="Utils.csproj" />
-  <Project Path="Haptics.csproj" />
-</Solution>
