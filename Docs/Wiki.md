@@ -109,6 +109,7 @@ graph TD
 | **6** | 📖 | [AnimationControls.md](./AnimationControls.md) | キーボード操作対応表・デバッグ用ショートカット |
 | **7** | 🏗️ | [PhysicalResponse.md](./PhysicalResponse.md) | Softbody / BonePhysics パラメータ一括制御 |
 | | 🏗️ | └── [PhysicalResponseLiftController.md](./PhysicalResponseLiftController.md) | 手の点群でキャラクターをリフト追従 |
+| | ⚙️ | └── [SphereGrab.md](./SphereGrab.md) | 手の点群による球体の握り込み・押し・転がし (`HCD_GraspInteractor`) |
 | **8** | 🧪 | [Experiments.md](./Experiments.md) | 被験者実験フレームワーク (2AFC / ABX / 調整法 / データ出力) |
 
 ---

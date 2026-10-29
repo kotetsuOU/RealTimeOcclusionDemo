@@ -115,6 +115,7 @@ git lfs pull
 
 * **[システム統合ポータル (Wiki.md)](./Docs/Wiki.md)**: プロジェクト全体の構造と各ドキュメントへのナビゲーションポータルです。
 * **[被験者実験フレームワーク (Experiments.md)](./Docs/Experiments.md)**: 2AFC, ABX, 調整法などの心理物理実験システム仕様です。
+* **[球体の握り込み・押し・転がし (SphereGrab.md)](./Docs/SphereGrab.md)**: 手の点群で球体を握る・押す・転がす `HCD_GraspInteractor` の仕様です。
 * **[統制ログ管理システム (Logging.md)](./Docs/Logging.md)**: `AppLogManager` および `AppLogger` による統一ログ管理の仕様と利用ガイドです。
 
 ---
