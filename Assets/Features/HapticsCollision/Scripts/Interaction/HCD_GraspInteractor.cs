@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 using Core.Logging;
 
 namespace Features.HapticsCollision.Interaction
@@ -64,10 +64,10 @@ namespace Features.HapticsCollision.Interaction
         public float pushMargin = 0.005f;
 
         [Tooltip("押し出しに必要な最小点数。点群のノイズ対策")]
-        public int pushMinPoints = 5;
+        public int pushMinPoints = 3;
 
         [Tooltip("押し出し量(メートル)がこれ未満なら無視する。点群の揺れで球が震えるのを防ぐ")]
-        public float pushDeadZone = 0.001f;
+        public float pushDeadZone = 0.0005f;
 
         [Tooltip("押し出し量の倍率。1で指が球の表面に当たったまま押し出す。小さいと指が球にめり込む")]
         [Range(0.1f, 1.5f)]
@@ -79,9 +79,25 @@ namespace Features.HapticsCollision.Interaction
         [Tooltip("押した速度を引き継いで、はじいた後に少し滑らせる")]
         public bool pushInertia = true;
 
+        [Tooltip("押し込みがこの時間(秒)続くまで、球を動かさない。指が軽く触れただけで球が逃げて、握れなくなるのを防ぐ")]
+        public float pushEngageDelay = 0.08f;
+
+        [Tooltip("手で球を囲み始めている(複数方向から触れている)間は押し出しを止め、その場に保持する。握る前に球が逃げるのを防ぐ")]
+        public bool holdWhileWrapping = true;
+
+        [Tooltip("囲み始めとみなす接触殻内の最小点数。握り込みの最小点数(Grab Min Points)より小さくする")]
+        public int wrapMinPoints = 30;
+
+        [Tooltip("囲み始めとみなす接触方向の偏りの上限。指1本だけだと偏りは1に近く、複数方向から触れると小さくなる")]
+        [Range(0.1f, 1f)]
+        public float wrapMaxDirectionBias = 0.85f;
+
         [Header("Physics (転がす)")]
         [Tooltip("Rigidbody があれば物理演算で動かす。床(コライダー)に置くと転がる。握っている間だけ Kinematic になる")]
         public bool usePhysics = true;
+
+        [Tooltip("握り・押し・慣性で球を動かすとき、コライダー(床など)にぶつかったらそこで止める。床のすり抜け防止")]
+        public bool blockByColliders = true;
 
         [Header("Follow")]
         [Tooltip("手への追従の滑らかさ(秒)。小さいほどキビキビ、大きいほどなめらか")]
@@ -112,10 +128,16 @@ namespace Features.HapticsCollision.Interaction
         /// <summary>接触方向の偏り(0=均等, 1=一方向)</summary>
         public float DirectionBias { get; private set; }
 
+        /// <summary>押し出し領域内の点数</summary>
+        public int PushPointCount { get; private set; }
+
+        /// <summary>押し出し領域内の、深い点ほど重みを大きくした平均めり込み量(メートル)</summary>
+        public float PushDepth { get; private set; }
+
         public const string TagGrasp = "HCD_GraspInteractor";
 
         // GraspStats のレイアウト。HCD_Grasp.compute と一致させること
-        private const int STATS_SIZE = 48;
+        private const int STATS_SIZE = 52;
         private const int OCTANT_BASE = 11;
         private const int PUSH_BASE = 44;
         private const float FIXED_SCALE = 1000f;
@@ -131,6 +153,9 @@ namespace Features.HapticsCollision.Interaction
         private Vector3 _followVelocity;
         private Vector3 _inertiaVelocity;
         private float _releaseTimer;
+        private float _pushTimer;
+
+        private readonly RaycastHit[] _sweepHits = new RaycastHit[8];
 
         private Rigidbody _rigidbody;
         private bool _rigidbodyWasKinematic;
@@ -174,12 +199,29 @@ namespace Features.HapticsCollision.Interaction
             return fallback;
         }
 
+        /// <summary>手が複数方向から球に触れ始めているか(握り込みの直前)。この間は球を押さず、その場に保つ</summary>
+        private bool IsWrapping =>
+            holdWhileWrapping && ContactPointCount >= wrapMinPoints && DirectionBias <= wrapMaxDirectionBias;
+
+        /// <summary>握る前に球が逃げたり落ちたりしないよう、速度を止める</summary>
+        private void HoldStill()
+        {
+            _pushTimer = 0f;
+            _inertiaVelocity = Vector3.zero;
+            if (UsesPhysics)
+                _rigidbody.linearVelocity = Vector3.zero;
+        }
+
         /// <summary>物理演算(動的なRigidbody)で動かしているか。握っている間はKinematicなので false</summary>
         private bool UsesPhysics => usePhysics && _rigidbody != null && !_rigidbody.isKinematic;
 
         private void Update()
         {
-            if (RsGlobalPointCloudManager.Instance == null) return;
+            if (RsGlobalPointCloudManager.Instance == null)
+            {
+                debugStatus = "RsGlobalPointCloudManager がシーンにありません";
+                return;
+            }
 
             var globalBuffer = RsGlobalPointCloudManager.Instance.GetGlobalBuffer();
             int pointsCount = RsGlobalPointCloudManager.Instance.CurrentTotalCount;
@@ -193,6 +235,11 @@ namespace Features.HapticsCollision.Interaction
                 GatherStats(globalBuffer, pointsCount, center);
 
             ContactPointCount = _stats[0];
+            PushPointCount = _stats[PUSH_BASE];
+            PushDepth = _stats[PUSH_BASE + 4] > 0
+                ? new Vector3(_stats[PUSH_BASE + 5], _stats[PUSH_BASE + 6], _stats[PUSH_BASE + 7]).magnitude
+                  / (_stats[PUSH_BASE + 4] * FIXED_SCALE)
+                : 0f;
             DirectionBias = ContactPointCount > 0
                 ? new Vector3(_stats[4], _stats[5], _stats[6]).magnitude / (FIXED_SCALE * ContactPointCount)
                 : 1f;
@@ -220,13 +267,20 @@ namespace Features.HapticsCollision.Interaction
             }
             else
             {
-                if (enablePush) ApplyPush();
+                if (enablePush)
+                {
+                    if (IsWrapping)
+                        HoldStill();
+                    else
+                        ApplyPush();
+                }
                 ApplyInertia();
             }
 
-            debugStatus = IsGrasped
-                ? $"GRASPED (contact={ContactPointCount}, bias={DirectionBias:F2})"
-                : $"Released (contact={ContactPointCount}, bias={DirectionBias:F2})";
+            string state = IsGrasped ? "GRASPED" : (IsWrapping ? "Wrapping(hold)" : "Released");
+            string body = _rigidbody == null ? "rb=なし" : (_rigidbody.isKinematic ? "rb=Kinematic" : "rb=Dynamic");
+            debugStatus = $"{state} (cloud={pointsCount}, contact={ContactPointCount}, " +
+                          $"bias={DirectionBias:F2}, pushPts={PushPointCount}, pushDepth={PushDepth * 1000f:F1}mm, {body})";
         }
 
         private void GatherStats(ComputeBuffer globalBuffer, int pointsCount, Vector3 center)
@@ -307,21 +361,62 @@ namespace Features.HapticsCollision.Interaction
 
         private void FollowHand(Vector3 target)
         {
-            transform.position = Vector3.SmoothDamp(
+            Vector3 next = Vector3.SmoothDamp(
                 transform.position, target, ref _followVelocity, followSmoothTime, maxFollowSpeed);
+            transform.position += ClampByCollision(next - transform.position);
+        }
+
+        /// <summary>
+        /// 移動量 delta を、球形のスイープ判定でコライダーにぶつかる手前までに制限する。
+        /// 位置を直接書き換えると物理のすり抜け防止が効かないため、動かす前にここで止める。
+        /// 自分自身のコライダーと、すでに重なっているコライダー(距離0)は無視する。
+        /// </summary>
+        private Vector3 ClampByCollision(Vector3 delta)
+        {
+            float dist = delta.magnitude;
+            if (!blockByColliders || dist < 1e-5f) return delta;
+
+            Vector3 dir = delta / dist;
+            int n = Physics.SphereCastNonAlloc(transform.position, _radius * 0.98f, dir, _sweepHits,
+                dist + 0.001f, ~0, QueryTriggerInteraction.Ignore);
+
+            float nearest = float.MaxValue;
+            for (int i = 0; i < n; i++)
+            {
+                var hit = _sweepHits[i];
+                if (hit.distance <= 0f) continue;
+                if (hit.collider.transform == transform || hit.collider.transform.IsChildOf(transform)) continue;
+                if (hit.distance < nearest) nearest = hit.distance;
+            }
+
+            if (nearest == float.MaxValue) return delta;
+            return dir * Mathf.Max(0f, Mathf.Min(dist, nearest - 0.001f));
         }
 
         /// <summary>球にめり込んだ点群の平均めり込みベクトルだけ、球を押し出す</summary>
         private void ApplyPush()
         {
             int count = _stats[PUSH_BASE];
-            if (count < pushMinPoints) return;
+            if (count < pushMinPoints || _stats[PUSH_BASE + 4] <= 0)
+            {
+                _pushTimer = 0f;
+                return;
+            }
 
-            Vector3 push = new Vector3(_stats[PUSH_BASE + 1], _stats[PUSH_BASE + 2], _stats[PUSH_BASE + 3])
-                           / (FIXED_SCALE * count) * pushGain;
-            if (push.magnitude < pushDeadZone) return;
+            // 深い点ほど重みを大きくした平均。浅く触れている点に薄められて、指先の押し込みが小さくなるのを防ぐ
+            Vector3 push = new Vector3(_stats[PUSH_BASE + 5], _stats[PUSH_BASE + 6], _stats[PUSH_BASE + 7])
+                           / (_stats[PUSH_BASE + 4] * FIXED_SCALE) * pushGain;
+            if (push.magnitude < pushDeadZone)
+            {
+                _pushTimer = 0f;
+                return;
+            }
 
-            push = Vector3.ClampMagnitude(push, maxPushPerFrame);
+            // 押し込みが一定時間続くまで動かさない(軽く触れただけで球が逃げて、握れなくなるのを防ぐ)
+            _pushTimer += Time.deltaTime;
+            if (_pushTimer < pushEngageDelay) return;
+
+            push = ClampByCollision(Vector3.ClampMagnitude(push, maxPushPerFrame));
             transform.position += push;
 
             if (UsesPhysics)
@@ -350,11 +445,11 @@ namespace Features.HapticsCollision.Interaction
             if (UsesPhysics) return; // 物理演算に任せる
             if (_inertiaVelocity.sqrMagnitude < 1e-6f) return;
 
-            transform.position += _inertiaVelocity * Time.deltaTime;
+            transform.position += ClampByCollision(_inertiaVelocity * Time.deltaTime);
             _inertiaVelocity *= Mathf.Exp(-releaseDrag * Time.deltaTime);
         }
 
-    #if UNITY_EDITOR
+#if UNITY_EDITOR
         [ContextMenu("Setup Physics (Rigidbody + SphereCollider + Floor)")]
         private void SetupPhysics()
         {
@@ -380,16 +475,31 @@ namespace Features.HapticsCollision.Interaction
                 rb.interpolation = RigidbodyInterpolation.Interpolate;
             }
 
-            if (GameObject.Find("HapFloor") == null)
+            var existingFloor = GameObject.Find("HapFloor");
+            if (existingFloor == null)
             {
-                // Plane は 10m 四方。0.05 倍で約 0.5m 四方。球の真下に置く。
-                // AR 映像に床が映り込まないよう、見た目(MeshRenderer)は消してコライダーだけ残す
-                var floor = GameObject.CreatePrimitive(PrimitiveType.Plane);
+                // 厚みのある Cube(BoxCollider)。薄い Plane(MeshCollider)は片面で、下に入ると当たらなくなるため使わない。
+                // 上面が球の底に一致するように置く。AR 映像に床が映り込まないよう、見た目(MeshRenderer)は消す
+                const float thickness = 0.1f;
+                var floor = GameObject.CreatePrimitive(PrimitiveType.Cube);
                 floor.name = "HapFloor";
-                floor.transform.position = transform.position + Vector3.down * r;
-                floor.transform.localScale = new Vector3(0.05f, 1f, 0.05f);
+                floor.transform.position = transform.position + Vector3.down * (r + thickness * 0.5f);
+                floor.transform.localScale = new Vector3(0.5f, thickness, 0.5f);
                 floor.GetComponent<MeshRenderer>().enabled = false;
+                floor.isStatic = true;
                 UnityEditor.Undo.RegisterCreatedObjectUndo(floor, "Create HapFloor");
+            }
+            else
+            {
+                // 旧版が作った Plane(MeshCollider) の床は、厚みのある BoxCollider に置き換える
+                var meshCollider = existingFloor.GetComponent<MeshCollider>();
+                if (meshCollider != null)
+                {
+                    UnityEditor.Undo.DestroyObjectImmediate(meshCollider);
+                    var box = UnityEditor.Undo.AddComponent<BoxCollider>(existingFloor);
+                    box.size = new Vector3(10f, 1f, 10f);   // Plane は 10x10。厚み 1 を下方向に持たせる
+                    box.center = new Vector3(0f, -0.5f, 0f);
+                }
             }
 
             AppLogger.Log(this, TagGrasp, "Rigidbody / SphereCollider / HapFloor を設定しました。床の位置・大きさは手に合わせて調整してください。");
@@ -404,7 +514,7 @@ namespace Features.HapticsCollision.Interaction
             Gizmos.DrawWireSphere(transform.position, r + grabMargin);
 
         }
-    #endif
+#endif
 
         private void OnDestroy()
         {

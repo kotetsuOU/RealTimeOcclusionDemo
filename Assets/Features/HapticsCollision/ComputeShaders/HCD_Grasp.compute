@@ -5,7 +5,7 @@ struct PointCloudPoint
 {
     float3 position;
     float3 color;
-    uint   originType;
+    uint originType;
 };
 StructuredBuffer<PointCloudPoint> PointCloudBuffer;
 
@@ -21,6 +21,8 @@ uint PointsCount;
 //   [11+o*4+{0..3}] : オクタント o の (点数, オフセット合計x,y,z (mm))
 //   [44]     : 押し出し領域(GraspPushRadius以内)の点数
 //   [45..47] : 同、各点を球の外へ押し出すベクトル(めり込み量)の合計 (mm)
+//   [48]     : 同、めり込み量の大きさ |v| の合計 (mm)
+//   [49..51] : 同、v * |v| の合計 (mm^2)。[49..51]/[48] が「深い点ほど重みを大きくした」平均めり込み量になる
 // 整数アトミック加算で集計するため、座標は球中心基準のmm固定小数にしている
 #define GRASP_FIXED_SCALE 1000.0
 #define GRASP_OCTANT_BASE 11
@@ -60,6 +62,14 @@ void AccumulateGrasp(uint3 id : SV_DispatchThreadID)
         InterlockedAdd(GraspStats[GRASP_PUSH_BASE + 1], pq.x);
         InterlockedAdd(GraspStats[GRASP_PUSH_BASE + 2], pq.y);
         InterlockedAdd(GraspStats[GRASP_PUSH_BASE + 3], pq.z);
+
+        float depth = length(push);
+        int depthMm = (int) round(depth * GRASP_FIXED_SCALE);
+        int3 pw = (int3) round(push * depth * GRASP_FIXED_SCALE * GRASP_FIXED_SCALE);
+        InterlockedAdd(GraspStats[GRASP_PUSH_BASE + 4], depthMm);
+        InterlockedAdd(GraspStats[GRASP_PUSH_BASE + 5], pw.x);
+        InterlockedAdd(GraspStats[GRASP_PUSH_BASE + 6], pw.y);
+        InterlockedAdd(GraspStats[GRASP_PUSH_BASE + 7], pw.z);
     }
 
     if (distSqr > GraspRadiusSqr)
