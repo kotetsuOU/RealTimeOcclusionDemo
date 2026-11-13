@@ -1,4 +1,4 @@
-// =============================================================================
+﻿// =============================================================================
 // PCDShaderConstants.cs
 // -----------------------------------------------------------------------------
 // コンピュートシェーダーで使用するすべてのプロパティIDをキャッシュする静的クラス。
@@ -56,6 +56,12 @@ internal static class PCDShaderConstants
     public static readonly int OcclusionThreshold_T_ave = Shader.PropertyToID("_OcclusionThreshold_T_ave");
     /// <summary> セクター占有判定（その他手法）用局所閾値 T_loc (0〜1) </summary>
     public static readonly int OcclusionThreshold_T_loc = Shader.PropertyToID("_OcclusionThreshold_T_loc");
+    /// <summary> 8セクター個別閾値を使用するかどうかのフラグ (0: 単一 T_loc, 1: セクター別) </summary>
+    public static readonly int UseSectorSpecificThreshold = Shader.PropertyToID("_UseSectorSpecificThreshold");
+    /// <summary> セクター 0..3 の個別閾値 T_loc </summary>
+    public static readonly int SectorThreshold_T_loc_0to3 = Shader.PropertyToID("_SectorThreshold_T_loc_0to3");
+    /// <summary> セクター 4..7 の個別閾値 T_loc </summary>
+    public static readonly int SectorThreshold_T_loc_4to7 = Shader.PropertyToID("_SectorThreshold_T_loc_4to7");
     /// <summary> ソフトオクルージョンのフェード幅 </summary>
     public static readonly int OcclusionFadeWidth = Shader.PropertyToID("_OcclusionFadeWidth");
     /// <summary> 256パターンLUT (uint[8] 配列) </summary>

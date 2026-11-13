@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering.Universal;
@@ -98,6 +98,8 @@ public class PCDRendererFeature : ScriptableRendererFeature
         [Range(0f, 1f)] public float occlusionThreshold;
         public float T_ave { get => occlusionThreshold_T_ave; set => occlusionThreshold_T_ave = value; }
         public float T_loc { get => occlusionThreshold_T_loc; set => occlusionThreshold_T_loc = value; }
+        public bool useSectorSpecificThreshold;
+        public float[] sectorThreshold_T_loc;
         [Range(0f, 1f)] public float occlusionFadeWidth;
         public bool enableVirtualContactOcclusion;
         public float virtualContactRadius;
@@ -232,11 +234,12 @@ public class PCDRendererFeature : ScriptableRendererFeature
         }
         else // AllValidCameras
         {
-            // 評価用・補助・プレビューカメラ（SICESISceneCameraAdditional, Preview, SceneCamera等）は不要なため除外
+            // 評価用・補助・プレビューカメラ（OPESceneCameraAdditional, SICESISceneCameraAdditional, Preview, SceneCamera等）は不要なため除外
             if (!string.IsNullOrEmpty(cam.name) &&
                 (cam.name.IndexOf("Additional", StringComparison.OrdinalIgnoreCase) >= 0 ||
                  cam.name.IndexOf("Preview", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                 cam.name.IndexOf("SICESI", StringComparison.OrdinalIgnoreCase) >= 0))
+                 cam.name.IndexOf("SICESI", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                 cam.name.IndexOf("OPE", StringComparison.OrdinalIgnoreCase) >= 0))
             {
                 return;
             }

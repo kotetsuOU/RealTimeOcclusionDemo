@@ -1,0 +1,103 @@
+using System.Collections;
+using System.IO;
+using UnityEngine;
+using RealSense.DummyPointCloud;
+
+namespace OPE
+{
+    /// <summary>
+    /// SICE SI 評価実験において、点群密度（Density）× オクルージョン判定閾値（OcclusionThreshold）の
+    /// 2D グリッドスイープ撮影を担当するランナークラス。
+    /// </summary>
+    public class OPE_ThresholdSweepRunner
+    {
+        private readonly OPE_StereoEvaluationController _controller;
+        private readonly OPE_MaterialSwapper _swapper;
+
+        public OPE_ThresholdSweepRunner(OPE_StereoEvaluationController controller, OPE_MaterialSwapper swapper)
+        {
+            _controller = controller;
+            _swapper = swapper;
+        }
+
+        public IEnumerator RunRoutine()
+        {
+            _controller.isCapturing = true;
+            string conditionRootDir = _controller.ConditionRootDir;
+            OPE_ScreenCaptureUtil.SaveSceneTransformsJson(conditionRootDir, _controller.conditionName, _controller.groundTruthObject, _controller.virtualObject, _controller.leftEyeCamera, _controller.rightEyeCamera, _controller.sceneCaptureCamera);
+
+            var voBackup = _swapper.SetVirtualObjectUnlitWhiteState(_controller.virtualObject, _controller.renderVirtualObjectAsUnlitWhite);
+            try
+            {
+                // GT 撮影
+                var backup = _swapper.SetGroundTruthState(_controller.groundTruthObject, _controller.groundTruthCaptureLayer, _controller.renderGroundTruthAsBlack);
+                if (_controller.pointCloudObject != null) _controller.pointCloudObject.SetActive(false);
+
+                for (int i = 0; i < 3; i++) yield return null;
+                yield return new WaitForEndOfFrame();
+
+                string gtDir = Path.Combine(conditionRootDir, "GT");
+                OPE_ScreenCaptureUtil.CaptureStereoViews(_controller.leftEyeCamera, _controller.rightEyeCamera, gtDir, "gt", _controller.applySRGBConversion);
+                _swapper.RestoreGroundTruthState(backup);
+
+                if (_controller.pointCloudObject != null) _controller.pointCloudObject.SetActive(true);
+                if (_controller.occlusionPipelineController != null)
+                {
+                    _controller.occlusionPipelineController.evaluationMode = _controller.fixedEvaluationMode;
+                    _controller.occlusionPipelineController.minOccludedSectors = _controller.fixedMinOccludedSectors;
+                }
+
+                string unitSuffix = OPE_EvaluationParamsHelper.GetDensityUnitSuffix(_controller.densityUnit);
+                for (int d = 0; d < _controller.sweepDensities.Length; d++)
+                {
+                    float density = _controller.sweepDensities[d];
+                    string densityStr = FormatFloat(density);
+                    _controller.dummyPointCloudProvider.densityUnit = _controller.densityUnit;
+                    _controller.dummyPointCloudProvider.densityValue = density;
+
+                    for (int f = 0; f < _controller.waitFramesAfterDensityChange; f++) yield return null;
+
+                    for (int t = 0; t < _controller.sweepOcclusionThresholds.Length; t++)
+                    {
+                        float threshold = _controller.sweepOcclusionThresholds[t];
+                        string thStr = FormatFloat(threshold);
+
+                        if (_controller.occlusionPipelineController != null)
+                        {
+                            if (_controller.fixedEvaluationMode == PCDRendererFeature.PCD_OcclusionEvaluationMode.Average)
+                            {
+                                _controller.occlusionPipelineController.T_ave = threshold;
+                            }
+                            else
+                            {
+                                _controller.occlusionPipelineController.T_loc = threshold;
+                            }
+                        }
+
+                        for (int f = 0; f < 2; f++) yield return null;
+                        yield return new WaitForEndOfFrame();
+
+                        string targetDir = Path.Combine(conditionRootDir, $"density_{densityStr}{unitSuffix}", $"th_{thStr}");
+                        OPE_ScreenCaptureUtil.CaptureStereoViews(_controller.leftEyeCamera, _controller.rightEyeCamera, targetDir, $"test_{densityStr}_th{thStr}", _controller.applySRGBConversion);
+                        
+                        float tAve = _controller.occlusionPipelineController != null ? _controller.occlusionPipelineController.T_ave : (_controller.fixedEvaluationMode == PCDRendererFeature.PCD_OcclusionEvaluationMode.Average ? threshold : 0.8f);
+                        float tLoc = _controller.occlusionPipelineController != null ? _controller.occlusionPipelineController.T_loc : (_controller.fixedEvaluationMode != PCDRendererFeature.PCD_OcclusionEvaluationMode.Average ? threshold : 0.8f);
+                        OPE_ScreenCaptureUtil.SaveEvaluationParamsJson(targetDir, _controller.conditionName, density, _controller.densityUnit.ToString(), threshold, _controller.fixedEvaluationMode.ToString(), _controller.fixedMinOccludedSectors, 8, _controller.groundTruthObject, _controller.virtualObject, tAve, tLoc);
+                    }
+                }
+
+                _controller.statusMessage = "Density & Threshold Sweep Completed!";
+            }
+            finally
+            {
+                _swapper.RestoreVirtualObjectState(voBackup);
+                _controller.isCapturing = false;
+            }
+        }
+
+        private static string FormatFloat(float val)
+        {
+            return val.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+        }
+    }
+}

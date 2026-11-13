@@ -175,7 +175,7 @@ internal class PCDDebugReadbackManager
         }
 
         // --- NeighborCountMap (単発デバッグ出力用。SICESIスイープ中は自前リードバックを行うためスキップ) ---
-        if (settings.recordNeighborCountMap && !SICESI.SICESI_SectorMaskCollector.IsCollectingActive)
+        if (settings.recordNeighborCountMap && !OPE.OPE_SectorMaskCollector.IsCollectingActive)
         {
             using (var builder = renderGraph.AddUnsafePass<DebugReadbackPassData>("PCD Extract NeighborCount Map", out var debugData))
             {

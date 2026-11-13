@@ -1,4 +1,4 @@
-#ifndef PCD_OCCLUSION_KERNELS_OCCLUSION_INCLUDED
+﻿#ifndef PCD_OCCLUSION_KERNELS_OCCLUSION_INCLUDED
 #define PCD_OCCLUSION_KERNELS_OCCLUSION_INCLUDED
 
 #include "PCD_Occlusion_Kernels_Occlusion_SingleDirection.hlsl"
@@ -74,6 +74,7 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
 
     float occlusionSum = 0.0;
     uint validSectorCount = 0u;
+    uint validSectorMask = 0u; // 深度ピラミッド上に手前点が存在したセクタのマスク (GT)
     uint binaryOccludedCount = 0u;
     uint occupiedSectorMask = 0u;
     float softOccludedCount = 0.0;
@@ -151,7 +152,7 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
     }
 
     // 占有判定閾値 (その他手法用 T_loc) および Average用閾値 (T_ave) の取得 (フォールバック対応)
-    float locTh = (_OcclusionThreshold_T_loc >= 0.0) ? _OcclusionThreshold_T_loc : _OcclusionThreshold;
+    float baseLocTh = (_OcclusionThreshold_T_loc >= 0.0) ? _OcclusionThreshold_T_loc : _OcclusionThreshold;
     float aveTh = (_OcclusionThreshold_T_ave >= 0.0) ? _OcclusionThreshold_T_ave : _OcclusionThreshold;
 
     // 各セクタの代表値（最小値）に基づいて占有ビット・有効セクタ数・メトリクスを集計
@@ -160,10 +161,17 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
     {
         float sVal = minSectorOcclusion[s];
         occlusionSum += sVal;
+        // 8セクター個別閾値が有効な場合はセクターごとの T_loc,s を適用
+        float locTh = baseLocTh;
+        if (_UseSectorSpecificThreshold > 0)
+        {
+            locTh = (s < 4) ? _SectorThreshold_T_loc_0to3[s] : _SectorThreshold_T_loc_4to7[s - 4];
+        }
 
         if (sVal < 1.999) // 少なくとも1つの階層で手前に点群が存在した
         {
             validSectorCount++;
+            validSectorMask |= (1u << s); // 深度ピラミッド上に手前点が存在したセクタビット (GT)
         }
 
         // 占有ビット: セクタ s の最小値 < T_loc
@@ -323,19 +331,22 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
         // bit 8..11  (4bit): 点群支持セクタ数 validSectorCount (0〜8)
         // bit 12     (1bit): セクタ評価対象フラグ isEvaluated (1: 仮想オブジェクト画素, 0: 未評価・背景)
         // bit 13     (1bit): GPU生判定結果 isGpuOccluded (1: 遮蔽, 0: 非遮蔽/可視)
-        // bit 16..23 (8bit): 占有セクタ数 N_occ (binaryOccludedCount: 0〜8)
+        // bit 16..23 (8bit): 深度ピラミッドGT手前点存在セクタマスク validSectorMask (0〜255)
         // bit 24..27 (4bit): 最大連続非占有セクタ数 L_max (0〜8)
+        // bit 28..31 (4bit): 占有セクタ数 N_occ (binaryOccludedCount: 0〜8)
         uint isEvaluated = 1u;
         uint isGpuOccluded = (alpha <= 0.0) ? 1u : 0u;
         uint packedDebug = (occupiedSectorMask & 0xFFu)
                          | ((validSectorCount & 0x0Fu) << 8)
                          | (isEvaluated << 12)
                          | (isGpuOccluded << 13)
-                         | ((binaryOccludedCount & 0xFFu) << 16)
-                         | ((L_max & 0x0Fu) << 24);
+                         | ((validSectorMask & 0xFFu) << 16)
+                         | ((L_max & 0x0Fu) << 24)
+                         | ((binaryOccludedCount & 0x0Fu) << 28);
 
         _NeighborCountMap_RW[fullResUV] = packedDebug;
     }
 }
 
-#endif // PCD_OCCLUSION_KERNELS_OCCLUSION_INCLUDED
+#endif // PCD_OCCLUSION_KERNELS_OCCLUSION_INCLUDED
+

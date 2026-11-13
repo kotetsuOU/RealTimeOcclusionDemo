@@ -90,7 +90,7 @@ graph TD
     LogTriggersPCD["PCD_LogTriggers<br/>[AppLoggable / IAppLoggable]"] --> |RegisterLogTriggers| AppLogManager
     LogTriggersURP["URP_LogTriggers<br/>[AppLoggable / IAppLoggable]"] --> |RegisterLogTriggers| AppLogManager
     LogTriggersPR["PR_LogTriggers<br/>[AppLoggable / IAppLoggable]"] --> |RegisterLogTriggers| AppLogManager
-    SICESICtrl["SICESI_StereoEvaluationController<br/>[AppLoggable / IAppLoggable]"] --> |RegisterLogTriggers| AppLogManager
+    SICESICtrl["OPE_StereoEvaluationController<br/>[AppLoggable / IAppLoggable]"] --> |RegisterLogTriggers| AppLogManager
     SRDDbgLogger["SRDMirrorDebugLogger<br/>[AppLoggable / IAppLoggable]"] --> |RegisterLogTriggers| AppLogManager
     URPDebug["URPMatrixDebugFeature<br/>(Core.Debug)"] --> |Delegate / RegisterLogTriggers| LogTriggersURP
 
@@ -318,10 +318,10 @@ if (AppLogger.IsEnabled(this, SRDMirrorDebugLogger.TagProjDetCheck) && Time.fram
 | `PR (PhysicalResponse)` | `[PR_VirtualObjectManager]` | `PR_VirtualObjectManager` | アクティブモデル切り替えイベント |
 | `PR (PhysicalResponse)` | `[PR_AnimationController]` | `PR_AnimationController` | アニメーション制御・撮影・移動操作ログ |
 | `PR (PhysicalResponse)` | `[PR_PCDKeyController]` | `PR_PCDKeyController` | PCD 設定キー操作・Ablation 切り替えログ |
-| `SICESI` | `[SICESI] Core Controller` | `SICESI_StereoEvaluationController` | 初期化、コンポーネント自動検出、パラメータ検証ログ |
-| `SICESI` | `[SICESI] Capture & Camera` | `SICESI_StereoEvaluationController` | GT撮影、条件撮影、カメラ姿勢ロック、マテリアル・Transform ログ |
-| `SICESI` | `[SICESI] Stereo Sweep` | `SICESI_StereoEvaluationController` | 点群密度・セクター数・連続非占有・閾値スイープ進行ログ |
-| `SICESI` | `[SICESI] Sector Mask Collector` | `SICESI_SectorMaskCollector` | 8セクター画面保存マスクスイープ、256パターンスイープ、Readback ログ |
+| `SICESI` | `[OPE] Core Controller` | `OPE_StereoEvaluationController` | 初期化、コンポーネント自動検出、パラメータ検証ログ |
+| `SICESI` | `[OPE] Capture & Camera` | `OPE_StereoEvaluationController` | GT撮影、条件撮影、カメラ姿勢ロック、マテリアル・Transform ログ |
+| `SICESI` | `[OPE] Stereo Sweep` | `OPE_StereoEvaluationController` | 点群密度・セクター数・連続非占有・閾値スイープ進行ログ |
+| `SICESI` | `[OPE] Sector Mask Collector` | `OPE_SectorMaskCollector` | 8セクター画面保存マスクスイープ、256パターンスイープ、Readback ログ |
 | `Haptics` | `[HAP_Controller] Main Controller & Dispatcher` | `HAP_LogTriggers` | 触覚パイプライン統括・照射ターゲット選定ログ |
 | `Haptics` | `[HAP_LinkService] AUTD3 Link Connection` | `HAP_LogTriggers` | 物理デバイス接続・通信・切断ログ |
 | `Haptics` | `[HAP_ModulationService] Modulation & Silencer` | `HAP_LogTriggers` | 振幅変調・サイレンサー設定ログ |

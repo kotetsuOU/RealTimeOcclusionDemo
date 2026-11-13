@@ -81,11 +81,12 @@ internal class PCDContextBuilder
             }
             else // AllValidCameras
             {
-                // 評価用・補助・プレビューカメラ（SICESISceneCameraAdditional, Preview, SceneCamera等）は不要なため除外
+                // 評価用・補助・プレビューカメラ（OPESceneCameraAdditional, SICESISceneCameraAdditional, Preview, SceneCamera等）は不要なため除外
                 isCameraFiltered = !string.IsNullOrEmpty(data.Camera.name) &&
                                    (data.Camera.name.IndexOf("Additional", System.StringComparison.OrdinalIgnoreCase) >= 0 ||
                                     data.Camera.name.IndexOf("Preview", System.StringComparison.OrdinalIgnoreCase) >= 0 ||
-                                    data.Camera.name.IndexOf("SICESI", System.StringComparison.OrdinalIgnoreCase) >= 0);
+                                    data.Camera.name.IndexOf("SICESI", System.StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                    data.Camera.name.IndexOf("OPE", System.StringComparison.OrdinalIgnoreCase) >= 0);
             }
         }
 

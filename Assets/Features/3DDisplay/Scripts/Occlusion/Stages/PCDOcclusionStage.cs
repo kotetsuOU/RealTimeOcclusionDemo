@@ -61,9 +61,11 @@ internal class PCDOcclusionStage : IPCDPipelineStage
             }
             cmd.SetComputeTextureParam(cs, k.ComputeOcclusion, PCDShaderConstants.OcclusionResultMap_RW, r.OcclusionResultMap);
 
-            // デバッグ出力用のフラグとマップ (セクターマスク収集スイープ中も常に有効化)
-            bool isSectorMaskSweep = SICESI.SICESI_SectorMaskCollector.IsCollectingActive;
-            int shouldRecordDebug = (s.recordOcclusionDebugMap || s.recordPixelTagMap || s.enablePixelTagMap || s.enableOcclusionMap || s.recordNeighborCountMap || isSectorMaskSweep) ? 1 : 0;
+            // デバッグ出力用のフラグとマップ (セクターマスク収集スイープ中やセクタデバッグ表示中も常に有効化)
+            bool isSectorMaskSweep = OPE.OPE_SectorMaskCollector.IsCollectingActive;
+            bool isDebugSector = (s.debugSectorId >= 0 && s.debugSectorId <= 11);
+            bool isDebugPattern = (s.debugPatternId >= 0 && s.debugPatternId < 256);
+            int shouldRecordDebug = (s.recordOcclusionDebugMap || s.recordPixelTagMap || s.enablePixelTagMap || s.enableOcclusionMap || s.recordNeighborCountMap || isSectorMaskSweep || isDebugSector || isDebugPattern) ? 1 : 0;
             cmd.SetComputeIntParam(cs, PCDShaderConstants.RecordOcclusionDebug, shouldRecordDebug);
 
             cmd.SetComputeTextureParam(cs, k.ComputeOcclusion, PCDShaderConstants.NeighborCountMap_RW, r.NeighborCountMap);

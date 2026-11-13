@@ -1,0 +1,62 @@
+using System;
+using System.Collections.Generic;
+using UnityEngine;
+
+namespace OPE
+{
+    /// <summary>
+    /// 実験配置プリセット (JSON) の保存、一覧取得、シーンへの適用、および削除を統合管理する Facade クラス。
+    /// 各処理の実装は以下の専門クラスに委譲されています:
+    /// - ファイル保存・取得・削除: <see cref="OPE_PresetRepository"/>
+    /// - シーンへの復元適用: <see cref="OPE_PresetSceneApplier"/>
+    /// - カテゴリ自動判定: <see cref="OPE_PresetCategoryDetector"/>
+    /// </summary>
+    public static class OPE_PresetPoseManager
+    {
+        public enum PresetCategory
+        {
+            Generalization = 0, // 新規評価・未知検証用 (Test)
+            Optimization = 1    // 最適化・ルール導出用 (Train)
+        }
+
+        [Serializable]
+        public class PresetEntry
+        {
+            public string caseName;
+            public string folderName = "";
+            public string jsonPath;
+            public string timestamp;
+            public PresetCategory category;
+            public string virtualObjectName;
+            public string handMeshName;
+            public Vector3 virtualObjectPosition;
+            public Vector3 handMeshPosition;
+            public bool isVoRegisteredInConfig;
+            public bool isHandRegisteredInConfig;
+
+            public string DisplaySummary =>
+                $"[{caseName}] VO: {virtualObjectName} ({virtualObjectPosition.x:F2}, {virtualObjectPosition.y:F2}, {virtualObjectPosition.z:F2}) | Hand: {handMeshName}";
+        }
+
+        public static string GetPresetsDirectory(string rootOutputDirectory, PresetCategory category)
+            => OPE_PresetRepository.GetPresetsDirectory(rootOutputDirectory, category);
+
+        public static List<string> GetExistingFolders(string rootOutputDirectory, PresetCategory category)
+            => OPE_PresetRepository.GetExistingFolders(rootOutputDirectory, category);
+
+        public static PresetCategory DetectCurrentCategory(OPE_StereoEvaluationController controller, out string reason)
+            => OPE_PresetCategoryDetector.DetectCurrentCategory(controller, out reason);
+
+        public static List<PresetEntry> LoadPresetEntries(string rootOutputDirectory, PresetCategory? filterCategory = null)
+            => OPE_PresetRepository.LoadPresetEntries(rootOutputDirectory, filterCategory);
+
+        public static bool SaveCurrentSceneAsPreset(OPE_StereoEvaluationController controller, string caseName, PresetCategory category, string subFolder = "")
+            => OPE_PresetRepository.SaveCurrentSceneAsPreset(controller, caseName, category, subFolder);
+
+        public static bool ApplyPresetToScene(OPE_StereoEvaluationController controller, string jsonPath)
+            => OPE_PresetSceneApplier.ApplyPresetToScene(controller, jsonPath);
+
+        public static bool DeletePreset(string jsonPath)
+            => OPE_PresetRepository.DeletePreset(jsonPath);
+    }
+}

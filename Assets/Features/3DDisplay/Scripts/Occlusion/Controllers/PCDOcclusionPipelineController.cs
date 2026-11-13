@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using UnityEngine;
 using UnityEngine.Serialization;
 using Core.Logging;
@@ -183,6 +183,12 @@ public class PCDOcclusionPipelineController : MonoBehaviour, IAppLoggable
             }
         }
     }
+
+    [Tooltip("8セクター個別の局所閾値 T_loc を使用するかどうか (OFFの場合は共通の T_loc を使用)")]
+    public bool useSectorSpecificThreshold = false;
+
+    [Tooltip("8セクター個別の局所閾値 T_loc 配列 (0:N, 1:NE, 2:E, 3:SE, 4:S, 5:SW, 6:W, 7:NW)")]
+    public float[] sectorThreshold_T_loc = new float[8] { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f };
 
     [Tooltip("境界を滑らかにするためのフェード幅（閾値からの減衰範囲）")]
     [Range(0f, 1f)]
@@ -503,6 +509,8 @@ public class PCDOcclusionPipelineController : MonoBehaviour, IAppLoggable
             gradientThreshold_g_th = this.gradientThreshold_g_th,
             occlusionThreshold_T_ave = this.occlusionThreshold_T_ave,
             occlusionThreshold_T_loc = this.occlusionThreshold_T_loc,
+            useSectorSpecificThreshold = this.useSectorSpecificThreshold,
+            sectorThreshold_T_loc = this.sectorThreshold_T_loc,
             occlusionThreshold = this.occlusionThreshold,
             occlusionFadeWidth = this.occlusionFadeWidth,
             enableVirtualContactOcclusion = this.enableVirtualContactOcclusion,

@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 using static PCDRendererFeature;
 
 public class PCDSettingsBridge
@@ -20,6 +20,8 @@ public class PCDSettingsBridge
         gradientThreshold_g_th = 0.05f,
         occlusionThreshold_T_ave = 0.8f,
         occlusionThreshold_T_loc = 0.8f,
+        useSectorSpecificThreshold = false,
+        sectorThreshold_T_loc = new float[8] { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f },
         occlusionThreshold = 0.8f,
         occlusionFadeWidth = 0.1f,
         enableVirtualContactOcclusion = false,
@@ -208,6 +210,26 @@ public class PCDSettingsBridge
     {
         get => occlusionThreshold_T_loc;
         set => occlusionThreshold_T_loc = value;
+    }
+
+    public bool useSectorSpecificThreshold
+    {
+        get => Controller != null ? Controller.useSectorSpecificThreshold : _fallbackSettings.useSectorSpecificThreshold;
+        set
+        {
+            if (Controller != null) Controller.useSectorSpecificThreshold = value;
+            else _fallbackSettings.useSectorSpecificThreshold = value;
+        }
+    }
+
+    public float[] sectorThreshold_T_loc
+    {
+        get => Controller != null ? Controller.sectorThreshold_T_loc : _fallbackSettings.sectorThreshold_T_loc;
+        set
+        {
+            if (Controller != null) Controller.sectorThreshold_T_loc = value;
+            else _fallbackSettings.sectorThreshold_T_loc = value;
+        }
     }
 
     public float occlusionThreshold

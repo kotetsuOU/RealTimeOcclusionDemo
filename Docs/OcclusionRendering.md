@@ -51,10 +51,10 @@
 ```text
 Assets/Features/3DDisplay/
 ├── ComputeShaders/
-│   ├── PCD_Occlusion_Data.hlsl              # 共通定数・バッファ宣言 (_PatternLUT[8] 含む)
+│   ├── PCD_Occlusion_Data.hlsl              # 共通定数・バッファ宣言 (_PatternLUT[8], 8セクター個別閾値含む)
 │   ├── PCD_Occlusion_Kernels_Core.hlsl      # 投影・密度計算カーネル
-│   ├── PCD_Occlusion_Kernels_Occlusion.hlsl # オクルージョン判定 (Mode 8/20/36/256)
-│   └── PCD_Occlusion_Kernels_Post.hlsl      # デバッグマップ描画・Blit カーネル
+│   ├── PCD_Occlusion_Kernels_Occlusion.hlsl # オクルージョン判定 (Mode 8/20/36/256, セクター別閾値分岐)
+│   └── PCD_Occlusion_Kernels_Post.hlsl      # デバッグマップ描画・Blit カーネル (セクターマスク生成対応)
 ├── Materials/                               # オクルージョン遮蔽合成用マテリアル
 ├── Shaders/
 │   └── PCD_Occlusion.compute                # 統合コンピュートシェーダ
@@ -83,6 +83,10 @@ classDiagram
 
     class PCDOcclusionPipelineController {
         +PCD_OcclusionEvaluationMode evaluationMode
+        +float T_ave
+        +float T_loc
+        +bool useSectorSpecificThreshold
+        +float[] sectorThreshold_T_loc
         +int minOccludedSectorsMode8
         +int minOccludedSectorsMode20
         +int maxConsecutiveEmptySectors
@@ -199,6 +203,20 @@ sequenceDiagram
 
 ## 4. 仕様・パラメータ詳細
 
+### 4.4 8 セクター個別二値化閾値 (Sector-Specific Thresholds)
+
+手の傾きや RealSense 点群スキャンパターンの幾何学的異方性（水平方向と垂直方向での解像度・点間隔の違い）を補償するため、8 方向のセクター判定それぞれに個別の局所閾値 $T_{\mathrm{loc}}[0..7]$ を適用できる拡張機能を搭載しています。
+
+* **パラメータ**:
+  - `useSectorSpecificThreshold` (`bool`): 個別閾値の有効/無効フラグ。
+  - `sectorThreshold_T_loc` (`float[8]`): セクター 0〜7 の個別閾値。
+* **Compute Shader 定数バインド (`PCDShaderConstants`)**:
+  - `_UseSectorSpecificThreshold`: 有効化フラグ (0 または 1)。
+  - `_SectorThreshold_T_loc_0to3`: セクター 0, 1, 2, 3 の閾値を格納した `float4`。
+  - `_SectorThreshold_T_loc_4to7`: セクター 4, 5, 6, 7 の閾値を格納した `float4`。
+* **Compute Shader 実装 (`PCD_Occlusion_Kernels_Occlusion.hlsl`)**:
+  `CheckOcclusionDirectional` カーネル内で `_UseSectorSpecificThreshold` をチェックし、有効時はセクターインデックスに応じた成分（`_SectorThreshold_T_loc_0to3[i]` または `_SectorThreshold_T_loc_4to7[i-4]`）を局所閾値として動的に参照します。
+
 ### 4.1 オクルージョン判定モード体系
 
 | モード名 | 列挙値 | 判定原理 | 最適パラメータ / 最良解 HEX | 平均 IoU | 特徴 |
@@ -252,7 +270,7 @@ public class PCDOcclusionDebugSettings
 ```
 
 * **後方互換性保証**:
-  `PCDOcclusionPipelineController` にはプロパティアクセサ（例: `public int debugSectorId { get => debugSettings.debugSectorId; set => debugSettings.debugSectorId = value; }`）が実装されており、`SICESI_SectorMaskCollector` などの既存スクリプトは一切の変更なしに透過的に動作します。
+  `PCDOcclusionPipelineController` にはプロパティアクセサ（例: `public int debugSectorId { get => debugSettings.debugSectorId; set => debugSettings.debugSectorId = value; }`）が実装されており、`OPE_SectorMaskCollector` などの既存スクリプトは一切の変更なしに透過的に動作します。
 * **Inspector のクリーン化**:
   カスタムエディタ上で Foldout グループ化（初期状態: 非表示）されているため、開発中の Inspector が散らかりません。
 

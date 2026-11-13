@@ -48,10 +48,10 @@ internal readonly struct PCDResourceRequirements
     {
         bool debugDisplay = s.enablePixelTagMap || s.enableOcclusionMap
             || (s.debugPatternId >= 0 && s.debugPatternId < 256)
-            || (s.debugSectorId >= 0 && s.debugSectorId <= 10);
+            || (s.debugSectorId >= 0 && s.debugSectorId <= 11);
 
         // SICESI セクターマスク収集中は NeighborCountMap を外部から読み戻すため常に有効化する
-        bool isSectorMaskSweep = SICESI.SICESI_SectorMaskCollector.IsCollectingActive;
+        bool isSectorMaskSweep = OPE.OPE_SectorMaskCollector.IsCollectingActive;
 
         bool occlusionDebug = debugDisplay
             || s.recordOcclusionDebugMap || s.recordPixelTagMap || s.recordNeighborCountMap

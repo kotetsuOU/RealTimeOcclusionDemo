@@ -1,4 +1,4 @@
-// Data Structures
+﻿// Data Structures
 #ifndef PCD_OCCLUSION_DATA_INCLUDED
 #define PCD_OCCLUSION_DATA_INCLUDED
 
@@ -124,6 +124,9 @@ float _NeighborhoodParam_p_prime;   // フィルタリング(サンプリング)
 float _GradientThreshold_g_th;      // 輪郭(エッジ)判定の強さ。超える場合は近傍範囲を縮小する
 float _OcclusionThreshold_T_ave;    // Averageモード用オクルージョン閾値 T_ave
 float _OcclusionThreshold_T_loc;    // セクター占有判定（その他手法）用局所閾値 T_loc
+int _UseSectorSpecificThreshold;    // 8セクター個別閾値を使用するかどうかのフラグ
+float4 _SectorThreshold_T_loc_0to3; // セクター 0..3 の T_loc (x:Sec0, y:Sec1, z:Sec2, w:Sec3)
+float4 _SectorThreshold_T_loc_4to7; // セクター 4..7 の T_loc (x:Sec4, y:Sec5, z:Sec6, w:Sec7)
 float _OcclusionThreshold;          // 互換用フォールバック閾値
 float _OcclusionFadeWidth;          // ピクセルを滑らかにフェードアウトさせるための幅
 uint _StaticMeshDensityMultiplier;  // 仮想オブジェクト(メッシュ)の密度を点群と同スケールに合わせるための補正スカラー値(x)

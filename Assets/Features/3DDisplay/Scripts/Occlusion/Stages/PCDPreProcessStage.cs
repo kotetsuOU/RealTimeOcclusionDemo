@@ -1,4 +1,4 @@
-// =============================================================================
+﻿// =============================================================================
 // PCDPreProcessStage.cs
 // -----------------------------------------------------------------------------
 // オクルージョンパイプラインの前段処理を担うステージ。
@@ -104,6 +104,14 @@ internal class PCDPreProcessStage : IPCDPipelineStage
         cmd.SetComputeFloatParam(cs, PCDShaderConstants.OcclusionThreshold, s.occlusionThreshold);
         cmd.SetComputeFloatParam(cs, PCDShaderConstants.OcclusionThreshold_T_ave, s.occlusionThreshold_T_ave);
         cmd.SetComputeFloatParam(cs, PCDShaderConstants.OcclusionThreshold_T_loc, s.occlusionThreshold_T_loc);
+        cmd.SetComputeIntParam(cs, PCDShaderConstants.UseSectorSpecificThreshold, s.useSectorSpecificThreshold ? 1 : 0);
+        if (s.useSectorSpecificThreshold && s.sectorThreshold_T_loc != null && s.sectorThreshold_T_loc.Length >= 8)
+        {
+            Vector4 sec0to3 = new Vector4(s.sectorThreshold_T_loc[0], s.sectorThreshold_T_loc[1], s.sectorThreshold_T_loc[2], s.sectorThreshold_T_loc[3]);
+            Vector4 sec4to7 = new Vector4(s.sectorThreshold_T_loc[4], s.sectorThreshold_T_loc[5], s.sectorThreshold_T_loc[6], s.sectorThreshold_T_loc[7]);
+            cmd.SetComputeVectorParam(cs, PCDShaderConstants.SectorThreshold_T_loc_0to3, sec0to3);
+            cmd.SetComputeVectorParam(cs, PCDShaderConstants.SectorThreshold_T_loc_4to7, sec4to7);
+        }
         cmd.SetComputeFloatParam(cs, PCDShaderConstants.OcclusionFadeWidth, s.occlusionFadeWidth);
 
         if (s.patternLutWords != null && s.patternLutWords.Length >= 8)

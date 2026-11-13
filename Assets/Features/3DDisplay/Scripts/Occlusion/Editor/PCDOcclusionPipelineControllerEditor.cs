@@ -1,4 +1,4 @@
-using UnityEditor;
+﻿using UnityEditor;
 using UnityEngine;
 using static PCDRendererFeature;
 
@@ -37,6 +37,8 @@ public class PCDOcclusionPipelineControllerEditor : Editor
     // フィルタリング & フェード
     private SerializedProperty _occlusionThreshold_T_ave;
     private SerializedProperty _occlusionThreshold_T_loc;
+    private SerializedProperty _useSectorSpecificThreshold;
+    private SerializedProperty _sectorThreshold_T_loc;
     private SerializedProperty _occlusionFadeWidth;
 
     // 仮想接触
@@ -102,6 +104,8 @@ public class PCDOcclusionPipelineControllerEditor : Editor
 
         _occlusionThreshold_T_ave = serializedObject.FindProperty("occlusionThreshold_T_ave");
         _occlusionThreshold_T_loc = serializedObject.FindProperty("occlusionThreshold_T_loc");
+        _useSectorSpecificThreshold = serializedObject.FindProperty("useSectorSpecificThreshold");
+        _sectorThreshold_T_loc = serializedObject.FindProperty("sectorThreshold_T_loc");
         _occlusionFadeWidth = serializedObject.FindProperty("occlusionFadeWidth");
 
         _enableVirtualContactOcclusion = serializedObject.FindProperty("enableVirtualContactOcclusion");
@@ -177,7 +181,23 @@ public class PCDOcclusionPipelineControllerEditor : Editor
             EditorGUILayout.Space(4);
             EditorGUILayout.LabelField("オクルージョン判定閾値 (Thresholds)", EditorStyles.miniBoldLabel);
             EditorGUILayout.PropertyField(_occlusionThreshold_T_ave, new GUIContent("閾値 T_ave (Average手法)"));
-            EditorGUILayout.PropertyField(_occlusionThreshold_T_loc, new GUIContent("閾値 T_loc (セクター占有・その他手法)"));
+            EditorGUILayout.PropertyField(_useSectorSpecificThreshold, new GUIContent("8セクター個別 T_loc を使用"));
+            if (_useSectorSpecificThreshold.boolValue)
+            {
+                EditorGUI.indentLevel++;
+                if (_sectorThreshold_T_loc.arraySize < 8) _sectorThreshold_T_loc.arraySize = 8;
+                string[] secNames = new string[] { "Sec 0: 北 (N)", "Sec 1: 北東 (NE)", "Sec 2: 東 (E)", "Sec 3: 南東 (SE)", "Sec 4: 南 (S)", "Sec 5: 南西 (SW)", "Sec 6: 西 (W)", "Sec 7: 北西 (NW)" };
+                for (int s = 0; s < 8; s++)
+                {
+                    var prop = _sectorThreshold_T_loc.GetArrayElementAtIndex(s);
+                    EditorGUILayout.Slider(prop, 0f, 1f, new GUIContent(secNames[s]));
+                }
+                EditorGUI.indentLevel--;
+            }
+            else
+            {
+                EditorGUILayout.PropertyField(_occlusionThreshold_T_loc, new GUIContent("閾値 T_loc (セクター占有・共通)"));
+            }
             EditorGUILayout.PropertyField(_occlusionFadeWidth);
             EditorGUI.indentLevel--;
         }

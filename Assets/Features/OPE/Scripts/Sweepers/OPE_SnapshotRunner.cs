@@ -1,0 +1,117 @@
+using System;
+using System.Collections;
+using System.IO;
+using UnityEngine;
+using Core.Logging;
+
+namespace OPE
+{
+    /// <summary>
+    /// SICE SI 評価実験において、Ground Truth（真値）、現在の設定での単発撮影、
+    /// およびシーン俯瞰（第三者視点＋ステレオ眼）の撮影シーケンスを担当するランナークラス。
+    /// </summary>
+    public class OPE_SnapshotRunner
+    {
+        private readonly OPE_StereoEvaluationController _controller;
+        private readonly OPE_MaterialSwapper _swapper;
+
+        public OPE_SnapshotRunner(OPE_StereoEvaluationController controller, OPE_MaterialSwapper swapper)
+        {
+            _controller = controller;
+            _swapper = swapper;
+        }
+
+        /// <summary>
+        /// Ground Truth (手メッシュ黒化＋仮想物体Unlit白化) の左右ステレオ画像を撮影し保存します。
+        /// </summary>
+        public IEnumerator CaptureGroundTruthRoutine()
+        {
+            _controller.isCapturing = true;
+            _controller.statusMessage = "Capturing Ground Truth...";
+
+            var gtBackup = _swapper.SetGroundTruthState(_controller.groundTruthObject, _controller.groundTruthCaptureLayer, _controller.renderGroundTruthAsBlack);
+            var voBackup = _swapper.SetVirtualObjectUnlitWhiteState(_controller.virtualObject, _controller.renderVirtualObjectAsUnlitWhite);
+            try
+            {
+                if (_controller.pointCloudObject != null) _controller.pointCloudObject.SetActive(false);
+
+                for (int i = 0; i < 3; i++) yield return null;
+                yield return new WaitForEndOfFrame();
+
+                string conditionRootDir = _controller.ConditionRootDir;
+                OPE_ScreenCaptureUtil.SaveSceneTransformsJson(conditionRootDir, _controller.conditionName, _controller.groundTruthObject, _controller.virtualObject, _controller.leftEyeCamera, _controller.rightEyeCamera, _controller.sceneCaptureCamera);
+                string gtDir = Path.Combine(conditionRootDir, "GT");
+                OPE_ScreenCaptureUtil.CaptureStereoViews(_controller.leftEyeCamera, _controller.rightEyeCamera, gtDir, "gt", _controller.applySRGBConversion);
+
+                string commonGtDir = Path.Combine(_controller.outputDirectory, "GT");
+                if (commonGtDir != gtDir)
+                {
+                    OPE_ScreenCaptureUtil.CaptureStereoViews(_controller.leftEyeCamera, _controller.rightEyeCamera, commonGtDir, "gt", _controller.applySRGBConversion);
+                }
+
+                _controller.statusMessage = "Ground Truth Capture Completed!";
+                AppLogger.Log(_controller, $"[OPE] GT撮影完了: {gtDir} (共通: {commonGtDir})", OPE_StereoEvaluationController.TagCapture);
+            }
+            finally
+            {
+                _swapper.RestoreVirtualObjectState(voBackup);
+                _swapper.RestoreGroundTruthState(gtBackup);
+                _controller.isCapturing = false;
+            }
+        }
+
+        /// <summary>
+        /// 現在の点群およびパイプライン設定で単発ステレオ画像を撮影します。
+        /// </summary>
+        public IEnumerator CaptureCurrentRoutine(string subFolderName)
+        {
+            _controller.isCapturing = true;
+            _controller.statusMessage = $"Capturing condition: {_controller.conditionName}...";
+
+            var voBackup = _swapper.SetVirtualObjectUnlitWhiteState(_controller.virtualObject, _controller.renderVirtualObjectAsUnlitWhite);
+            try
+            {
+                if (_controller.pointCloudObject != null) _controller.pointCloudObject.SetActive(true);
+                if (_controller.dummyPointCloudProvider != null) _controller.dummyPointCloudProvider.densityUnit = _controller.densityUnit;
+
+                for (int i = 0; i < 3; i++) yield return null;
+                yield return new WaitForEndOfFrame();
+
+                string targetDir = string.IsNullOrEmpty(subFolderName) ? _controller.ConditionRootDir : Path.Combine(_controller.ConditionRootDir, subFolderName);
+                OPE_ScreenCaptureUtil.CaptureStereoViews(_controller.leftEyeCamera, _controller.rightEyeCamera, targetDir, "test", _controller.applySRGBConversion);
+
+                _controller.statusMessage = $"Condition {_controller.conditionName} Capture Completed!";
+                AppLogger.Log(_controller, $"[OPE] 条件撮影完了: {targetDir}", OPE_StereoEvaluationController.TagCapture);
+            }
+            finally
+            {
+                _swapper.RestoreVirtualObjectState(voBackup);
+                _controller.isCapturing = false;
+            }
+        }
+
+        /// <summary>
+        /// シーン俯瞰カメラおよびステレオ両眼視点からの確認用画像を撮影します。
+        /// </summary>
+        public IEnumerator CaptureSceneViewRoutine()
+        {
+            _controller.isCapturing = true;
+            _controller.statusMessage = "Capturing Scene Overview...";
+
+            try
+            {
+                string sceneDir = Path.Combine(_controller.ConditionRootDir, "Scene");
+                yield return OPE_SceneOverviewCapturer.CaptureSceneOverviewRoutine(
+                    _controller,
+                    sceneDir,
+                    _controller.conditionName);
+
+                _controller.statusMessage = "Scene Overview Capture Completed!";
+            }
+            finally
+            {
+                _controller.isCapturing = false;
+            }
+        }
+    }
+}

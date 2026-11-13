@@ -1,0 +1,269 @@
+﻿using System;
+using System.Collections;
+using System.IO;
+using UnityEngine;
+using Core.Logging;
+
+namespace OPE
+{
+    /// <summary>
+    /// SICE SI 評価実験において、256 通りのセクター占有パターン単独二値マスクの
+    /// 全網羅スイープ撮影・保存を担当するランナークラス。
+    /// </summary>
+    public class OPE_Pattern256SweepRunner
+    {
+        private readonly OPE_StereoEvaluationController _controller;
+        private readonly OPE_SectorMaskCollector _collector;
+
+        public OPE_Pattern256SweepRunner(OPE_StereoEvaluationController controller, OPE_SectorMaskCollector collector)
+        {
+            _controller = controller;
+            _collector = collector;
+        }
+
+        public IEnumerator Pattern256MaskSweepRoutine()
+        {
+            _collector.isCollecting = true;
+            OPE_SectorMaskCollector.IsCollectingActive = true;
+            _collector.statusMessage = "Starting 256-Pattern Mask Sweep...";
+
+            string conditionRootDir = _controller.ConditionRootDir;
+            string sweepRootDir = Path.Combine(conditionRootDir, "Pattern256MaskSweep");
+            Directory.CreateDirectory(sweepRootDir);
+            OPE_SceneMetadataSerializer.SaveSceneTransformsJson(sweepRootDir, _controller.conditionName, _controller.groundTruthObject, _controller.virtualObject, _controller.leftEyeCamera, _controller.rightEyeCamera, _controller.sceneCaptureCamera);
+            OPE_SceneMetadataSerializer.SaveSceneTransformsJson(conditionRootDir, _controller.conditionName, _controller.groundTruthObject, _controller.virtualObject, _controller.leftEyeCamera, _controller.rightEyeCamera, _controller.sceneCaptureCamera);
+
+            AppLogger.Log("OPE", $"=== 256占有パターン単独二値マスク 密度スイープ開始: {sweepRootDir} ===");
+
+            int prevDebugPatternId = -1;
+            bool prevRecordNeighborCount = false;
+            bool prevSoftFade = true;
+
+            if (_controller.occlusionPipelineController != null)
+            {
+                prevDebugPatternId = _controller.occlusionPipelineController.debugPatternId;
+                prevRecordNeighborCount = _controller.occlusionPipelineController.recordNeighborCountMap;
+                prevSoftFade = _controller.occlusionPipelineController.enableSoftOcclusionFade;
+                _controller.occlusionPipelineController.recordNeighborCountMap = true;
+                _controller.occlusionPipelineController.debugPatternId = -1;
+                _controller.occlusionPipelineController.enableSoftOcclusionFade = false;
+            }
+            if (PCDRendererFeature.Instance != null && PCDRendererFeature.Instance.settings != null)
+            {
+                PCDRendererFeature.Instance.settings.recordNeighborCountMap = true;
+                PCDRendererFeature.Instance.settings.debugPatternId = -1;
+                PCDRendererFeature.Instance.settings.enableSoftOcclusionFade = false;
+            }
+
+            var voBackup = _controller.MaterialSwapper.SetVirtualObjectUnlitWhiteState(_controller.virtualObject, _controller.renderVirtualObjectAsUnlitWhite);
+            try
+            {
+                // Step 0: 仮想物体単独シルエット
+                _collector.statusMessage = "Capturing Virtual Object Silhouette...";
+                if (_controller.pointCloudObject != null) _controller.pointCloudObject.SetActive(false);
+                bool prevGtActive = _controller.groundTruthObject != null && _controller.groundTruthObject.activeSelf;
+                if (_controller.groundTruthObject != null) _controller.groundTruthObject.SetActive(false);
+
+                for (int i = 0; i < 3; i++) yield return null;
+                yield return new WaitForEndOfFrame();
+
+                string gtDir = Path.Combine(sweepRootDir, "GT");
+                OPE_ScreenCaptureUtil.CaptureStereoViews(_controller.leftEyeCamera, _controller.rightEyeCamera, gtDir, "vo_silhouette", _controller.applySRGBConversion);
+
+                string commonGtDir = Path.Combine(_controller.outputDirectory, "GT");
+                if (commonGtDir != gtDir)
+                {
+                    OPE_ScreenCaptureUtil.CaptureStereoViews(_controller.leftEyeCamera, _controller.rightEyeCamera, commonGtDir, "vo_silhouette", _controller.applySRGBConversion);
+                }
+
+                if (_controller.groundTruthObject != null) _controller.groundTruthObject.SetActive(prevGtActive);
+                AppLogger.Log("OPE", $"[0/2] 仮想物体単独シルエット撮影完了: {gtDir}");
+
+                // Step 1: Ground Truth 撮影
+                _collector.statusMessage = "Capturing Ground Truth for 256-Pattern Sweep...";
+                var backup = _controller.MaterialSwapper.SetGroundTruthState(_controller.groundTruthObject, _controller.groundTruthCaptureLayer, _controller.renderGroundTruthAsBlack);
+                if (_controller.pointCloudObject != null) _controller.pointCloudObject.SetActive(false);
+
+                for (int i = 0; i < 3; i++) yield return null;
+                yield return new WaitForEndOfFrame();
+
+                OPE_ScreenCaptureUtil.CaptureStereoViews(_controller.leftEyeCamera, _controller.rightEyeCamera, gtDir, "gt", _controller.applySRGBConversion);
+                if (commonGtDir != gtDir)
+                {
+                    OPE_ScreenCaptureUtil.CaptureStereoViews(_controller.leftEyeCamera, _controller.rightEyeCamera, commonGtDir, "gt", _controller.applySRGBConversion);
+                }
+
+                _controller.MaterialSwapper.RestoreGroundTruthState(backup);
+                AppLogger.Log("OPE", $"[1/2] Ground Truth 撮影完了: {gtDir}");
+
+                // Step 2: 点群表示 & 密度ループ
+                if (_controller.pointCloudObject != null) _controller.pointCloudObject.SetActive(true);
+
+                float[] densities = _controller.sweepDensities;
+                if (densities == null || densities.Length == 0)
+                {
+                    densities = new float[] { _controller.dummyPointCloudProvider != null ? _controller.dummyPointCloudProvider.densityValue : 4.0f };
+                }
+
+                for (int d = 0; d < densities.Length; d++)
+                {
+                    float density = densities[d];
+                    string densityStr = density.ToString("0.0###", System.Globalization.CultureInfo.InvariantCulture);
+                    string densityFolderName = $"density_{densityStr}pts_mm2";
+                    string targetDir = Path.Combine(sweepRootDir, densityFolderName);
+                    Directory.CreateDirectory(targetDir);
+
+                    _collector.statusMessage = $"Setting Density ({d + 1}/{densities.Length}): {densityStr} pts/mm2";
+                    AppLogger.Log("OPE", $"[2/2] 密度設定変更 ({d + 1}/{densities.Length}): {densityStr}");
+
+                    if (_controller.dummyPointCloudProvider != null)
+                    {
+                        _controller.dummyPointCloudProvider.densityUnit = _controller.densityUnit;
+                        _controller.dummyPointCloudProvider.densityValue = density;
+                        _controller.dummyPointCloudProvider.ForceUpdateSampling();
+                    }
+
+                    if (PCDRendererFeature.Instance != null)
+                    {
+                        PCDRendererFeature.Instance.MarkPointCloudDataDirty();
+                        if (PCDRendererFeature.Instance.settings != null)
+                        {
+                            PCDRendererFeature.Instance.settings.recordNeighborCountMap = true;
+                            PCDRendererFeature.Instance.settings.debugPatternId = -1;
+                            PCDRendererFeature.Instance.settings.enableSoftOcclusionFade = false;
+                            if (_controller.occlusionPipelineController != null)
+                            {
+                                PCDRendererFeature.Instance.settings.useSectorSpecificThreshold = _controller.occlusionPipelineController.useSectorSpecificThreshold;
+                                PCDRendererFeature.Instance.settings.occlusionThreshold_T_loc = _controller.occlusionPipelineController.T_loc;
+                                PCDRendererFeature.Instance.settings.occlusionThreshold_T_ave = _controller.occlusionPipelineController.T_ave;
+                                if (_controller.occlusionPipelineController.sectorThreshold_T_loc != null)
+                                {
+                                    PCDRendererFeature.Instance.settings.sectorThreshold_T_loc = (float[])_controller.occlusionPipelineController.sectorThreshold_T_loc.Clone();
+                                }
+                            }
+                        }
+                    }
+                    if (_controller.occlusionPipelineController != null)
+                    {
+                        _controller.occlusionPipelineController.recordNeighborCountMap = true;
+                        _controller.occlusionPipelineController.debugPatternId = -1;
+                        _controller.occlusionPipelineController.enableSoftOcclusionFade = false;
+                    }
+
+                    for (int f = 0; f < _controller.waitFramesAfterDensityChange; f++) yield return null;
+                    yield return new WaitForEndOfFrame();
+
+                    // カメラ姿勢固定
+                    using (new OPE_CameraPoseLock(_controller.leftEyeCamera, _controller.rightEyeCamera))
+                    {
+                        // 1. 通常テスト画像
+                        _collector.statusMessage = $"Density {densityStr} | Normal Test Image";
+                        SetDebugPatternId(-1);
+                        yield return null;
+                        yield return new WaitForEndOfFrame();
+                        OPE_ScreenCaptureUtil.CaptureStereoViews(_controller.leftEyeCamera, _controller.rightEyeCamera, targetDir, $"test_{densityStr}", _controller.applySRGBConversion);
+
+                        // 2. 256パターン単独二値マスクの順次撮影
+                        int[] patterns = _collector.targetPatterns;
+                        if (patterns == null || patterns.Length == 0)
+                        {
+                            patterns = new int[256];
+                            for (int p = 0; p < 256; p++) patterns[p] = p;
+                        }
+
+                        string masksDir = Path.Combine(targetDir, "masks");
+                        Directory.CreateDirectory(masksDir);
+
+                        for (int p = 0; p < patterns.Length; p++)
+                        {
+                            int pattern = patterns[p];
+                            _collector.statusMessage = $"Density {densityStr} | Pattern {pattern}/255 ({p + 1}/{patterns.Length})";
+
+                            SetDebugPatternId(pattern);
+                            yield return null;
+                            yield return new WaitForEndOfFrame();
+
+                            OPE_ScreenCaptureUtil.CaptureStereoViews(_controller.leftEyeCamera, _controller.rightEyeCamera, masksDir, $"pattern_{pattern:D3}", _controller.applySRGBConversion);
+                        }
+                    }
+
+                    SetDebugPatternId(-1);
+                    yield return null;
+
+                    float tLoc = _controller.occlusionPipelineController != null ? _controller.occlusionPipelineController.T_loc : 0.8f;
+                    SaveParamsJson(targetDir, density, tLoc);
+                    AppLogger.Log("OPE", $"[{d + 1}/{densities.Length}] 密度 {densityStr} の256パターン撮影完了: {targetDir}");
+                }
+
+                _collector.statusMessage = "All 256-Pattern Mask Sweeps Completed!";
+                AppLogger.Log("OPE", $"=== 全密度の256パターン撮影が完了しました! 保存先: {sweepRootDir} ===");
+            }
+            finally
+            {
+                _controller.MaterialSwapper.RestoreVirtualObjectState(voBackup);
+                SetDebugPatternId(prevDebugPatternId);
+                if (_controller.occlusionPipelineController != null)
+                {
+                    _controller.occlusionPipelineController.recordNeighborCountMap = prevRecordNeighborCount;
+                    _controller.occlusionPipelineController.enableSoftOcclusionFade = prevSoftFade;
+                }
+                if (PCDRendererFeature.Instance != null && PCDRendererFeature.Instance.settings != null)
+                {
+                    PCDRendererFeature.Instance.settings.recordNeighborCountMap = prevRecordNeighborCount;
+                    PCDRendererFeature.Instance.settings.enableSoftOcclusionFade = prevSoftFade;
+                }
+                OPE_SectorMaskCollector.IsCollectingActive = false;
+                _collector.isCollecting = false;
+            }
+        }
+
+        private void SetDebugPatternId(int patternId)
+        {
+            if (_controller.occlusionPipelineController != null)
+            {
+                _controller.occlusionPipelineController.debugPatternId = patternId;
+            }
+            if (PCDRendererFeature.Instance != null && PCDRendererFeature.Instance.settings != null)
+            {
+                PCDRendererFeature.Instance.settings.debugPatternId = patternId;
+            }
+        }
+
+        private void SaveParamsJson(string targetDir, float density, float threshold)
+        {
+            try
+            {
+                var pipe = _controller.occlusionPipelineController;
+                string jsonMode = pipe != null ? pipe.evaluationMode.ToString() : "SectorConsecutiveZeros";
+                int minSec = pipe != null ? pipe.minOccludedSectors : 1;
+                int maxZeros = pipe != null ? pipe.maxConsecutiveEmptySectors : 8;
+
+                float tAve = pipe != null ? pipe.T_ave : 0.8f;
+                float tLoc = pipe != null ? pipe.T_loc : threshold;
+                bool useSector = pipe != null && pipe.useSectorSpecificThreshold;
+                float[] sectorTLoc = (pipe != null && pipe.sectorThreshold_T_loc != null) ? pipe.sectorThreshold_T_loc : null;
+
+                OPE_ScreenCaptureUtil.SaveEvaluationParamsJson(
+                    targetDir,
+                    _controller.conditionName,
+                    density,
+                    _controller.densityUnit.ToString(),
+                    threshold,
+                    jsonMode,
+                    minSec,
+                    maxZeros,
+                    _controller.groundTruthObject,
+                    _controller.virtualObject,
+                    tAve,
+                    tLoc,
+                    useSector,
+                    sectorTLoc
+                );
+            }
+            catch (Exception ex)
+            {
+                AppLogger.LogWarning(_controller, $"[OPE] JSON保存エラー: {ex.Message}", OPE_StereoEvaluationController.TagMaskSweep);
+            }
+        }
+    }
+}

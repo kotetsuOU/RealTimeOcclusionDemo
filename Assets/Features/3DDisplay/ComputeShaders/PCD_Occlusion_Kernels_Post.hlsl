@@ -215,7 +215,9 @@ void VisualizeOcclusionDebug(uint3 id : SV_DispatchThreadID)
         if (_DebugSectorId == 10)
         {
             uint originType = _OriginTypeMap[id.xy];
-            float p = (originType == 0u) ? 1.0 : 0.0;
+            uint val10 = _NeighborCountMap_RW[id.xy];
+            uint isEvaluated10 = (val10 >> 12) & 1u;
+            float p = (originType == 0u && isEvaluated10 == 0u) ? 1.0 : 0.0;
             _OriginMap_RW[id.xy] = float4(p, p, p, 1.0);
             return;
         }
@@ -243,6 +245,15 @@ void VisualizeOcclusionDebug(uint3 id : SV_DispatchThreadID)
         {
             uint isGpuOccluded = (val >> 13) & 1u;
             float p = (isGpuOccluded != 0u) ? 1.0 : 0.0;
+            _OriginMap_RW[id.xy] = float4(p, p, p, 1.0);
+            return;
+        }
+
+        // _DebugSectorId == 11: 深度ピラミッドGT手前点存在 8-bit マスク (各画素のパターン m ∈ [0, 255] を直接出力)
+        if (_DebugSectorId == 11)
+        {
+            uint gtMask = (val >> 16) & 0xFFu;
+            float p = (float)gtMask / 255.0;
             _OriginMap_RW[id.xy] = float4(p, p, p, 1.0);
             return;
         }
