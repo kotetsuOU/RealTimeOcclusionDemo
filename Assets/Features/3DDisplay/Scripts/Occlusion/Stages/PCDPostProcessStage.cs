@@ -28,7 +28,10 @@ internal class PCDPostProcessStage : IPCDPipelineStage
     {
         ExecuteStageInterpolate(cmd, ctx);
         ExecuteStageDebugVisualize(cmd, ctx);
-        RequestStaticMeshCounterReadback(ctx);
+        if (ctx.HasVirtualDepth && ctx.Settings.enableVirtualDepthIntegration)
+        {
+            RequestStaticMeshCounterReadback(ctx);
+        }
     }
 
     // =========================================================================

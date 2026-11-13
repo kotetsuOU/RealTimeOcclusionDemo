@@ -19,17 +19,23 @@ using UnityEngine.Rendering;
 /// </summary>
 internal class PCDPreProcessStage : IPCDPipelineStage
 {
+    private const string KEYWORD_GRID_8 = "GRID_SIZE_8";
+    private const string KEYWORD_GRID_16 = "GRID_SIZE_16";
+    private const string KEYWORD_GRID_32 = "GRID_SIZE_32";
+
+    private int _lastMergedFrame = -1;
+    private ComputeBuffer _lastMergedExtBuffer;
+    private ComputeBuffer _lastMergedIntBuffer;
+    private ComputeBuffer _lastMergedDstBuffer;
+    private int _lastMergedExtCount;
+    private int _lastMergedIntCount;
+
     public bool ShouldExecute(PCDPipelineContext ctx) => true; // 常に実行
 
     public void Execute(CommandBuffer cmd, PCDPipelineContext ctx)
     {
         var cs = ctx.ComputeShader;
-        var k = ctx.Kernels;
-        var r = ctx.Resources;
         var s = ctx.Settings;
-
-        // リバースZバッファへの対応フラグをセット
-        cmd.SetComputeIntParam(cs, Shader.PropertyToID("_IsReversedZ"), SystemInfo.usesReversedZBuffer ? 1 : 0);
 
         // バッファの結合（外部＋内部が両方存在する場合）
         MergeExternalAndInternalBuffers(cmd, cs, ctx);
@@ -61,6 +67,24 @@ internal class PCDPreProcessStage : IPCDPipelineStage
         if (!ctx.UseExternal || ctx.ExternalCount <= 0 || ctx.InternalCount <= 0)
             return;
 
+        // 2眼カメラ等による同一フレーム・同一バッファの重複マージを防止
+        int frame = Time.frameCount;
+        if (_lastMergedFrame == frame &&
+            _lastMergedExtBuffer == ctx.ExternalBuffer &&
+            _lastMergedIntBuffer == ctx.InternalBuffer &&
+            _lastMergedDstBuffer == ctx.CombinedBuffer &&
+            _lastMergedExtCount == ctx.ExternalCount &&
+            _lastMergedIntCount == ctx.InternalCount)
+        {
+            return;
+        }
+        _lastMergedFrame = frame;
+        _lastMergedExtBuffer = ctx.ExternalBuffer;
+        _lastMergedIntBuffer = ctx.InternalBuffer;
+        _lastMergedDstBuffer = ctx.CombinedBuffer;
+        _lastMergedExtCount = ctx.ExternalCount;
+        _lastMergedIntCount = ctx.InternalCount;
+
         var k = ctx.Kernels;
 
         // 外部バッファを結合先の先頭にコピー
@@ -91,7 +115,7 @@ internal class PCDPreProcessStage : IPCDPipelineStage
         cmd.SetComputeIntParam(cs, PCDShaderConstants.PointCount, ctx.PointCount);
         cmd.SetComputeVectorParam(cs, PCDShaderConstants.ScreenParams, ctx.ScreenParams);
         cmd.SetComputeMatrixParam(cs, PCDShaderConstants.ViewMatrix, ctx.ViewMatrix);
-        cmd.SetComputeMatrixParam(cs, PCDShaderConstants.ProjectionMatrix, ctx.ProjectionMatrix);
+        cmd.SetComputeMatrixParam(cs, PCDShaderConstants.ViewProjMatrix, ctx.ViewProjMatrix);
         cmd.SetComputeFloatParam(cs, PCDShaderConstants.DensityThreshold_e, s.densityThreshold_e);
         cmd.SetComputeFloatParam(cs, PCDShaderConstants.NeighborhoodParam_p_prime, s.neighborhoodParam_p_prime);
         cmd.SetComputeFloatParam(cs, PCDShaderConstants.GradientThreshold_g_th, s.gradientThreshold_g_th);
@@ -120,18 +144,18 @@ internal class PCDPreProcessStage : IPCDPipelineStage
         }
 
         // 提案手法の各最適化フラグ
-        cmd.SetComputeIntParam(cs, Shader.PropertyToID("_EnableTagBasedOptimization"), s.enableTagBasedOptimization ? 1 : 0);
-        cmd.SetComputeIntParam(cs, Shader.PropertyToID("_EnableTypeAwareDensity"), s.enableTypeAwareDensity ? 1 : 0);
-        cmd.SetComputeIntParam(cs, Shader.PropertyToID("_EnableSoftOcclusionFade"), s.enableSoftOcclusionFade ? 1 : 0);
-        cmd.SetComputeIntParam(cs, Shader.PropertyToID("_EnableJointBilateralHoleFilling"), (s.holeFillingMethod != PCDRendererFeature.PCD_HoleFillingMethod.None) ? 1 : 0);
+        cmd.SetComputeIntParam(cs, PCDShaderConstants.EnableTagBasedOptimization, s.enableTagBasedOptimization ? 1 : 0);
+        cmd.SetComputeIntParam(cs, PCDShaderConstants.EnableTypeAwareDensity, s.enableTypeAwareDensity ? 1 : 0);
+        cmd.SetComputeIntParam(cs, PCDShaderConstants.EnableSoftOcclusionFade, s.enableSoftOcclusionFade ? 1 : 0);
+        cmd.SetComputeIntParam(cs, PCDShaderConstants.EnableJointBilateralHoleFilling, (s.holeFillingMethod != PCDRendererFeature.PCD_HoleFillingMethod.None) ? 1 : 0);
 
         // リバースZバッファへの対応フラグをセット
-        cmd.SetComputeIntParam(cs, Shader.PropertyToID("_IsReversedZ"), SystemInfo.usesReversedZBuffer ? 1 : 0);
+        cmd.SetComputeIntParam(cs, PCDShaderConstants.IsReversedZ, SystemInfo.usesReversedZBuffer ? 1 : 0);
         cmd.SetComputeIntParam(cs, PCDShaderConstants.IsHalfMirrorEnabled, ctx.IsHalfMirrorEnabled ? 1 : 0);
 
         // 仮想物体における密度倍率
         uint densityMultiplier = System.Math.Max(1u, s._dynamicMultiplierRuntimeValue);
-        cmd.SetComputeIntParam(cs, Shader.PropertyToID("_StaticMeshDensityMultiplier"), (int)densityMultiplier);
+        cmd.SetComputeIntParam(cs, PCDShaderConstants.StaticMeshDensityMultiplier, (int)densityMultiplier);
 
         // デバッグ表示有効フラグ (無効時は1x1ダミーOriginMapへのUAV書き込みをスキップして競合防止)
         bool isDebugDisplay = s.enablePixelTagMap || s.enableOcclusionMap ||
@@ -140,13 +164,13 @@ internal class PCDPreProcessStage : IPCDPipelineStage
                               s.recordPixelTagMap;
         cmd.SetComputeIntParam(cs, PCDShaderConstants.EnableDebugDisplay, isDebugDisplay ? 1 : 0);
 
-        // グリッドサイズに対応するシェーダーキーワードを切り替え
+        // グリッドサイズに対応するシェーダーキーワードを切り替え（定数文字列を使用し文字列生成を回避）
         int gs = (int)s.gridSize;
-        if (gs == 0) gs = 16;
-        cmd.DisableShaderKeyword("GRID_SIZE_8");
-        cmd.DisableShaderKeyword("GRID_SIZE_16");
-        cmd.DisableShaderKeyword("GRID_SIZE_32");
-        cmd.EnableShaderKeyword($"GRID_SIZE_{gs}");
+        cmd.DisableShaderKeyword(KEYWORD_GRID_8);
+        cmd.DisableShaderKeyword(KEYWORD_GRID_16);
+        cmd.DisableShaderKeyword(KEYWORD_GRID_32);
+        string activeKeyword = gs == 8 ? KEYWORD_GRID_8 : (gs == 32 ? KEYWORD_GRID_32 : KEYWORD_GRID_16);
+        cmd.EnableShaderKeyword(activeKeyword);
     }
 
     // =========================================================================
@@ -159,24 +183,30 @@ internal class PCDPreProcessStage : IPCDPipelineStage
         var r = ctx.Resources;
         var s = ctx.Settings;
 
-        // 全マップを確実に初期化して前フレームの残骸を完全に排除
-        cmd.SetComputeTextureParam(cs, k.ClearMaps, PCDShaderConstants.ColorMap_RW, r.ColorMap);
-        cmd.SetComputeTextureParam(cs, k.ClearMaps, PCDShaderConstants.DepthMap_RW,
-            s.recordIntegratedDepthMap ? r.IntegratedDepthMap : r.DepthMap);
-        cmd.SetComputeTextureParam(cs, k.ClearMaps, PCDShaderConstants.ViewPositionMap_RW, r.ViewPositionMap);
-        cmd.SetComputeTextureParam(cs, k.ClearMaps, PCDShaderConstants.OcclusionResultMap_RW, r.OcclusionResultMap);
-        cmd.SetComputeTextureParam(cs, k.ClearMaps, PCDShaderConstants.OcclusionValueMap_RW, r.OcclusionValueMap);
+        // InitFromCamera が実行される場合は全ピクセルを上書きするため、ClearMaps の全画面書き込みを省略する
+        if (!runInitFromCamera)
+        {
+            cmd.SetComputeTextureParam(cs, k.ClearMaps, PCDShaderConstants.ColorMap_RW, r.ColorMap);
+            cmd.SetComputeTextureParam(cs, k.ClearMaps, PCDShaderConstants.DepthMap_RW,
+                s.recordIntegratedDepthMap ? r.IntegratedDepthMap : r.DepthMap);
+            cmd.SetComputeTextureParam(cs, k.ClearMaps, PCDShaderConstants.ViewPositionMap_RW, r.ViewPositionMap);
+            cmd.SetComputeTextureParam(cs, k.ClearMaps, PCDShaderConstants.OcclusionResultMap_RW, r.OcclusionResultMap);
+            cmd.SetComputeTextureParam(cs, k.ClearMaps, PCDShaderConstants.OcclusionValueMap_RW, r.OcclusionValueMap);
 
-        var clearFinalImageTarget = (s.holeFillingMethod != PCDRendererFeature.PCD_HoleFillingMethod.None) ? r.FinalImage : r.OcclusionResultMap;
-        cmd.SetComputeTextureParam(cs, k.ClearMaps, PCDShaderConstants.FinalImage_RW, clearFinalImageTarget);
+            var clearFinalImageTarget = (s.holeFillingMethod != PCDRendererFeature.PCD_HoleFillingMethod.None) ? r.FinalImage : r.OcclusionResultMap;
+            cmd.SetComputeTextureParam(cs, k.ClearMaps, PCDShaderConstants.FinalImage_RW, clearFinalImageTarget);
 
-        cmd.SetComputeTextureParam(cs, k.ClearMaps, PCDShaderConstants.OriginTypeMap_RW, r.OriginTypeMap);
-        cmd.SetComputeTextureParam(cs, k.ClearMaps, PCDShaderConstants.OriginMap_RW, r.DebugDisplayMap);
-        cmd.DispatchCompute(cs, k.ClearMaps, ctx.ThreadGroupsX, ctx.ThreadGroupsY, 1);
+            cmd.SetComputeTextureParam(cs, k.ClearMaps, PCDShaderConstants.OriginTypeMap_RW, r.OriginTypeMap);
+            cmd.SetComputeTextureParam(cs, k.ClearMaps, PCDShaderConstants.OriginMap_RW, r.DebugDisplayMap);
+            cmd.DispatchCompute(cs, k.ClearMaps, ctx.ThreadGroupsX, ctx.ThreadGroupsY, 1);
+        }
 
-        // カウンターのクリアは常に実行
-        cmd.SetComputeBufferParam(cs, k.ClearCounter, PCDShaderConstants.StaticMeshCounter_RW, ctx.StaticMeshCounterBuffer);
-        cmd.DispatchCompute(cs, k.ClearCounter, 1, 1, 1);
+        // カウンターのクリアは仮想深度統合が有効な場合のみ実行
+        if (runInitFromCamera)
+        {
+            cmd.SetComputeBufferParam(cs, k.ClearCounter, PCDShaderConstants.StaticMeshCounter_RW, ctx.StaticMeshCounterBuffer);
+            cmd.DispatchCompute(cs, k.ClearCounter, 1, 1, 1);
+        }
     }
 
     // =========================================================================
@@ -250,26 +280,15 @@ internal class PCDPreProcessStage : IPCDPipelineStage
 
         if (s.enableDensityBasedLOD)
         {
-            // ステージ4: 各グリッドセルの最小深度を計算
-            cmd.SetComputeTextureParam(cs, k.CalcGridZMin, PCDShaderConstants.DepthMap, depthMap);
-            cmd.SetComputeTextureParam(cs, k.CalcGridZMin, PCDShaderConstants.GridZMinMap_RW, r.GridZMinMap);
-            cmd.DispatchCompute(cs, k.CalcGridZMin, ctx.GridGroupsX, ctx.GridGroupsY, 1);
-
-            // ステージ5: 画面上のサンプル密度を計算
+            // ステージ4〜6: 各グリッドセルの最小深度(Z-Min)・点群密度・近傍探索レベルを一括算出
             cmd.SetComputeTextureParam(cs, k.CalcDensity, PCDShaderConstants.DepthMap, depthMap);
-            cmd.SetComputeTextureParam(cs, k.CalcDensity, PCDShaderConstants.GridZMinMap, r.GridZMinMap);
             cmd.SetComputeTextureParam(cs, k.CalcDensity, PCDShaderConstants.OriginTypeMap, r.OriginTypeMap);
-            cmd.SetComputeTextureParam(cs, k.CalcDensity, PCDShaderConstants.DensityMap_RW, r.DensityMap);
+            cmd.SetComputeTextureParam(cs, k.CalcDensity, PCDShaderConstants.GridLevelMap_RW, r.GridLevelMap);
             cmd.DispatchCompute(cs, k.CalcDensity, ctx.GridGroupsX, ctx.GridGroupsY, 1);
 
-            // ステージ6: 密度に応じたグリッドレベルを決定
-            cmd.SetComputeTextureParam(cs, k.CalcGridLevel, PCDShaderConstants.DensityMap, r.DensityMap);
-            cmd.SetComputeTextureParam(cs, k.CalcGridLevel, PCDShaderConstants.GridLevelMap_RW, r.GridLevelMap);
+            // ステージ7: メディアンフィルターでグリッドレベルを平滑化
             int gridThreadX = (ctx.GridGroupsX + 15) / 16;
             int gridThreadY = (ctx.GridGroupsY + 15) / 16;
-            cmd.DispatchCompute(cs, k.CalcGridLevel, Mathf.Max(1, gridThreadX), Mathf.Max(1, gridThreadY), 1);
-
-            // ステージ7: メディアンフィルターでグリッドレベルを平滑化
             cmd.SetComputeTextureParam(cs, k.GridMedianFilter, PCDShaderConstants.GridLevelMap, r.GridLevelMap);
             cmd.SetComputeTextureParam(cs, k.GridMedianFilter, PCDShaderConstants.FilteredGridLevelMap_RW, r.FilteredGridLevelMap);
             cmd.DispatchCompute(cs, k.GridMedianFilter, Mathf.Max(1, gridThreadX), Mathf.Max(1, gridThreadY), 1);

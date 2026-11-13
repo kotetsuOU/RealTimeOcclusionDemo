@@ -208,6 +208,9 @@ sequenceDiagram
 | `ActiveAnimator` | `Animator` | 現在アクティブなオブジェクトの Animator（読み取り専用） |
 | `OnActiveObjectChanged` | `event Action<GameObject>` | オブジェクト切り替え時の通知イベント |
 
+> [!NOTE]
+> `PR_VirtualObjectManager` は `_isInitialized` フラグにより `Awake()` と `OnEnable()` 間の重複初期化を抑止し、`HCD_Pipeline.Instance` の優先参照によって起動時のシーン探索負荷を軽減しています。
+
 ---
 
 ### 4.3 ボーン自動検出・同期仕様

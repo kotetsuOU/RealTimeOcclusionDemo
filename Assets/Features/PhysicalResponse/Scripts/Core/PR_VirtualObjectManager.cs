@@ -61,18 +61,31 @@ namespace Features.PhysicalResponse
         /// <summary>アクティブオブジェクトが切り替わった際に発火するイベント</summary>
         public event Action<GameObject> OnActiveObjectChanged;
 
+        private bool _isInitialized = false;
+
         private void Awake()
         {
             Instance = this;
             SanitizeVirtualObjects();
             InitializeObjects();
+            _isInitialized = true;
         }
 
         private void OnEnable()
         {
             Instance = this;
-            SanitizeVirtualObjects();
-            InitializeObjects();
+            // Awake直後のOnEnableでの二重初期化を防止（Disable後の再有効化時のみ実行）
+            if (!_isInitialized)
+            {
+                SanitizeVirtualObjects();
+                InitializeObjects();
+                _isInitialized = true;
+            }
+        }
+
+        private void OnDisable()
+        {
+            _isInitialized = false;
         }
 
         private void Update()
@@ -312,7 +325,7 @@ namespace Features.PhysicalResponse
         /// </summary>
         private void SyncHcdTarget(GameObject activeObj)
         {
-            var hcd = FindFirstObjectByType<HCD_Pipeline>();
+            var hcd = HCD_Pipeline.Instance ?? FindFirstObjectByType<HCD_Pipeline>();
             if (hcd == null || hcd.distanceProcessor == null) return;
 
             // IExcludeFromHcd を持つオブジェクト（天候演出など）は HCD 判定から除外
@@ -347,7 +360,7 @@ namespace Features.PhysicalResponse
 
         private void ClearHcdTarget()
         {
-            var hcd = FindFirstObjectByType<HCD_Pipeline>();
+            var hcd = HCD_Pipeline.Instance ?? FindFirstObjectByType<HCD_Pipeline>();
             if (hcd == null || hcd.distanceProcessor == null) return;
 
             hcd.distanceProcessor.targetSkinnedMeshes = null;

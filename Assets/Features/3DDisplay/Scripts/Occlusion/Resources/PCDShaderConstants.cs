@@ -29,7 +29,7 @@ internal static class PCDShaderConstants
     public static readonly int PointCount = Shader.PropertyToID("_PointCount");
     public static readonly int ScreenParams = Shader.PropertyToID("_ScreenParams");
     public static readonly int ViewMatrix = Shader.PropertyToID("_ViewMatrix");
-    public static readonly int ProjectionMatrix = Shader.PropertyToID("_ProjectionMatrix");
+    public static readonly int ViewProjMatrix = Shader.PropertyToID("_ViewProjMatrix");
     public static readonly int InverseProjectionMatrix = Shader.PropertyToID("_InverseProjectionMatrix");
 
     /// <summary> 密度が十分かどうかを判断するための閾値 </summary>
@@ -78,10 +78,6 @@ internal static class PCDShaderConstants
     public static readonly int ViewPositionMap_RW = Shader.PropertyToID("_ViewPositionMap_RW");
 
     // --- グリッド・密度・LOD 関連 ---
-    public static readonly int GridZMinMap = Shader.PropertyToID("_GridZMinMap");
-    public static readonly int GridZMinMap_RW = Shader.PropertyToID("_GridZMinMap_RW");
-    public static readonly int DensityMap = Shader.PropertyToID("_DensityMap");
-    public static readonly int DensityMap_RW = Shader.PropertyToID("_DensityMap_RW");
     public static readonly int GridLevelMap = Shader.PropertyToID("_GridLevelMap");
     public static readonly int GridLevelMap_RW = Shader.PropertyToID("_GridLevelMap_RW");
     public static readonly int FilteredGridLevelMap = Shader.PropertyToID("_FilteredGridLevelMap");
@@ -215,6 +211,12 @@ internal static class PCDShaderConstants
     public static readonly int VirtualDepthMap = Shader.PropertyToID("_VirtualDepthMap");
     public static readonly int CameraColorTexture = Shader.PropertyToID("_CameraColorTexture");
     public static readonly int IsHalfMirrorEnabled = Shader.PropertyToID("_IsHalfMirrorEnabled");
+    public static readonly int IsReversedZ = Shader.PropertyToID("_IsReversedZ");
+    public static readonly int EnableTagBasedOptimization = Shader.PropertyToID("_EnableTagBasedOptimization");
+    public static readonly int EnableTypeAwareDensity = Shader.PropertyToID("_EnableTypeAwareDensity");
+    public static readonly int EnableSoftOcclusionFade = Shader.PropertyToID("_EnableSoftOcclusionFade");
+    public static readonly int EnableJointBilateralHoleFilling = Shader.PropertyToID("_EnableJointBilateralHoleFilling");
+    public static readonly int StaticMeshDensityMultiplier = Shader.PropertyToID("_StaticMeshDensityMultiplier");
 
     // =====================================================================
     // モルフォロジー演算用（単一パス入出力）

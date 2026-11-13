@@ -16,8 +16,6 @@ StructuredBuffer<Point> _PointBuffer;
 RWTexture2D<float4> _ColorMap_RW;
 RWTexture2D<uint> _DepthMap_RW;
 RWTexture2D<float4> _ViewPositionMap_RW;
-RWTexture2D<uint> _GridZMinMap_RW;
-RWTexture2D<float> _DensityMap_RW;
 RWTexture2D<int> _GridLevelMap_RW;
 RWTexture2D<int> _FilteredGridLevelMap_RW;
 RWTexture2D<uint> _NeighborhoodSizeMap_RW;
@@ -46,8 +44,6 @@ RWTexture2D<uint> _MorphTypeOut_RW;
 Texture2D<float4> _ColorMap;
 Texture2D<uint> _DepthMap;
 Texture2D<float4> _ViewPositionMap;
-Texture2D<uint> _GridZMinMap;
-Texture2D<float> _DensityMap;
 Texture2D<int> _GridLevelMap;
 Texture2D<int> _FilteredGridLevelMap;
 Texture2D<uint> _NeighborhoodSizeMap;
@@ -118,7 +114,7 @@ RWStructuredBuffer<uint> _StaticMeshCounter_RW;
 uint _PointCount;                   // 対象点群バッファの要素数
 float4 _ScreenParams;               // スクリーン解像度 (x: 幅, y: 高さ)
 float4x4 _ViewMatrix;               // ワールド => ビュー変換行列
-float4x4 _ProjectionMatrix;         // ビュー => プロジェクション変換行列
+float4x4 _ViewProjMatrix;           // ワールド => クリップ変換行列 (Projection * View)
 float _DensityThreshold_e;          // 密度計算時、表面近傍の点を判定するための厚み閾値
 float _NeighborhoodParam_p_prime;   // フィルタリング(サンプリング)範囲を決めるための基本係数
 float _GradientThreshold_g_th;      // 輪郭(エッジ)判定の強さ。超える場合は近傍範囲を縮小する
@@ -159,6 +155,9 @@ int _MorphKernelHalfSize;
     #define GRID_SIZE 16u
 #endif
 #define DEPTH_MAX_UINT 0x7FFFFFFFu
+// RGBA16F の最大値 (65504) 内に安全に収まるセンチネル値
+#define SENTINEL_DEPTH 10000.0
+#define SENTINEL_THRESHOLD 1000.0
 
 groupshared uint shared_z_min;
 groupshared uint shared_point_count;

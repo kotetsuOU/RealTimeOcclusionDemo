@@ -19,7 +19,7 @@ void FillHoles(uint3 id : SV_DispatchThreadID)
     int level = _FinalNeighborhoodSizeMap[id.xy];
     int l = max(1, level); // levelをベースにした探索距離(radius)
 
-    int2 dirs[8] = {
+    static const int2 dirs[8] = {
         int2(1, 0), int2(1, 1), int2(0, 1), int2(-1, 1),
         int2(-1, 0), int2(-1, -1), int2(0, -1), int2(1, -1)
     };
@@ -345,7 +345,7 @@ void MorphologyErode(uint3 id : SV_DispatchThreadID)
         bool hasVirtualObjectNeighbor = false;
         int level = min(6, _FinalNeighborhoodSizeMap[id.xy]);
         
-        int2 dirs[9] = {
+        static const int2 dirs[9] = {
             int2(0, 0), int2(1, 0), int2(1, 1), int2(0, 1), int2(-1, 1),
             int2(-1, 0), int2(-1, -1), int2(0, -1), int2(1, -1)
         };
@@ -399,7 +399,7 @@ void MorphologyDilate(uint3 id : SV_DispatchThreadID)
         float totalWeight = 0.0;
         int level = min(6, _FinalNeighborhoodSizeMap[id.xy]);
 
-        int2 dirs[9] = {
+        static const int2 dirs[9] = {
             int2(0, 0), int2(1, 0), int2(1, 1), int2(0, 1), int2(-1, 1),
             int2(-1, 0), int2(-1, -1), int2(0, -1), int2(1, -1)
         };

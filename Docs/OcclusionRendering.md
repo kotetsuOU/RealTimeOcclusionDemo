@@ -51,13 +51,15 @@
 ```text
 Assets/Features/3DDisplay/
 ├── ComputeShaders/
-│   ├── PCD_Occlusion_Data.hlsl              # 共通定数・バッファ宣言 (_PatternLUT[8], 8セクター個別閾値含む)
-│   ├── PCD_Occlusion_Kernels_Core.hlsl      # 投影・密度計算カーネル
+│   ├── PCD_Occlusion.compute                # 統合コンピュートシェーダ エントリポイント
+│   ├── PCD_Occlusion_Data.hlsl              # 共通定数・バッファ宣言 (SENTINEL_DEPTH, _PatternLUT[8] 等)
+│   ├── PCD_Occlusion_Helpers.hlsl           # ピラミッドダウンサンプル・Sobel 勾配・サンプリング補助関数
+│   ├── PCD_Occlusion_Kernels_Preprocess.hlsl# 前処理・投影・Z-Min/密度統合計算カーネル
+│   ├── PCD_Occlusion_Kernels_DepthPyramid.hlsl # 深度ピラミッド L1〜L6・勾配補正カーネル
 │   ├── PCD_Occlusion_Kernels_Occlusion.hlsl # オクルージョン判定 (Mode 8/20/36/256, セクター別閾値分岐)
-│   └── PCD_Occlusion_Kernels_Post.hlsl      # デバッグマップ描画・Blit カーネル (セクターマスク生成対応)
+│   ├── PCD_Occlusion_Kernels_FillHoles.hlsl # ホールフィリング (JointBilateral / Pull-Push / Morphology)
+│   └── PCD_Occlusion_Kernels_Post.hlsl      # 仮想深度初期化・補間・デバッグ可視化カーネル
 ├── Materials/                               # オクルージョン遮蔽合成用マテリアル
-├── Shaders/
-│   └── PCD_Occlusion.compute                # 統合コンピュートシェーダ
 └── Scripts/Occlusion/
     ├── Controllers/
     │   ├── PCDOcclusionPipelineController.cs # パイプライン統括コントローラー
@@ -69,9 +71,14 @@ Assets/Features/3DDisplay/
     │   ├── PCDRendererFeature.cs             # URP ScriptableRendererFeature & 設定構造体
     │   └── PCDRenderPass.cs                  # URP RenderGraph パス統括
     ├── Resources/
+    │   ├── PCDKernelRegistry.cs              # カーネル ID の初期化・保持
+    │   ├── PCDResourcePool.cs                # RTHandle の一元管理 (Alloc / Release)
     │   └── PCDShaderConstants.cs             # Shader プロパティ ID 一元定義
     └── Stages/
         ├── PCDPreProcessStage.cs             # パラメータ設定・前処理ステージ
+        ├── PCDDepthPyramidStage.cs           # 深度ピラミッド構築・勾配補正ステージ
+        ├── PCDOcclusionStage.cs              # オクルージョン判定ステージ
+        ├── PCDHoleFillStage.cs               # ホールフィリングステージ
         └── PCDPostProcessStage.cs            # 後処理・デバッグ出力ステージ
 ```
 
@@ -273,6 +280,21 @@ public class PCDOcclusionDebugSettings
   `PCDOcclusionPipelineController` にはプロパティアクセサ（例: `public int debugSectorId { get => debugSettings.debugSectorId; set => debugSettings.debugSectorId = value; }`）が実装されており、`OPE_SectorMaskCollector` などの既存スクリプトは一切の変更なしに透過的に動作します。
 * **Inspector のクリーン化**:
   カスタムエディタ上で Foldout グループ化（初期状態: 非表示）されているため、開発中の Inspector が散らかりません。
+
+### 4.5 GPU パイプライン最適化仕様
+
+リアルタイム 60fps 動作を維持するため、以下の帯域・ディスパッチ削減策をパイプライン全体へ適用しています。
+
+* **Half Float 化による VRAM 帯域削減 (`PCDResourcePool`)**:
+  `ViewPositionMap` および `DepthPyramid`（L1〜L6）のテクスチャ形式に `GraphicsFormat.R16G16B16A16_SFloat`（RGBA16F）を採用しています。あわせて、RGBA16F の表現範囲（最大 `65504`）内に安全に収まる共通センチネル定数 `SENTINEL_DEPTH`（`10000.0`）および `SENTINEL_THRESHOLD`（`1000.0`）を `PCD_Occlusion_Data.hlsl` で一元定義しています。
+* **グリッド Z-Min・密度算出カーネルの統合 (`CalculateDensity`)**:
+  従来別パスで実行していた最小深度算出（旧 `CalculateGridZMin`）と密度・近傍探索レベル算出（`CalculateDensity`）を単一カーネルへ統合しました。同一スレッドグループ内の共有メモリ `shared_z_min` を後続処理で直接参照することで、ディスパッチ 1 回・`_DepthMap` 重複読み取り・中間マップ `GridZMinMap` の確保と読み書きを削減しています。
+* **対象外処理の早期除外と遅延ロード**:
+  * `PCDRendererFeature.AddRenderPasses`: 対象外カメラを `GetSettings()` 呼び出し前に `cameraTargetMode` / `cameraNameFilter` で早期除外します。
+  * `ZMinPhysicalDownsample`: `_EnableTagBasedOptimization > 0` の場合、先に軽量な `_OriginTypeMap`（`R8_UInt`）のみを確認し、物理点群（`0u`）が存在するピクセルのみ `_ViewPositionMap` を読み取ります。
+  * `SobelOnPyramidSq`: ソーベル勾配の平方根（`sqrt`）計算を省略し、二乗閾値（`_GradientThreshold_g_th` の二乗）と比較します。
+  * `ComputeOcclusion`: タグベース最適化による早期 `return` の後に `_ViewPositionMap` 読み取りを配置し、物理点群・背景ピクセルでの不要なフェッチを回避します。
+  * `ClearCounter` / `RequestStaticMeshCounterReadback`: 仮想深度統合（`runInitFromCamera`）が有効なフレームのみ実行します。
 
 ---
 

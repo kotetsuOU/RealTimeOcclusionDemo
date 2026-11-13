@@ -33,7 +33,7 @@ internal class PCDContextBuilder
         public int ScreenHeight;
 
         public Matrix4x4 ViewMatrix;
-        public Matrix4x4 ProjectionMatrix;
+        public Matrix4x4 ViewProjMatrix;
         public Matrix4x4 InverseProjectionMatrix;
 
         public ComputeBuffer ActiveBuffer;
@@ -263,8 +263,9 @@ internal class PCDContextBuilder
         data.ViewMatrix = vMatrix;
 
         Matrix4x4 origProj = data.Camera.projectionMatrix;
-        data.ProjectionMatrix = GL.GetGPUProjectionMatrix(origProj, false);
-        data.InverseProjectionMatrix = data.ProjectionMatrix.inverse;
+        Matrix4x4 gpuProj = GL.GetGPUProjectionMatrix(origProj, false);
+        data.ViewProjMatrix = gpuProj * vMatrix;
+        data.InverseProjectionMatrix = gpuProj.inverse;
 
         data.ShouldSkip = false;
 

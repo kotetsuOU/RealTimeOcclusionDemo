@@ -50,8 +50,11 @@ public class RsMaterialController : MonoBehaviour
         }
     }
 
+    private bool _isStarted;
+
     private void Start()
     {
+        _isStarted = true;
         InitializeRenderers();
         ApplyMaterial();
         ApplyColorMode();
@@ -59,7 +62,7 @@ public class RsMaterialController : MonoBehaviour
 
     private void OnValidate()
     {
-        if (Application.isPlaying)
+        if (Application.isPlaying && _isStarted)
         {
             ApplyMaterial();
             ApplyColorMode();

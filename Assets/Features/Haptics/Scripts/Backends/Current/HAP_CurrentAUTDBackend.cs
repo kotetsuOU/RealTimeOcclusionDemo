@@ -70,8 +70,10 @@ namespace Features.Haptics.Backends.Current
                         break;
                 }
 
-                var clientConfig = new ClientConfig(lowLatency: true, timeoutCycles: 100);
-                _client = await Client.OpenAsync(_geometry, link, clientConfig);
+                // 初期ロード時やフレームスパイク時の一時的な遅延で ACK タイムアウトにならないよう余裕を持たせる
+                // Native クライアントの接続ハンドシェイクがメインスレッド(Awake/Integration)をブロックしないようバックグラウンドで実行
+                var clientConfig = new ClientConfig(lowLatency: true, timeoutCycles: 1000);
+                _client = await Task.Run(() => Client.OpenAsync(_geometry, link, clientConfig));
 
                 if (IsConnected)
                 {
@@ -166,7 +168,7 @@ namespace Features.Haptics.Backends.Current
 
         public void ApplyModulation(ModulationMode mode, float sineFreq, float staticAmp)
         {
-            if (_client == null || _geometry == null) return;
+            if (_client == null || _geometry == null || _hardwareConfigurator.IsModulationUnchanged(mode, sineFreq, staticAmp)) return;
             Task.Run(async () =>
             {
                 try
@@ -191,7 +193,7 @@ namespace Features.Haptics.Backends.Current
 
         public void ApplySilencer(SilencerMode mode, ushort stepPhase, ushort stepAmp)
         {
-            if (_client == null || _geometry == null) return;
+            if (_client == null || _geometry == null || _hardwareConfigurator.IsSilencerUnchanged(mode, stepPhase, stepAmp)) return;
             Task.Run(async () =>
             {
                 try
@@ -216,7 +218,7 @@ namespace Features.Haptics.Backends.Current
 
         public void ApplyFan(bool enableFan)
         {
-            if (_client == null || _geometry == null) return;
+            if (_client == null || _geometry == null || _hardwareConfigurator.IsFanUnchanged(enableFan)) return;
             Task.Run(async () =>
             {
                 try
@@ -256,23 +258,23 @@ namespace Features.Haptics.Backends.Current
         {
             if (_client == null || _geometry == null) return;
 
-            profiler?.BeginDeviceAllocate();
-            using var builder = _client.DatagramBuilder();
-            _patternBuilder.BuildPatterns(
-                builder,
-                _geometry,
-                _hardwareConfigurator.SoundSpeed,
-                clusterData,
-                holoAlgorithm,
-                focusIntensityPascal,
-                gspatRepeat);
-            profiler?.EndDeviceAllocate();
-
-            var frames = builder.Build();
-
-            profiler?.BeginSend();
             if (synchronousSend)
             {
+                profiler?.BeginDeviceAllocate();
+                using var builder = _client.DatagramBuilder();
+                _patternBuilder.BuildPatterns(
+                    builder,
+                    _geometry,
+                    _hardwareConfigurator.SoundSpeed,
+                    clusterData,
+                    holoAlgorithm,
+                    focusIntensityPascal,
+                    gspatRepeat);
+                profiler?.EndDeviceAllocate();
+
+                using var frames = builder.Build();
+
+                profiler?.BeginSend();
                 try
                 {
                     _sendLock.Wait();
@@ -302,18 +304,43 @@ namespace Features.Haptics.Backends.Current
             }
             else
             {
-                // 非同期送信: 先行送信中（SendFoci または SendNull等）であればフレームドロップ（最新フレーム優先）
-                if (_sendLock.Wait(0))
+                // 非同期送信: 先行送信中（SendFoci または SendNull等）であればパターン構築ごとスキップ（最新フレーム優先）
+                if (!_sendLock.Wait(0))
                 {
+                    return;
+                }
+
+                IDisposable? frames = null;
+                try
+                {
+                    profiler?.BeginDeviceAllocate();
+                    using var builder = _client.DatagramBuilder();
+                    _patternBuilder.BuildPatterns(
+                        builder,
+                        _geometry,
+                        _hardwareConfigurator.SoundSpeed,
+                        clusterData,
+                        holoAlgorithm,
+                        focusIntensityPascal,
+                        gspatRepeat);
+                    profiler?.EndDeviceAllocate();
+
+                    var builtFrames = builder.Build();
+                    frames = builtFrames;
+
+                    profiler?.BeginSend();
                     _sendTask = Task.Run(async () =>
                     {
                         try
                         {
-                            if (_client != null)
+                            using (builtFrames)
                             {
-                                foreach (var frame in frames)
+                                if (_client != null)
                                 {
-                                    await _client.SendCheckedAsync(frame).ConfigureAwait(false);
+                                    foreach (var frame in builtFrames)
+                                    {
+                                        await _client.SendCheckedAsync(frame).ConfigureAwait(false);
+                                    }
                                 }
                             }
                         }
@@ -328,9 +355,12 @@ namespace Features.Haptics.Backends.Current
                         }
                     });
                 }
-                else
+                catch (Exception ex)
                 {
+                    frames?.Dispose();
+                    _sendLock.Release();
                     profiler?.EndSend();
+                    AppLogger.LogWarning(null, HAP_LogTriggers.TagLinkService, $"[CurrentBackend] Error preparing SendFoci: {ex.Message}");
                 }
             }
         }

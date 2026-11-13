@@ -94,21 +94,22 @@ void ApplyAdaptiveGradientCorrection(uint3 id : SV_DispatchThreadID)
     }
 
     int correctedLevel = level;
+    float gradThresholdSq = _GradientThreshold_g_th * _GradientThreshold_g_th;
 
     // 粗いレベル（大きい探索半径）から細かいレベルへ向かって回帰的にチェックし、境界を絞り込む
     for (int l = level; l > 0; --l)
     {
-        float gradient = 0.0;
+        float gradientSq = 0.0;
         uint2 uv_lowres = fullResUV >> (uint)l;
 
-        if (l == 1)      gradient = SobelOnPyramid(_DepthPyramidL1, uv_lowres);
-        else if (l == 2) gradient = SobelOnPyramid(_DepthPyramidL2, uv_lowres);
-        else if (l == 3) gradient = SobelOnPyramid(_DepthPyramidL3, uv_lowres);
-        else if (l == 4) gradient = SobelOnPyramid(_DepthPyramidL4, uv_lowres);
-        else if (l == 5) gradient = SobelOnPyramid(_DepthPyramidL5, uv_lowres);
-        else             gradient = SobelOnPyramid(_DepthPyramidL6, uv_lowres);
+        if (l == 1)      gradientSq = SobelOnPyramidSq(_DepthPyramidL1, uv_lowres);
+        else if (l == 2) gradientSq = SobelOnPyramidSq(_DepthPyramidL2, uv_lowres);
+        else if (l == 3) gradientSq = SobelOnPyramidSq(_DepthPyramidL3, uv_lowres);
+        else if (l == 4) gradientSq = SobelOnPyramidSq(_DepthPyramidL4, uv_lowres);
+        else if (l == 5) gradientSq = SobelOnPyramidSq(_DepthPyramidL5, uv_lowres);
+        else             gradientSq = SobelOnPyramidSq(_DepthPyramidL6, uv_lowres);
 
-        if (gradient > _GradientThreshold_g_th)
+        if (gradientSq > gradThresholdSq)
         {
             // このレベルの探索範囲内にはエッジが存在するため、さらに1段階縮小する
             correctedLevel = l - 1;

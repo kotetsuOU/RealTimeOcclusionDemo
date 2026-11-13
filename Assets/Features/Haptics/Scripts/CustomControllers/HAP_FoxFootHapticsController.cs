@@ -121,7 +121,8 @@ public class HAP_FoxFootHapticsController : HAP_BaseObjectHapticsController
         var smrs = FindObjectsByType<SkinnedMeshRenderer>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
         foreach (var s in smrs)
         {
-            if (s.name.ToLower().Contains("fox") || s.transform.root.name.ToLower().Contains("fox"))
+            if (s.name.IndexOf("fox", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                s.transform.root.name.IndexOf("fox", StringComparison.OrdinalIgnoreCase) >= 0)
             {
                 var a = s.GetComponentInParent<Animator>();
                 rootTransform = a != null ? a.transform : s.transform.root;
@@ -135,6 +136,15 @@ public class HAP_FoxFootHapticsController : HAP_BaseObjectHapticsController
     /// </summary>
     public virtual void AutoDetectBones(bool forceOverwrite = false)
     {
+        // 全ボーンが既にバインド済みであれば再探索をスキップして起動負荷を削減
+        if (!forceOverwrite &&
+            frontLeftFoot != null && frontRightFoot != null &&
+            backLeftFoot != null && backRightFoot != null &&
+            tailBone != null)
+        {
+            return;
+        }
+
         // rootTransform が未指定、自身、または非アクティブなオブジェクトの場合の自動解決
         if (rootTransform == null || !rootTransform.gameObject.activeInHierarchy || rootTransform == this.transform)
         {

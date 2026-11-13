@@ -8,29 +8,31 @@
 // ==========================================
 float4 ZMinPhysicalDownsample(Texture2D<float4> posTex, Texture2D<uint> typeTex, uint2 uv)
 {
-    float4 p0 = posTex[uv + uint2(0, 0)]; uint t0 = typeTex[uv + uint2(0, 0)];
-    float4 p1 = posTex[uv + uint2(1, 0)]; uint t1 = typeTex[uv + uint2(1, 0)];
-    float4 p2 = posTex[uv + uint2(0, 1)]; uint t2 = typeTex[uv + uint2(0, 1)];
-    float4 p3 = posTex[uv + uint2(1, 1)]; uint t3 = typeTex[uv + uint2(1, 1)];
-
-    bool useTagOpt = (_EnableTagBasedOptimization > 0);
-
-    float4 minP = useTagOpt ? float4(0.0, 0.0, 0.0, 1e9) : p0;
-    
-    if (useTagOpt)
+    if (_EnableTagBasedOptimization > 0)
     {
-        if (t0 == 0u && p0.w < minP.w) minP = p0;
-        if (t1 == 0u && p1.w < minP.w) minP = p1;
-        if (t2 == 0u && p2.w < minP.w) minP = p2;
-        if (t3 == 0u && p3.w < minP.w) minP = p3;
+        // 先に軽量な OriginTypeMap (R8_UInt) のみを読み取り、物理点群(0u)が存在しないブロックの ViewPositionMap 読み取りを回避する
+        uint t0 = typeTex[uv + uint2(0, 0)];
+        uint t1 = typeTex[uv + uint2(1, 0)];
+        uint t2 = typeTex[uv + uint2(0, 1)];
+        uint t3 = typeTex[uv + uint2(1, 1)];
+
+        float4 minP = float4(0.0, 0.0, 0.0, SENTINEL_DEPTH);
+        if (t0 == 0u) { float4 p0 = posTex[uv + uint2(0, 0)]; if (p0.w < minP.w) minP = p0; }
+        if (t1 == 0u) { float4 p1 = posTex[uv + uint2(1, 0)]; if (p1.w < minP.w) minP = p1; }
+        if (t2 == 0u) { float4 p2 = posTex[uv + uint2(0, 1)]; if (p2.w < minP.w) minP = p2; }
+        if (t3 == 0u) { float4 p3 = posTex[uv + uint2(1, 1)]; if (p3.w < minP.w) minP = p3; }
+        return minP;
     }
-    else
-    {
-        if (p1.w < minP.w) minP = p1;
-        if (p2.w < minP.w) minP = p2;
-        if (p3.w < minP.w) minP = p3;
-    }
-    
+
+    float4 p0 = posTex[uv + uint2(0, 0)];
+    float4 p1 = posTex[uv + uint2(1, 0)];
+    float4 p2 = posTex[uv + uint2(0, 1)];
+    float4 p3 = posTex[uv + uint2(1, 1)];
+
+    float4 minP = p0;
+    if (p1.w < minP.w) minP = p1;
+    if (p2.w < minP.w) minP = p2;
+    if (p3.w < minP.w) minP = p3;
     return minP;
 }
 
@@ -61,11 +63,11 @@ float4 FetchPyramidPosition(int level, uint2 uv_base, int2 offset)
     int2 base_signed = int2(uv_base >> (uint)level);
     int2 target_uv = base_signed + offset;
     if (target_uv.x < 0 || target_uv.y < 0)
-        return float4(0, 0, 0, 1e9);
+        return float4(0, 0, 0, SENTINEL_DEPTH);
 
     uint2 uv_mip = (uint2)target_uv;
     
-    float4 result = float4(0, 0, 0, 1e9);
+    float4 result = float4(0, 0, 0, SENTINEL_DEPTH);
     
     if (level == 1) result = _DepthPyramidL1[uv_mip];
     else if (level == 2) result = _DepthPyramidL2[uv_mip];
@@ -77,7 +79,7 @@ float4 FetchPyramidPosition(int level, uint2 uv_base, int2 offset)
     {
         int2 full_target = int2(uv_base) + offset;
         if (full_target.x < 0 || full_target.y < 0)
-            return float4(0, 0, 0, 1e9);
+            return float4(0, 0, 0, SENTINEL_DEPTH);
         result = _ViewPositionMap[(uint2)full_target];
     }
     
@@ -85,36 +87,35 @@ float4 FetchPyramidPosition(int level, uint2 uv_base, int2 offset)
 }
 
 // ==========================================
-// ソーベルフィルタによる深度勾配計算（float4 ピラミッド対応版）
-// .w 成分をビュー空間深度として使用。センチネル値(1e9)検知で勾配ゼロ返却。
-// ※ _GradientThreshold_g_th はメートル単位の勾配に対応するため再チューニングが必要
+// ソーベルフィルタによる深度勾配の二乗計算（float4 ピラミッド対応版）
+// sqrt を省略し、呼び出し側で閾値の二乗と比較することで演算コストを削減する。
 // ==========================================
-float SobelOnPyramid(Texture2D<float4> pyramidTex, uint2 uv)
+float SobelOnPyramidSq(Texture2D<float4> pyramidTex, uint2 uv)
 {
     uint2 dim;
     pyramidTex.GetDimensions(dim.x, dim.y);
+    int2 iuv = (int2)uv;
+    int2 maxUV = (int2)dim - 1;
 
-    float tl = pyramidTex[clamp(uv + int2(-1, -1), 0, dim - 1)].w;
-    float t  = pyramidTex[clamp(uv + int2( 0, -1), 0, dim - 1)].w;
-    float tr = pyramidTex[clamp(uv + int2( 1, -1), 0, dim - 1)].w;
-    float l  = pyramidTex[clamp(uv + int2(-1,  0), 0, dim - 1)].w;
-    float r  = pyramidTex[clamp(uv + int2( 1,  0), 0, dim - 1)].w;
-    float bl = pyramidTex[clamp(uv + int2(-1,  1), 0, dim - 1)].w;
-    float b  = pyramidTex[clamp(uv + int2( 0,  1), 0, dim - 1)].w;
-    float br = pyramidTex[clamp(uv + int2( 1,  1), 0, dim - 1)].w;
+    float tl = pyramidTex[clamp(iuv + int2(-1, -1), 0, maxUV)].w;
+    float t  = pyramidTex[clamp(iuv + int2( 0, -1), 0, maxUV)].w;
+    float tr = pyramidTex[clamp(iuv + int2( 1, -1), 0, maxUV)].w;
+    float l  = pyramidTex[clamp(iuv + int2(-1,  0), 0, maxUV)].w;
+    float r  = pyramidTex[clamp(iuv + int2( 1,  0), 0, maxUV)].w;
+    float bl = pyramidTex[clamp(iuv + int2(-1,  1), 0, maxUV)].w;
+    float b  = pyramidTex[clamp(iuv + int2( 0,  1), 0, maxUV)].w;
+    float br = pyramidTex[clamp(iuv + int2( 1,  1), 0, maxUV)].w;
 
-    // センチネル値(1e9)が混入している領域は有効な表面ではないため勾配0とする
-    const float SENTINEL_THRESHOLD = 1e8;
-    if (tl > SENTINEL_THRESHOLD || t > SENTINEL_THRESHOLD || tr > SENTINEL_THRESHOLD ||
-        l  > SENTINEL_THRESHOLD || r > SENTINEL_THRESHOLD ||
-        bl > SENTINEL_THRESHOLD || b > SENTINEL_THRESHOLD || br > SENTINEL_THRESHOLD)
+    // センチネル値(SENTINEL_DEPTH)が混入している領域は有効な表面ではないため勾配0とする
+    float maxNeighbor = max(max(max(tl, t), max(tr, l)), max(max(r, bl), max(b, br)));
+    if (maxNeighbor > SENTINEL_THRESHOLD)
     {
         return 0.0;
     }
 
     float Gx = (tr + 2.0 * r + br) - (tl + 2.0 * l + bl);
     float Gy = (bl + 2.0 * b + br) - (tl + 2.0 * t + tr);
-    return sqrt(Gx * Gx + Gy * Gy);
+    return Gx * Gx + Gy * Gy;
 }
 
 #endif // PCD_OCCLUSION_HELPERS_INCLUDED

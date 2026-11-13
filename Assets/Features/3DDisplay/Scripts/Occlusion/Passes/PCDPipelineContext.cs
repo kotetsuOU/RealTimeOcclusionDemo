@@ -26,7 +26,7 @@ internal class PCDPipelineContext
     public int ScreenHeight;
     public Vector4 ScreenParams;
     public Matrix4x4 ViewMatrix;
-    public Matrix4x4 ProjectionMatrix;
+    public Matrix4x4 ViewProjMatrix;
     public Matrix4x4 InverseProjectionMatrix;
 
     // =========================================================================

@@ -21,7 +21,7 @@ void ClearMaps(uint3 id : SV_DispatchThreadID)
 
     _ColorMap_RW[id.xy] = float4(0, 0, 0, 0);
     _DepthMap_RW[id.xy] = DEPTH_MAX_UINT;
-    _ViewPositionMap_RW[id.xy] = float4(0, 0, 0, 1e9);
+    _ViewPositionMap_RW[id.xy] = float4(0, 0, 0, SENTINEL_DEPTH);
     
     // 以下のテクスチャは後続のカーネルで全ピクセルが上書きされるため、クリアを省略して高速化
     // _OcclusionResultMap_RW[id.xy] = float4(0, 0, 0, 0);
@@ -57,19 +57,17 @@ void ProjectPoints(uint3 id : SV_DispatchThreadID)
 
     Point p = _PointBuffer[id.x];
     float4 worldPos = float4(p.position, 1.0);
-    float4 viewPos = mul(_ViewMatrix, worldPos);
-    float4 clipPos = mul(_ProjectionMatrix, viewPos);
+    float4 clipPos = mul(_ViewProjMatrix, worldPos);
 
     if (clipPos.w <= 0.0)
         return; // 【重要】背後の点群が画面手前に反転ワープしてデプスバッファを埋め尽くすのを防ぐ
-    
-    float originalNdcX = clipPos.x / clipPos.w;
-    float outputNdcX = originalNdcX;
 
-    float3 ndc = float3(outputNdcX, clipPos.y / clipPos.w, clipPos.z / clipPos.w);
-    
+    float3 ndc = clipPos.xyz / clipPos.w;
     if (ndc.x < -1 || ndc.x > 1 || ndc.y < -1 || ndc.y > 1 || ndc.z < 0 || ndc.z > 1)
         return;
+
+    // 視錐台内の点のみビュー空間座標を計算する
+    float4 viewPos = mul(_ViewMatrix, worldPos);
 
     uint2 screenUV = uint2((ndc.xy * 0.5 + 0.5) * _ScreenParams.xy);
     float depth = ndc.z;
@@ -92,19 +90,21 @@ void ProjectPoints(uint3 id : SV_DispatchThreadID)
     }
 }
 
-// 3. Calculate Z-Min per Grid
-// GRID_SIZE (デフォルト16x16) の領域ごとに最も手前の深度(Z-Min)を算出
-// ThreadGroupごとの共有メモリを用いて排他処理を高速化
+// 3+4. Calculate Z-Min, Density & Grid Level per Grid (統合カーネル)
+// GRID_SIZE (デフォルト16x16) の領域ごとに最も手前の深度(Z-Min)を共有メモリで算出し、
+// 続けて同じスレッドグループ内で有効な点群密度と近傍探索レベル(Level)を求めて _GridLevelMap_RW に格納する。
 [numthreads(GRID_SIZE, GRID_SIZE, 1)]
-void CalculateGridZMin(uint3 id : SV_DispatchThreadID, uint3 groupID : SV_GroupID, uint groupIndex : SV_GroupIndex)
+void CalculateDensity(uint3 id : SV_DispatchThreadID, uint3 groupID : SV_GroupID, uint groupIndex : SV_GroupIndex)
 {
     if (groupIndex == 0u)
     {
         shared_z_min = DEPTH_MAX_UINT;
+        shared_point_count = 0u;
     }
     GroupMemoryBarrierWithGroupSync();
 
-    uint depth_uint = _DepthMap[id.xy];
+    bool inBounds = (id.x < (uint)_ScreenParams.x && id.y < (uint)_ScreenParams.y);
+    uint depth_uint = inBounds ? _DepthMap[id.xy] : DEPTH_MAX_UINT;
 
     if (depth_uint < DEPTH_MAX_UINT)
     {
@@ -112,31 +112,11 @@ void CalculateGridZMin(uint3 id : SV_DispatchThreadID, uint3 groupID : SV_GroupI
     }
     GroupMemoryBarrierWithGroupSync();
 
-    if (groupIndex == 0u)
-    {
-        _GridZMinMap_RW[groupID.xy] = shared_z_min;
-    }
-}
-
-// 4. Calculate Density per Grid
-// 各グリッド内の有効な(手前の表面に近い)点群の密度(占有率)を計算する。
-// 単純な個数ではなく、Z-Min + 閾値 の範囲内の点をカウントする。
-[numthreads(GRID_SIZE, GRID_SIZE, 1)]
-void CalculateDensity(uint3 id : SV_DispatchThreadID, uint3 groupID : SV_GroupID, uint groupIndex : SV_GroupIndex)
-{
-    if (groupIndex == 0u)
-    {
-        shared_point_count = 0u;
-    }
-    GroupMemoryBarrierWithGroupSync();
-
-    uint z_min_uint = _GridZMinMap[groupID.xy];
-    uint depth_uint = _DepthMap[id.xy];
-
-    uint originType = _OriginTypeMap[id.xy];
+    uint z_min_uint = shared_z_min;
 
     if (depth_uint < DEPTH_MAX_UINT)
     {
+        uint originType = _OriginTypeMap[id.xy];
         uint diff = depth_uint - z_min_uint;
         uint threshold_uint = (uint)(_DensityThreshold_e * (float)DEPTH_MAX_UINT);
         if (diff < threshold_uint)
@@ -158,34 +138,20 @@ void CalculateDensity(uint3 id : SV_DispatchThreadID, uint3 groupID : SV_GroupID
     if (groupIndex == 0u)
     {
         float density = float(shared_point_count) / float(GRID_SIZE * GRID_SIZE);
-        _DensityMap_RW[groupID.xy] = density;
+        int level = _MinSearchLevel;
+
+        // 1点が存在するときの密度の半分を閾値とする（グリッドサイズ依存の動的閾値）
+        float min_density_threshold = 0.5 / float(GRID_SIZE * GRID_SIZE);
+        if (density > min_density_threshold)
+        {
+            float L = _NeighborhoodParam_p_prime / sqrt(density);
+            level = min(6, (int) floor(log2(L))); // 最大レベル 6 でクランプしてサンプリング境界を保証
+        }
+        _GridLevelMap_RW[groupID.xy] = max(_MinSearchLevel, level);
     }
 }
 
-// 5. Calculate Grid Level
-// 密度とパラメータ(p_prime)に応じ、穴を埋めるために必要なグリッドごとの探索範囲(Level)を決定する
-// 密度が低いほど必要な探索半径(L)が大きくなるため Level(log2) も上がる。
-[numthreads(16, 16, 1)]
-void CalculateGridLevel(uint3 id : SV_DispatchThreadID)
-{
-    uint2 dim;
-    _DensityMap.GetDimensions(dim.x, dim.y);
-    if (id.x >= dim.x || id.y >= dim.y)
-        return;
-
-    float density = _DensityMap[id.xy];
-    int level = _MinSearchLevel; // 点が存在しない（密度が極めて低い）場合は _MinSearchLevel を初期値・ベースレベルとする
-    
-    // 1点が存在するときの密度の半分を閾値とする（グリッドサイズ依存の動的閾値）
-    float min_density_threshold = 0.5 / float(GRID_SIZE * GRID_SIZE);
-    
-    if (density > min_density_threshold)
-    {
-        float L = _NeighborhoodParam_p_prime / sqrt(density);
-        level = min(6, (int) floor(log2(L))); // 最大レベル 6 でクランプしてサンプリング境界を保証
-    }
-    _GridLevelMap_RW[id.xy] = max(_MinSearchLevel, level);
-}
+#define PCD_MEDIAN_SWAP(a, b) { int _tMin = min(values[a], values[b]); int _tMax = max(values[a], values[b]); values[a] = _tMin; values[b] = _tMax; }
 
 // 6. Grid Median Filter
 // グリッド単位で設定されたLevelマップに対し3x3のメディアンフィルタを適用し、
@@ -209,23 +175,19 @@ void GridMedianFilter(uint3 id : SV_DispatchThreadID)
     values[7] = _GridLevelMap[clamp(id.xy + int2(0, 1), 0, dim - 1)];
     values[8] = _GridLevelMap[clamp(id.xy + int2(1, 1), 0, dim - 1)];
 
-    [unroll]
-    for (int i = 0; i < 9; ++i)
-    {
-        [unroll]
-        for (int j = i + 1; j < 9; ++j)
-        {
-            if (values[i] > values[j])
-            {
-                int temp = values[i];
-                values[i] = values[j];
-                values[j] = temp;
-            }
-        }
-    }
+    // 9要素メディアン用の19比較分岐なしソーティングネットワーク (Paeth 1990)
+    PCD_MEDIAN_SWAP(1, 2); PCD_MEDIAN_SWAP(4, 5); PCD_MEDIAN_SWAP(7, 8);
+    PCD_MEDIAN_SWAP(0, 1); PCD_MEDIAN_SWAP(3, 4); PCD_MEDIAN_SWAP(6, 7);
+    PCD_MEDIAN_SWAP(1, 2); PCD_MEDIAN_SWAP(4, 5); PCD_MEDIAN_SWAP(7, 8);
+    PCD_MEDIAN_SWAP(0, 3); PCD_MEDIAN_SWAP(5, 8); PCD_MEDIAN_SWAP(4, 7);
+    PCD_MEDIAN_SWAP(3, 6); PCD_MEDIAN_SWAP(1, 4); PCD_MEDIAN_SWAP(2, 5);
+    PCD_MEDIAN_SWAP(4, 7); PCD_MEDIAN_SWAP(4, 2); PCD_MEDIAN_SWAP(6, 4);
+    PCD_MEDIAN_SWAP(4, 2);
 
     _FilteredGridLevelMap_RW[id.xy] = values[4];
 }
+
+#undef PCD_MEDIAN_SWAP
 
 // 7. Calculate Neighborhood Size
 // ピクセル単位のスレッドが起動し、自身が属するグリッドのLevel(Neighborhood Size)を取得して

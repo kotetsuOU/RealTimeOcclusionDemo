@@ -118,7 +118,7 @@ graph TD
 ---
 
 ### 📦 1. 点群ストリーミング・統合パイプライン
-RealSense からの非同期データ取得、HSV/YCbCr カラーフィルタリング、および GPU ゼロコピー CommandBuffer マージを行います。統合点群バッファはオクルージョンとハプティクスの両パイプラインへ供給されます。実機カメラなし環境向けにダミー点群生成および法線ノイズ・外れ値付与機能 (`DummyPointCloud`) も提供します。
+RealSense からの非同期データ取得（`RsDevice` / `RsPipelineSession` / `RsDevicePathResolver` による責務分離とバックグラウンド直列化起動）、HSV/YCbCr カラーフィルタリング、および GPU ゼロコピー CommandBuffer マージを行います。統合点群バッファはオクルージョンとハプティクスの両パイプラインへ供給されます。実機カメラなし環境向けにダミー点群生成および法線ノイズ・外れ値付与機能 (`DummyPointCloud`) も提供します。
 
 📎 詳細: [PointCloudPipeline.md](./PointCloudPipeline.md) / [DummyPointCloud.md](./DummyPointCloud.md)
 
@@ -193,3 +193,5 @@ SRDisplay 等の裸眼立体ディスプレイ環境において、ワールド�
    毎フレームの配列確保や一時オブジェクト生成を完全に排除し、バッファリサイズ時のキャッシュ＆再利用、構造体プール等を徹底しています。
 3. **アンマネージドネイティブ参照の厳密なライフサイクル管理**:
    C++ ネイティブ参照のメモリリークを確実に防止するため、`using` や `Dispose()` による速やかな解放を徹底し、高頻度動作時でも安定したパフォーマンスを維持します。
+4. **非ブロッキング初期化と不要通信の排除**:
+   RealSense パイプラインは `RsPipelineSession` によりバックグラウンドで直列化起動（`_pipelineStartLock`）してメインスレッドの停止を防ぎ、`PR_VirtualObjectManager` の重複初期化抑止や `HAP_CurrentAUTDBackend` / `HAP_CurrentHardwareConfigurator` の送信前キャッシュ判定によって起動時・毎フレームの不要な負荷を排除しています。

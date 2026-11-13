@@ -98,7 +98,7 @@ void InitFromCamera(uint3 id : SV_DispatchThreadID, uint groupIndex : SV_GroupIn
         {
             _DepthMap_RW[writeUV] = DEPTH_MAX_UINT;
             _ColorMap_RW[writeUV] = float4(0, 0, 0, 0);
-            _ViewPositionMap_RW[writeUV] = float4(0, 0, 0, 1e9);
+            _ViewPositionMap_RW[writeUV] = float4(0, 0, 0, SENTINEL_DEPTH);
             _OriginTypeMap_RW[writeUV] = 2u;
         }
         else

@@ -215,19 +215,22 @@ public class PCDRendererFeature : ScriptableRendererFeature
             return;
         }
 
-        // 3. カメラターゲットモードに基づくフィルタリング
-        var currentSettings = GetSettings();
-        if (currentSettings.cameraTargetMode == PCD_CameraTargetMode.VirtualCamerasOnly)
+        // 3. カメラターゲットモードに基づくフィルタリング（毎フレームの GetSettings() 呼び出し前に早期除外）
+        if (settings == null)
+        {
+            settings = new PCDSettingsBridge();
+        }
+        if (settings.cameraTargetMode == PCD_CameraTargetMode.VirtualCamerasOnly)
         {
             if (string.IsNullOrEmpty(cam.name) || cam.name.IndexOf("virtual", StringComparison.OrdinalIgnoreCase) < 0)
             {
                 return;
             }
         }
-        else if (currentSettings.cameraTargetMode == PCD_CameraTargetMode.CustomFilter)
+        else if (settings.cameraTargetMode == PCD_CameraTargetMode.CustomFilter)
         {
-            if (!string.IsNullOrEmpty(currentSettings.cameraNameFilter) &&
-                (string.IsNullOrEmpty(cam.name) || cam.name.IndexOf(currentSettings.cameraNameFilter, StringComparison.OrdinalIgnoreCase) < 0))
+            if (!string.IsNullOrEmpty(settings.cameraNameFilter) &&
+                (string.IsNullOrEmpty(cam.name) || cam.name.IndexOf(settings.cameraNameFilter, StringComparison.OrdinalIgnoreCase) < 0))
             {
                 return;
             }
@@ -253,12 +256,9 @@ public class PCDRendererFeature : ScriptableRendererFeature
         if (_scriptablePass != null)
         {
             // Inspectorでの変更をパスに反映
+            var currentSettings = GetSettings();
             _scriptablePass.UpdateSettings(currentSettings);
-            if (settings == null)
-            {
-                settings = new PCDSettingsBridge();
-            }
-            _scriptablePass.SetDebugFlags(settings.enablePixelTagMap, settings.enableOcclusionMap);
+            _scriptablePass.SetDebugFlags(currentSettings.enablePixelTagMap, currentSettings.enableOcclusionMap);
         }
 
         renderer.EnqueuePass(_scriptablePass);

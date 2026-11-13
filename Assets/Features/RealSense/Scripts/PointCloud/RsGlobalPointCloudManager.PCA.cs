@@ -54,9 +54,10 @@ public partial class RsGlobalPointCloudManager
     {
         _samplingResults.Clear();
 
-        // アクティブなすべての子レンダラーを巡回取得
-        foreach (var renderer in GetChildRenderers())
+        // キャッシュ済みのアクティブなレンダラーを巡回
+        for (int i = 0; i < _activeRenderersCache.Count; i++)
         {
+            var renderer = _activeRenderersCache[i];
             if (renderer == null) continue;
 
             // 各レンダラーが毎フレーム計算した「最新のサンプリング結果」を要求する

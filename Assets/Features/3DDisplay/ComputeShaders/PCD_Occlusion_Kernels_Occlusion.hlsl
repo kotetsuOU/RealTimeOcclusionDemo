@@ -11,7 +11,6 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
 
     uint2 fullResUV = id.xy;
     uint originType = _OriginTypeMap_RW[fullResUV];
-    float4 currentPos = _ViewPositionMap[fullResUV];
 
     bool useTagOptimization = (_EnableTagBasedOptimization > 0);
 
@@ -34,19 +33,21 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
         return;
     }
 
+    float4 currentPos = _ViewPositionMap[fullResUV];
+
     // !useTagOptimizationの場合、背景はオクルージョン判定のため仮想的な遠方に配置
     if (!useTagOptimization && originType == 2u)
     {
-        // currentPos はすでに_ViewPositionMapからの値(wが1e9など)かもしれないので、
-        // 適切なビュー空間方向に設定し直す。_ViewPositionMapのw=1e9のピクセルでも、
+        // currentPos はすでに_ViewPositionMapからの値(wがSENTINEL_DEPTHなど)かもしれないので、
+        // 適切なビュー空間方向に設定し直す。_ViewPositionMapのw=SENTINEL_DEPTHのピクセルでも、
         // x,y,zにクリップ空間やUVから逆算したレイベクトルが格納されていればそれを使えるが、
         // 現在の構成では100m奥に押し込む処理を行う
-        float3 ray = (currentPos.w >= 1e9 && length(currentPos.xyz) > 0.001) ? currentPos.xyz : float3(0, 0, 1);
+        float3 ray = (currentPos.w >= SENTINEL_DEPTH && length(currentPos.xyz) > 0.001) ? currentPos.xyz : float3(0, 0, 1);
         currentPos = float4(normalize(ray) * 100.0, 100.0);
     }
 
     // 対象が仮想オブジェクト(1u)の場合のみ以下を実行
-    if (currentPos.w >= 1e9)
+    if (currentPos.w >= SENTINEL_DEPTH)
     {
         _OcclusionResultMap_RW[fullResUV] = _ColorMap[fullResUV];
         return;
@@ -54,14 +55,14 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
 
     // 事前計算
     float3 x = currentPos.xyz;
-    float len_x = length(x);
     float currentPosSq = dot(x, x);
     float invCurrentPosSq = 1.0 / max(currentPosSq, 0.0001);
+    float3 negViewDir = (currentPosSq > 1e-8) ? (-x * rsqrt(currentPosSq)) : float3(0, 0, 0);
 
     int level = _FinalNeighborhoodSizeMap[fullResUV];
 
     // 8方向のサンプリングオフセット（幾何学的円周順: 0=上, 1=右上, 2=右, 3=右下, 4=下, 5=左下, 6=左, 7=左上）
-    const int2 sectorOffsets[8] = {
+    static const int2 sectorOffsets[8] = {
         int2( 0, -1), // 0: North
         int2( 1, -1), // 1: North-East
         int2( 1,  0), // 2: East
@@ -90,16 +91,29 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
         minSectorOcclusion[init_s] = 2.0;
     }
 
+    // 占有判定閾値 (その他手法用 T_loc) および Average用閾値 (T_ave) の取得 (フォールバック対応)
+    float baseLocTh = (_OcclusionThreshold_T_loc >= 0.0) ? _OcclusionThreshold_T_loc : _OcclusionThreshold;
+    float aveTh = (_OcclusionThreshold_T_ave >= 0.0) ? _OcclusionThreshold_T_ave : _OcclusionThreshold;
+
+    // 非Averageモードかつデバッグ記録無効時は、セクタ占有ビットが確定した時点で以降の階層探索をスキップ可能
+    // (Mode 3/4 の LUT 判定は softOccludedCount を alpha に使用しないため、フェード有効時でもスキップ可能)
+    bool canEarlyOutSector = (_EvaluationMode != 0) && (_RecordOcclusionDebug == 0) &&
+                             ((_EvaluationMode >= 3) || (_EnableSoftOcclusionFade == 0) || (_OcclusionFadeWidth <= 1e-4));
+    uint earlyOccupiedMask = 0u;
+
     // lv = 0 から level までの各階層で隣接8セルを参照し、各セクタの局所評価値の最小値を代表値とする
     for (int lv = 0; lv <= level; ++lv)
     {
         [unroll]
         for (int s = 0; s < 8; ++s)
         {
+            if (canEarlyOutSector && ((earlyOccupiedMask & (1u << s)) != 0u))
+                continue;
+
             float4 neighborPos = FetchPyramidPosition(lv, fullResUV, sectorOffsets[s]);
 
             // 深度プリチェック: センチネル値を排除し、近傍（物理点群）が仮想オブジェクトより手前にある場合のみ評価
-            if (neighborPos.w < 1e9 && (currentPos.w - neighborPos.w) > 1e-5)
+            if (neighborPos.w < SENTINEL_DEPTH && (currentPos.w - neighborPos.w) > 1e-5)
             {
                 // TagOptimizationがONの場合、ピラミッド(Level>=1)は既に物理点群(0u)のみにフィルタ済。
                 // しかし、Level 0 の場合はフル解像度の_ViewPositionMapから直接取得するため、
@@ -124,14 +138,14 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
                     // ジオメトリバッファによる異種レイヤー分離により自己遮蔽は原理的に不発生のため、
                     // Bouchibaの -y 補正は不要。
                     float3 y_minus_x = y - x;
-                    float len_y_minus_x = length(y_minus_x);
+                    float lenSq_y_minus_x = dot(y_minus_x, y_minus_x);
 
-                    if (len_y_minus_x > 0.0001 && len_x > 0.0001)
+                    if (lenSq_y_minus_x > 1e-8 && currentPosSq > 1e-8)
                     {
                         // dot() の結果はコサイン値で理論上 [-1,1] だが、
                         // 点群が仮想オブジェクトのすぐ手前に来ると正規化誤差で範囲外になる場合がある。
                         // saturate でクランプして occlusionValue が 1 を超えないよう保護する。
-                        float dotP = saturate(dot((y_minus_x / len_y_minus_x), (-x / len_x)));
+                        float dotP = saturate(dot(y_minus_x, negViewDir) * rsqrt(lenSq_y_minus_x));
                         float val = 1.0 - dotP;
                         occlusionValue = val > 0.0 ? max(1e-7, val) : 0.0;
                     }
@@ -147,47 +161,68 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
 
                 // セクタ s の局所評価値の最小値を更新
                 minSectorOcclusion[s] = min(minSectorOcclusion[s], occlusionValue);
+
+                if (canEarlyOutSector)
+                {
+                    float locTh = baseLocTh;
+                    if (_UseSectorSpecificThreshold > 0)
+                    {
+                        locTh = (s < 4) ? _SectorThreshold_T_loc_0to3[s] : _SectorThreshold_T_loc_4to7[s - 4];
+                    }
+                    if (minSectorOcclusion[s] < locTh)
+                    {
+                        earlyOccupiedMask |= (1u << s);
+                    }
+                }
             }
         }
+
+        if (canEarlyOutSector && earlyOccupiedMask == 0xFFu)
+            break;
     }
 
-    // 占有判定閾値 (その他手法用 T_loc) および Average用閾値 (T_ave) の取得 (フォールバック対応)
-    float baseLocTh = (_OcclusionThreshold_T_loc >= 0.0) ? _OcclusionThreshold_T_loc : _OcclusionThreshold;
-    float aveTh = (_OcclusionThreshold_T_ave >= 0.0) ? _OcclusionThreshold_T_ave : _OcclusionThreshold;
-
-    // 各セクタの代表値（最小値）に基づいて占有ビット・有効セクタ数・メトリクスを集計
-    [unroll]
-    for (int s = 0; s < 8; ++s)
+    if (canEarlyOutSector)
     {
-        float sVal = minSectorOcclusion[s];
-        occlusionSum += sVal;
-        // 8セクター個別閾値が有効な場合はセクターごとの T_loc,s を適用
-        float locTh = baseLocTh;
-        if (_UseSectorSpecificThreshold > 0)
+        // 探索ループ中に占有マスクが確定済みのため、8セクタの再集計を省略
+        occupiedSectorMask = earlyOccupiedMask;
+        binaryOccludedCount = countbits(earlyOccupiedMask);
+    }
+    else
+    {
+        // 各セクタの代表値（最小値）に基づいて占有ビット・有効セクタ数・メトリクスを集計
+        [unroll]
+        for (int s = 0; s < 8; ++s)
         {
-            locTh = (s < 4) ? _SectorThreshold_T_loc_0to3[s] : _SectorThreshold_T_loc_4to7[s - 4];
-        }
+            float sVal = minSectorOcclusion[s];
+            occlusionSum += sVal;
+            // 8セクター個別閾値が有効な場合はセクターごとの T_loc,s を適用
+            float locTh = baseLocTh;
+            if (_UseSectorSpecificThreshold > 0)
+            {
+                locTh = (s < 4) ? _SectorThreshold_T_loc_0to3[s] : _SectorThreshold_T_loc_4to7[s - 4];
+            }
 
-        if (sVal < 1.999) // 少なくとも1つの階層で手前に点群が存在した
-        {
-            validSectorCount++;
-            validSectorMask |= (1u << s); // 深度ピラミッド上に手前点が存在したセクタビット (GT)
-        }
+            if (sVal < 1.999) // 少なくとも1つの階層で手前に点群が存在した
+            {
+                validSectorCount++;
+                validSectorMask |= (1u << s); // 深度ピラミッド上に手前点が存在したセクタビット (GT)
+            }
 
-        // 占有ビット: セクタ s の最小値 < T_loc
-        if (sVal < locTh)
-        {
-            binaryOccludedCount++; // N_occ(x)
-            occupiedSectorMask |= (1u << s); // b_k(x) = 1 (占有セクタ)
-        }
+            // 占有ビット: セクタ s の最小値 < T_loc
+            if (sVal < locTh)
+            {
+                binaryOccludedCount++; // N_occ(x)
+                occupiedSectorMask |= (1u << s); // b_k(x) = 1 (占有セクタ)
+            }
 
-        if (_EnableSoftOcclusionFade > 0 && _OcclusionFadeWidth > 1e-4)
-        {
-            float halfFade = _OcclusionFadeWidth * 0.5;
-            float fadeStart = max(0.0, locTh - halfFade);
-            float fadeEnd = min(2.0, locTh + halfFade);
-            float sectorAlpha = smoothstep(fadeStart, fadeEnd, sVal);
-            softOccludedCount += (1.0 - sectorAlpha);
+            if (_EnableSoftOcclusionFade > 0 && _OcclusionFadeWidth > 1e-4)
+            {
+                float halfFade = _OcclusionFadeWidth * 0.5;
+                float fadeStart = max(0.0, locTh - halfFade);
+                float fadeEnd = min(2.0, locTh + halfFade);
+                float sectorAlpha = smoothstep(fadeStart, fadeEnd, sVal);
+                softOccludedCount += (1.0 - sectorAlpha);
+            }
         }
     }
 
@@ -195,26 +230,28 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
     float avgOcclusion = 1.0;
     float alpha = 1.0;
 
-    // 円環上の最大連続非占有セクタ数 L_max(x) を計算 (0: 非占有セクタ, 1: 占有セクタ)
-    // ※ どの評価モードでもデバッグ記録および分析用に共通で算出
+    // 円環上の最大連続非占有セクタ数 L_max(x) は Mode 2 またはデバッグ記録時のみ計算する
     uint L_max = 0u;
-    uint currentZeros = 0u;
-    [unroll]
-    for (int ci = 0; ci < 16; ++ci)
+    if (_EvaluationMode == 2 || _RecordOcclusionDebug > 0)
     {
-        if (((occupiedSectorMask >> (ci % 8)) & 1u) == 0u)
+        uint currentZeros = 0u;
+        [unroll]
+        for (int ci = 0; ci < 16; ++ci)
         {
-            currentZeros++;
-            if (currentZeros > L_max) L_max = currentZeros;
+            if (((occupiedSectorMask >> (ci % 8)) & 1u) == 0u)
+            {
+                currentZeros++;
+                if (currentZeros > L_max) L_max = currentZeros;
+            }
+            else
+            {
+                currentZeros = 0u;
+            }
         }
-        else
-        {
-            currentZeros = 0u;
-        }
+        if (occupiedSectorMask == 0u) L_max = 8u;
+        else if (occupiedSectorMask == 0xFFu) L_max = 0u;
+        else L_max = min(L_max, 8u);
     }
-    if (occupiedSectorMask == 0u) L_max = 8u;
-    else if (occupiedSectorMask == 0xFFu) L_max = 0u;
-    else L_max = min(L_max, 8u);
 
     if (_EvaluationMode == 0) // Average Mode
     {
@@ -241,13 +278,15 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
             float countFadeStart = max(0.0, (float)_MinOccludedSectors - 1.0);
             float countFadeEnd = (float)_MinOccludedSectors;
             alpha = 1.0 - smoothstep(countFadeStart, countFadeEnd, softOccludedCount);
-            avgOcclusion = 1.0 - (softOccludedCount / 8.0);
+            if (_RecordOcclusionDebug > 0)
+                avgOcclusion = 1.0 - (softOccludedCount / 8.0);
         }
         else
         {
             if (binaryOccludedCount >= (uint)_MinOccludedSectors)
                 alpha = 0.0;
-            avgOcclusion = 1.0 - ((float)binaryOccludedCount / 8.0);
+            if (_RecordOcclusionDebug > 0)
+                avgOcclusion = 1.0 - ((float)binaryOccludedCount / 8.0);
         }
     }
     else if (_EvaluationMode == 2) // SectorConsecutiveZeros Mode (Mode 20: 占有数 N_occ + 最大連続非占有セクタ数 L_max 判定)
@@ -264,13 +303,15 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
             float countFadeEnd = (float)_MinOccludedSectors;
             float baseAlpha = 1.0 - smoothstep(countFadeStart, countFadeEnd, softOccludedCount);
             alpha = passesDirectionCondition ? baseAlpha : 1.0;
-            avgOcclusion = 1.0 - (softOccludedCount / 8.0);
+            if (_RecordOcclusionDebug > 0)
+                avgOcclusion = 1.0 - (softOccludedCount / 8.0);
         }
         else
         {
             if (binaryOccludedCount >= (uint)_MinOccludedSectors && passesDirectionCondition)
                 alpha = 0.0;
-            avgOcclusion = 1.0 - ((float)binaryOccludedCount / 8.0);
+            if (_RecordOcclusionDebug > 0)
+                avgOcclusion = 1.0 - ((float)binaryOccludedCount / 8.0);
         }
     }
     else // Mode 3 (RotationLUT36) or Mode 4 (PatternLUT256) - 1クロック高速LUT参照
@@ -285,9 +326,12 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
         // LUT判定: isVisible が false (0) なら完全に遮蔽 (alpha = 0.0)。
         // 誤った baseAlpha フォールバックによる遮蔽消失 (FP大量発生) を防止。
         alpha = isVisible ? 1.0 : 0.0;
-        avgOcclusion = (_EnableSoftOcclusionFade > 0 && _OcclusionFadeWidth > 1e-4)
-            ? (1.0 - (softOccludedCount / 8.0))
-            : (1.0 - ((float)binaryOccludedCount / 8.0));
+        if (_RecordOcclusionDebug > 0)
+        {
+            avgOcclusion = (_EnableSoftOcclusionFade > 0 && _OcclusionFadeWidth > 1e-4)
+                ? (1.0 - (softOccludedCount / 8.0))
+                : (1.0 - ((float)binaryOccludedCount / 8.0));
+        }
     }
 
     if (alpha <= 0.0)

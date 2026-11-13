@@ -37,7 +37,7 @@ internal class PCDComputePassBuilder
             ctx.ScreenParams = new Vector4(preData.ScreenWidth, preData.ScreenHeight, 0, 0);
             
             ctx.ViewMatrix = preData.ViewMatrix;
-            ctx.ProjectionMatrix = preData.ProjectionMatrix;
+            ctx.ViewProjMatrix = preData.ViewProjMatrix;
             ctx.InverseProjectionMatrix = preData.InverseProjectionMatrix;
 
             int gs = (int)settings.gridSize;

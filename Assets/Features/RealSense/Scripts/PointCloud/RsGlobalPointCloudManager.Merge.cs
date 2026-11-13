@@ -1,39 +1,65 @@
-using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering;
 
 /// <summary>
 /// 点群の合成（Merge）処理を管理する部分的クラス。
-/// 複数のカメラや単一カメラの点群データを、ComputeShaderを用いて全体のグローバルバッファに転送・結合します。
+/// 複数のカメラや単一カメラの点群データを、再利用可能な CommandBuffer と ComputeShader を用いて
+/// 統合バッファ (_globalBuffer) へ1パスで転送・結合します。
 /// </summary>
 public partial class RsGlobalPointCloudManager
 {
     // float3 pos(12) + float3 col(12) + uint type(4) = 28 bytes
     // ComputeBuffer用の1頂点あたりのデータサイズ定義
     private const int STRIDE = 28;
+    private const string GlobalMergeSampleName = "RsPointCloud.GlobalMerge";
+
+    private static readonly int SourceBufferId = Shader.PropertyToID("_SourceBuffer");
+    private static readonly int DestinationBufferId = Shader.PropertyToID("_DestinationBuffer");
+    private static readonly int CopyCountId = Shader.PropertyToID("_CopyCount");
+    private static readonly int DstOffsetId = Shader.PropertyToID("_DstOffset");
+    private static readonly int ColorId = Shader.PropertyToID("_Color");
+
+    private bool CanDispatchMerge()
+    {
+        return mergeComputeShader != null && _kernelMerge >= 0 && _globalBuffer != null && _globalBuffer.IsValid();
+    }
+
+    private void EnsureMergeCommandBuffer()
+    {
+        if (_mergeCommandBuffer == null)
+        {
+            _mergeCommandBuffer = new CommandBuffer { name = GlobalMergeSampleName };
+        }
+    }
 
     /// <summary>
     /// 全ての管理対象カメラ（レンダラー）の点群を一つのグローバルバッファに統合する全体処理。
-    /// 各レンダラーのバッファから最大点数を超えないように順次GPUコピーを行います。
+    /// 全レンダラー分のディスパッチを単一の CommandBuffer に記録し、1回の ExecuteCommandBuffer で実行します。
     /// </summary>
     private void ProcessMergeAll()
     {
+        if (!CanDispatchMerge())
+        {
+            CurrentTotalCount = 0;
+            return;
+        }
+
+        EnsureMergeCommandBuffer();
+        _mergeCommandBuffer.Clear();
+
+        bool hasDispatches = false;
         int currentTotalCount = 0;
 
-        // 全ての子レンダラーを巡回してコピー処理をディスパッチ
-        foreach (var renderer in GetChildRenderers())
+        for (int i = 0; i < _activeRenderersCache.Count; i++)
         {
-            if (renderer == null) continue;
-
-            // コピー・コマンドをキューに積み、コピーされた頂点数を加算する
-            int copiedCount = DispatchCopy(renderer, currentTotalCount);
+            int copiedCount = EnqueueCopy(_mergeCommandBuffer, _activeRenderersCache[i], currentTotalCount, ref hasDispatches);
             currentTotalCount += copiedCount;
 
             // 統合後の点数が最大許容数に到達・超過した場合は、以降のカメラの点群は描画せずに処理を打ち切る
             if (currentTotalCount >= maxTotalPoints) break;
         }
 
-        // 現在の実際に結合された総点群数を更新
+        ExecuteMergeCommandBuffer(hasDispatches);
         CurrentTotalCount = currentTotalCount;
     }
 
@@ -43,39 +69,34 @@ public partial class RsGlobalPointCloudManager
     /// </summary>
     private void ProcessSingleCamera()
     {
-        var activeRenderers = new List<RsPointCloudRenderer>();
-        foreach (var renderer in GetChildRenderers())
-        {
-            activeRenderers.Add(renderer);
-        }
-
-        // 指定インデックスが範囲外の場合は不正なため、総数を0として処理終了
-        if (debugCameraIndex < 0 || debugCameraIndex >= activeRenderers.Count)
+        if (!CanDispatchMerge() || debugCameraIndex < 0 || debugCameraIndex >= _activeRenderersCache.Count)
         {
             CurrentTotalCount = 0;
             return;
         }
 
-        var targetRenderer = activeRenderers[debugCameraIndex];
+        EnsureMergeCommandBuffer();
+        _mergeCommandBuffer.Clear();
 
-        // 対象カメラの点群サイズのみをディスパッチコピー (オフセット0)
-        int copiedCount = DispatchCopy(targetRenderer, 0);
+        bool hasDispatches = false;
+        int copiedCount = EnqueueCopy(_mergeCommandBuffer, _activeRenderersCache[debugCameraIndex], 0, ref hasDispatches);
 
+        ExecuteMergeCommandBuffer(hasDispatches);
         CurrentTotalCount = copiedCount;
     }
 
     /// <summary>
-    /// 各レンダラーの点群バッファから、統合バッファ(globalBuffer)へオフセット位置から並列コピーを行う。
-    /// ComputeShaderとCommandBufferを利用することで、CPUを介さずに高速なGPU間データ転送を実現しています。
+    /// 各レンダラーの点群バッファから、統合バッファ (_globalBuffer) へのコピーディスパッチを
+    /// 共有 CommandBuffer に記録します。
     /// </summary>
-    private int DispatchCopy(RsPointCloudRenderer renderer, int dstOffset)
+    private int EnqueueCopy(CommandBuffer cmd, RsPointCloudRenderer renderer, int dstOffset, ref bool hasDispatches)
     {
         if (renderer == null) return 0;
 
         ComputeBuffer srcBuffer = renderer.GetPCDSourceBuffer();
         int count = renderer.GetPCDSourceCount();
 
-        if (srcBuffer == null || count <= 0) return 0;
+        if (srcBuffer == null || !srcBuffer.IsValid() || count <= 0) return 0;
 
         if (dstOffset + count > maxTotalPoints)
         {
@@ -83,82 +104,29 @@ public partial class RsGlobalPointCloudManager
             if (count <= 0) return 0;
         }
 
-        mergeComputeShader.SetBuffer(_kernelMerge, "_SourceBuffer", srcBuffer);
-        mergeComputeShader.SetBuffer(_kernelMerge, "_DestinationBuffer", _globalBuffer);
-        mergeComputeShader.SetInt("_CopyCount", count);
-        mergeComputeShader.SetInt("_DstOffset", dstOffset);
-        mergeComputeShader.SetVector("_Color", renderer.pointCloudColor);
+        if (!hasDispatches)
+        {
+            cmd.BeginSample(GlobalMergeSampleName);
+            cmd.SetComputeBufferParam(mergeComputeShader, _kernelMerge, DestinationBufferId, _globalBuffer);
+            hasDispatches = true;
+        }
 
-        int threadGroups = Mathf.CeilToInt(count / 256.0f);
+        cmd.SetComputeBufferParam(mergeComputeShader, _kernelMerge, SourceBufferId, srcBuffer);
+        cmd.SetComputeIntParam(mergeComputeShader, CopyCountId, count);
+        cmd.SetComputeIntParam(mergeComputeShader, DstOffsetId, dstOffset);
+        cmd.SetComputeVectorParam(mergeComputeShader, ColorId, renderer.pointCloudColor);
 
-        var cmd = new CommandBuffer { name = "RsPointCloud.GlobalMerge" };
-        string sampleName = $"RsPointCloud.GlobalMerge.Dispatch/{renderer.gameObject.name}";
-
-        cmd.BeginSample(sampleName);
+        int threadGroups = (count + 255) / 256;
         cmd.DispatchCompute(mergeComputeShader, _kernelMerge, threadGroups, 1, 1);
-        cmd.EndSample(sampleName);
-
-        Graphics.ExecuteCommandBuffer(cmd);
-        cmd.Release();
 
         return count;
     }
 
-    /// <summary>
-    /// オクルージョン専用: 全レンダラーの GetOcclusionSourceBuffer() を
-    /// _occlusionBuffer へ統合する処理。
-    /// ダミーレンダラーはX鏡像変換済みバッファを返すため、接触判定用の _globalBuffer とは独立している。
-    /// </summary>
-    private void ProcessOcclusionMergeAll()
+    private void ExecuteMergeCommandBuffer(bool hasDispatches)
     {
-        int currentCount = 0;
+        if (!hasDispatches) return;
 
-        foreach (var renderer in GetChildRenderers())
-        {
-            if (renderer == null) continue;
-            int copiedCount = DispatchOcclusionCopy(renderer, currentCount);
-            currentCount += copiedCount;
-            if (currentCount >= maxTotalPoints) break;
-        }
-
-        OcclusionTotalCount = currentCount;
-    }
-
-    /// <summary>
-    /// GetOcclusionSourceBuffer を使って _occlusionBuffer へコピーする。
-    /// DispatchCopy と同じ構造だが、送信先バッファと参照するメソッドが異なる。
-    /// </summary>
-    private int DispatchOcclusionCopy(RsPointCloudRenderer renderer, int dstOffset)
-    {
-        if (renderer == null) return 0;
-
-        ComputeBuffer srcBuffer = renderer.GetOcclusionSourceBuffer();
-        int count = renderer.GetOcclusionSourceCount();
-
-        if (srcBuffer == null || count <= 0) return 0;
-
-        if (dstOffset + count > maxTotalPoints)
-        {
-            count = maxTotalPoints - dstOffset;
-            if (count <= 0) return 0;
-        }
-
-        mergeComputeShader.SetBuffer(_kernelMerge, "_SourceBuffer", srcBuffer);
-        mergeComputeShader.SetBuffer(_kernelMerge, "_DestinationBuffer", _occlusionBuffer);
-        mergeComputeShader.SetInt("_CopyCount", count);
-        mergeComputeShader.SetInt("_DstOffset", dstOffset);
-        mergeComputeShader.SetVector("_Color", renderer.pointCloudColor);
-
-        int threadGroups = Mathf.CeilToInt(count / 256.0f);
-
-        var cmd = new CommandBuffer { name = "RsPointCloud.OcclusionMerge" };
-        string sampleName = $"RsPointCloud.OcclusionMerge.Dispatch/{renderer.gameObject.name}";
-        cmd.BeginSample(sampleName);
-        cmd.DispatchCompute(mergeComputeShader, _kernelMerge, threadGroups, 1, 1);
-        cmd.EndSample(sampleName);
-        Graphics.ExecuteCommandBuffer(cmd);
-        cmd.Release();
-
-        return count;
+        _mergeCommandBuffer.EndSample(GlobalMergeSampleName);
+        Graphics.ExecuteCommandBuffer(_mergeCommandBuffer);
     }
 }

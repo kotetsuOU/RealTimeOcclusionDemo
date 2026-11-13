@@ -33,6 +33,24 @@ namespace Features.Haptics.Backends.Current
         private bool _prevFanState;
 
         /// <summary>
+        /// 現在の変調設定が最後にデバイスへ適用済みのキャッシュと一致するかを判定します。
+        /// </summary>
+        public bool IsModulationUnchanged(ModulationMode mode, float sineFreq, float staticAmp)
+            => _prevModMode == mode && Mathf.Approximately(_prevSineFreq, sineFreq) && Mathf.Approximately(_prevStaticAmp, staticAmp);
+
+        /// <summary>
+        /// 現在のサイレンサー設定が最後にデバイスへ適用済みのキャッシュと一致するかを判定します。
+        /// </summary>
+        public bool IsSilencerUnchanged(SilencerMode mode, ushort stepPhase, ushort stepAmp)
+            => _prevSilencerMode == mode && _prevSilStepPhase == stepPhase && _prevSilStepAmp == stepAmp;
+
+        /// <summary>
+        /// 現在のファン設定が最後にデバイスへ適用済みのキャッシュと一致するかを判定します。
+        /// </summary>
+        public bool IsFanUnchanged(bool enableFan)
+            => _prevFanState == enableFan;
+
+        /// <summary>
         /// 環境温度 (℃) を反映し、音速 c = 331.5 + 0.6 * T (m/s) を計算・保持します。
         /// </summary>
         public void ApplyTemperature(float temperature)
@@ -41,15 +59,12 @@ namespace Features.Haptics.Backends.Current
         }
 
         /// <summary>
-        /// 振幅変調（Modulation）設定を送信します。
-        /// </summary>
-        /// <summary>
         /// 振幅変調（Modulation）設定を非同期送信します。
         /// </summary>
         public async Task ApplyModulationAsync(Client? client, Geometry? geometry, ModulationMode mode, float sineFreq, float staticAmp)
         {
             if (client == null || geometry == null) return;
-            if (_prevModMode == mode && Mathf.Approximately(_prevSineFreq, sineFreq) && Mathf.Approximately(_prevStaticAmp, staticAmp)) return;
+            if (IsModulationUnchanged(mode, sineFreq, staticAmp)) return;
 
             try
             {
@@ -95,7 +110,7 @@ namespace Features.Haptics.Backends.Current
         public async Task ApplySilencerAsync(Client? client, Geometry? geometry, SilencerMode mode, ushort stepPhase, ushort stepAmp)
         {
             if (client == null || geometry == null) return;
-            if (_prevSilencerMode == mode && _prevSilStepPhase == stepPhase && _prevSilStepAmp == stepAmp) return;
+            if (IsSilencerUnchanged(mode, stepPhase, stepAmp)) return;
 
             try
             {
@@ -139,7 +154,7 @@ namespace Features.Haptics.Backends.Current
         public async Task ApplyFanAsync(Client? client, Geometry? geometry, bool enableFan)
         {
             if (client == null || geometry == null) return;
-            if (_prevFanState == enableFan) return;
+            if (IsFanUnchanged(enableFan)) return;
 
             try
             {

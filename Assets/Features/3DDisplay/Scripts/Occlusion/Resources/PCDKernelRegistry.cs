@@ -27,9 +27,7 @@ internal class PCDKernelRegistry
     // =========================================================================
     // 密度・LOD 計算
     // =========================================================================
-    public int CalcGridZMin { get; private set; }
     public int CalcDensity { get; private set; }
-    public int CalcGridLevel { get; private set; }
     public int GridMedianFilter { get; private set; }
     public int CalcNeighborhoodSize { get; private set; }
     public int FillNeighborhoodSizeWithMinLevel { get; private set; }
@@ -99,9 +97,7 @@ internal class PCDKernelRegistry
         ProjectPoints = cs.FindKernel("ProjectPoints");
 
         // --- 密度・LOD 計算 ---
-        CalcGridZMin = cs.FindKernel("CalculateGridZMin");
         CalcDensity = cs.FindKernel("CalculateDensity");
-        CalcGridLevel = cs.FindKernel("CalculateGridLevel");
         GridMedianFilter = cs.FindKernel("GridMedianFilter");
         CalcNeighborhoodSize = cs.FindKernel("CalculateNeighborhoodSize");
         FillNeighborhoodSizeWithMinLevel = cs.FindKernel("FillNeighborhoodSizeWithMinLevel");

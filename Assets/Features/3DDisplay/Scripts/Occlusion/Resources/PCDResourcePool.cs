@@ -29,13 +29,10 @@ internal class PCDResourcePool : System.IDisposable
     // =========================================================================
     // フォーマット定数
     // =========================================================================
-    private static readonly GraphicsFormat FormatARGB = GraphicsFormatUtility.GetGraphicsFormat(RenderTextureFormat.ARGBFloat, false);
     private static readonly GraphicsFormat FormatRGBAHalf = GraphicsFormat.R16G16B16A16_SFloat;
-    private static readonly GraphicsFormat FormatRFloat = GraphicsFormatUtility.GetGraphicsFormat(RenderTextureFormat.RFloat, false);
     private static readonly GraphicsFormat FormatRGFloat = GraphicsFormatUtility.GetGraphicsFormat(RenderTextureFormat.RGFloat, false);
     private const GraphicsFormat FormatUInt = GraphicsFormat.R32_UInt;
     private const GraphicsFormat FormatSInt = GraphicsFormat.R32_SInt;
-    private const GraphicsFormat FormatR16 = GraphicsFormat.R16G16B16A16_SFloat;
     private const GraphicsFormat FormatR8UInt = GraphicsFormat.R8_UInt;
 
     // =========================================================================
@@ -49,8 +46,6 @@ internal class PCDResourcePool : System.IDisposable
     // =========================================================================
     // グリッド・密度マップ（グリッド解像度）
     // =========================================================================
-    public RTHandle GridZMinMap { get; private set; }
-    public RTHandle DensityMap { get; private set; }
     public RTHandle GridLevelMap { get; private set; }
     public RTHandle FilteredGridLevelMap { get; private set; }
 
@@ -201,7 +196,7 @@ internal class PCDResourcePool : System.IDisposable
         // --- メインマップ（フル解像度: Color=RGBA16F, Type=R8_UInt） ---
         ColorMap = Alloc(screenWidth, screenHeight, FormatRGBAHalf, "PCD_ColorMap");
         DepthMap = Alloc(screenWidth, screenHeight, FormatUInt, "PCD_DepthMap");
-        ViewPositionMap = Alloc(screenWidth, screenHeight, FormatARGB, "PCD_ViewPosMap");
+        ViewPositionMap = Alloc(screenWidth, screenHeight, FormatRGBAHalf, "PCD_ViewPosMap");
         OriginTypeMap = Alloc(screenWidth, screenHeight, FormatR8UInt, "PCD_OriginTypeMap");
 
         // --- グリッド・密度マップ（グリッド解像度） ---
@@ -222,7 +217,7 @@ internal class PCDResourcePool : System.IDisposable
         {
             pw = Mathf.Max(1, pw / 2);
             ph = Mathf.Max(1, ph / 2);
-            DepthPyramid[i] = Alloc(pw, ph, FormatR16, $"PCD_DepthPyramidL{i + 1}");
+            DepthPyramid[i] = Alloc(pw, ph, FormatRGBAHalf, $"PCD_DepthPyramidL{i + 1}");
         }
     }
 
@@ -234,8 +229,6 @@ internal class PCDResourcePool : System.IDisposable
         int gridGroupsX = (screenWidth + gs - 1) / gs;
         int gridGroupsY = (screenHeight + gs - 1) / gs;
 
-        GridZMinMap = Alloc(gridGroupsX, gridGroupsY, FormatUInt, "PCD_GridZMin");
-        DensityMap = Alloc(gridGroupsX, gridGroupsY, FormatRFloat, "PCD_Density");
         GridLevelMap = Alloc(gridGroupsX, gridGroupsY, FormatSInt, "PCD_GridLevel");
         FilteredGridLevelMap = Alloc(gridGroupsX, gridGroupsY, FormatSInt, "PCD_FilteredGridLevel");
     }
@@ -321,8 +314,6 @@ internal class PCDResourcePool : System.IDisposable
 
     private void ReleaseGridMaps()
     {
-        GridZMinMap?.Release(); GridZMinMap = null;
-        DensityMap?.Release(); DensityMap = null;
         GridLevelMap?.Release(); GridLevelMap = null;
         FilteredGridLevelMap?.Release(); FilteredGridLevelMap = null;
     }

@@ -128,57 +128,28 @@ internal class PCDHoleFillStage : IPCDPipelineStage
 
         bool currentInTemp = false;
 
-        // --- モルフォロジーパス1回分の実行ロジック ---
-        System.Action<int> runMorphPass = (kernelId) =>
-        {
-            RTHandle colorIn = currentInTemp ? r.MorphColorTemp : r.OcclusionResultMap;
-            RTHandle typeIn = currentInTemp ? r.MorphTypeTemp : r.OriginTypeMap;
-            RTHandle colorOut = currentInTemp ? r.OcclusionResultMap : r.MorphColorTemp;
-            RTHandle typeOut = currentInTemp ? r.OriginTypeMap : r.MorphTypeTemp;
-
-            // モルフォロジーピラミッドの構築
-            BuildMorphPyramid(cmd, ctx, colorIn, typeIn);
-
-            // 実際の膨張/収縮カーネルを実行
-            cmd.SetComputeTextureParam(cs, kernelId, PCDShaderConstants.MorphColorIn, colorIn);
-            cmd.SetComputeTextureParam(cs, kernelId, PCDShaderConstants.MorphTypeIn, typeIn);
-            cmd.SetComputeTextureParam(cs, kernelId, PCDShaderConstants.MorphColorOut_RW, colorOut);
-            cmd.SetComputeTextureParam(cs, kernelId, PCDShaderConstants.MorphTypeOut_RW, typeOut);
-            cmd.SetComputeTextureParam(cs, kernelId, PCDShaderConstants.FinalNeighborhoodSizeMap, ctx.ActiveNeighborhoodSizeMap);
-
-            // ピラミッドテクスチャをバインド（ループ化）
-            for (int i = 0; i < PCDShaderConstants.PYRAMID_LEVELS; i++)
-            {
-                cmd.SetComputeTextureParam(cs, kernelId, PCDShaderConstants.MorphTypePyramidRead[i], r.MorphTypePyramid[i]);
-                cmd.SetComputeTextureParam(cs, kernelId, PCDShaderConstants.MorphColorPyramidRead[i], r.MorphColorPyramid[i]);
-            }
-
-            cmd.DispatchCompute(cs, kernelId, ctx.ThreadGroupsX, ctx.ThreadGroupsY, 1);
-            currentInTemp = !currentInTemp;
-        };
-
         // --- 指定された手法に応じてモルフォロジー演算を適用 ---
         if (s.holeFillingMethod == PCDRendererFeature.PCD_HoleFillingMethod.Morphology_OC)
         {
             // Opening (Erode → Dilate) then Closing (Dilate → Erode)
-            for (int i = 0; i < s.morphErodeIterations; i++) runMorphPass(k.MorphologyErode);
-            for (int i = 0; i < s.morphDilateIterations; i++) runMorphPass(k.MorphologyDilate);
-            for (int i = 0; i < s.morphDilateIterations; i++) runMorphPass(k.MorphologyDilate);
-            for (int i = 0; i < s.morphErodeIterations; i++) runMorphPass(k.MorphologyErode);
+            for (int i = 0; i < s.morphErodeIterations; i++) RunMorphPass(cmd, ctx, k.MorphologyErode, ref currentInTemp);
+            for (int i = 0; i < s.morphDilateIterations; i++) RunMorphPass(cmd, ctx, k.MorphologyDilate, ref currentInTemp);
+            for (int i = 0; i < s.morphDilateIterations; i++) RunMorphPass(cmd, ctx, k.MorphologyDilate, ref currentInTemp);
+            for (int i = 0; i < s.morphErodeIterations; i++) RunMorphPass(cmd, ctx, k.MorphologyErode, ref currentInTemp);
         }
         else if (s.holeFillingMethod == PCDRendererFeature.PCD_HoleFillingMethod.Morphology_CO)
         {
             // Closing (Dilate → Erode) then Opening (Erode → Dilate)
-            for (int i = 0; i < s.morphDilateIterations; i++) runMorphPass(k.MorphologyDilate);
-            for (int i = 0; i < s.morphErodeIterations; i++) runMorphPass(k.MorphologyErode);
-            for (int i = 0; i < s.morphErodeIterations; i++) runMorphPass(k.MorphologyErode);
-            for (int i = 0; i < s.morphDilateIterations; i++) runMorphPass(k.MorphologyDilate);
+            for (int i = 0; i < s.morphDilateIterations; i++) RunMorphPass(cmd, ctx, k.MorphologyDilate, ref currentInTemp);
+            for (int i = 0; i < s.morphErodeIterations; i++) RunMorphPass(cmd, ctx, k.MorphologyErode, ref currentInTemp);
+            for (int i = 0; i < s.morphErodeIterations; i++) RunMorphPass(cmd, ctx, k.MorphologyErode, ref currentInTemp);
+            for (int i = 0; i < s.morphDilateIterations; i++) RunMorphPass(cmd, ctx, k.MorphologyDilate, ref currentInTemp);
         }
         else
         {
             // フォールバック
-            for (int i = 0; i < s.morphDilateIterations; i++) runMorphPass(k.MorphologyDilate);
-            for (int i = 0; i < s.morphErodeIterations; i++) runMorphPass(k.MorphologyErode);
+            for (int i = 0; i < s.morphDilateIterations; i++) RunMorphPass(cmd, ctx, k.MorphologyDilate, ref currentInTemp);
+            for (int i = 0; i < s.morphErodeIterations; i++) RunMorphPass(cmd, ctx, k.MorphologyErode, ref currentInTemp);
         }
 
         // 最終結果が一時バッファに残っている場合、メインバッファにコピーバック
@@ -190,6 +161,40 @@ internal class PCDHoleFillStage : IPCDPipelineStage
             cmd.SetComputeTextureParam(cs, k.MorphologyCopy, PCDShaderConstants.MorphTypeOut_RW, r.OriginTypeMap);
             cmd.DispatchCompute(cs, k.MorphologyCopy, ctx.ThreadGroupsX, ctx.ThreadGroupsY, 1);
         }
+    }
+
+    /// <summary>
+    /// モルフォロジーパス1回分を実行する（ラムダ捕捉による毎フレーム GC Alloc を回避）。
+    /// </summary>
+    private void RunMorphPass(CommandBuffer cmd, PCDPipelineContext ctx, int kernelId, ref bool currentInTemp)
+    {
+        var cs = ctx.ComputeShader;
+        var r = ctx.Resources;
+
+        RTHandle colorIn = currentInTemp ? r.MorphColorTemp : r.OcclusionResultMap;
+        RTHandle typeIn = currentInTemp ? r.MorphTypeTemp : r.OriginTypeMap;
+        RTHandle colorOut = currentInTemp ? r.OcclusionResultMap : r.MorphColorTemp;
+        RTHandle typeOut = currentInTemp ? r.OriginTypeMap : r.MorphTypeTemp;
+
+        // モルフォロジーピラミッドの構築
+        BuildMorphPyramid(cmd, ctx, colorIn, typeIn);
+
+        // 実際の膨張/収縮カーネルを実行
+        cmd.SetComputeTextureParam(cs, kernelId, PCDShaderConstants.MorphColorIn, colorIn);
+        cmd.SetComputeTextureParam(cs, kernelId, PCDShaderConstants.MorphTypeIn, typeIn);
+        cmd.SetComputeTextureParam(cs, kernelId, PCDShaderConstants.MorphColorOut_RW, colorOut);
+        cmd.SetComputeTextureParam(cs, kernelId, PCDShaderConstants.MorphTypeOut_RW, typeOut);
+        cmd.SetComputeTextureParam(cs, kernelId, PCDShaderConstants.FinalNeighborhoodSizeMap, ctx.ActiveNeighborhoodSizeMap);
+
+        // ピラミッドテクスチャをバインド（ループ化）
+        for (int i = 0; i < PCDShaderConstants.PYRAMID_LEVELS; i++)
+        {
+            cmd.SetComputeTextureParam(cs, kernelId, PCDShaderConstants.MorphTypePyramidRead[i], r.MorphTypePyramid[i]);
+            cmd.SetComputeTextureParam(cs, kernelId, PCDShaderConstants.MorphColorPyramidRead[i], r.MorphColorPyramid[i]);
+        }
+
+        cmd.DispatchCompute(cs, kernelId, ctx.ThreadGroupsX, ctx.ThreadGroupsY, 1);
+        currentInTemp = !currentInTemp;
     }
 
     /// <summary>

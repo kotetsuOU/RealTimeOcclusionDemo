@@ -15,7 +15,7 @@
 
 ### 主な特徴
 
-* **非同期スレッドフレームキャプチャ**: `RsDevice` の Worker Thread において `WaitForFrames()` を非同期ポーリングし、10回連続エラー検出時の自動リカバリ機構を搭載しています。
+* **非同期起動 & スレッドフレームキャプチャ**: `RsDevice` は MonoBehaviour ファサードとして振る舞い、ネイティブ `Pipeline` 管理を `RsPipelineSession`、パス解決・録画検証を `RsDevicePathResolver` へ分離しています。バックグラウンドでの直列化起動（`_pipelineStartLock`）によりメインスレッドをブロックせず、Worker Thread において `WaitForFrames()` を非同期ポーリングして 10 回連続エラー検出時に安全停止します。
 * **ColorFilter によるインライン事前処理**: `RsColorBasedDepthCulling` (HSV/YCbCr 色閾値カリング) および `RsDepthToColorCalibration` (キャリブレーション姿勢アライメント補正) により、腕や背景の不要点群を早期除去します。
 * **GPU Direct モード & 帯域削減**: `RsProcessingPipe` および `RsPointCloudInitializer` によるゼロコピー GPU 転送と、`YUYV` 16bit カラーフォーマットによる転送帯域幅 33% 削減を実現しています。
 * **非同期 CommandBuffer マージ**: `RsGlobalPointCloudManager` が `Graphics.ExecuteCommandBuffer` 経由で `"RsPointCloud.GlobalMerge"` を発行し、CPU をブロックせずに複数点群バッファ (`_globalBuffer`) を GPU 上で非同期統合します。
@@ -27,13 +27,17 @@
 ### 2.1 生成ファイル・ディレクトリ構成
 
 ```text
+Assets/Features/RealSense/Scripts/Device/
+├── RsDevice.cs                        # RealSense ライフサイクル・イベント公開ファサード
+├── RsPipelineSession.cs               # ネイティブ Pipeline 直列化非同期起動 & ポーリング (IDisposable)
+└── RsDevicePathResolver.cs            # 再生/録画パス解決 & 録画ファイル検証
+
 Assets/Features/PointCloud/
 ├── Materials/                         # 点群表示用マテリアル
 ├── Prefabs/                           # RealSense・点群パイプラインプレハブ
 ├── Shaders/                           # 点群描画・マージ用 Shader / Compute Shader
 └── Scripts/
     ├── Core/
-    │   ├── RsDevice.cs                # RealSense デバイスポーリング & フレーム取得
     │   ├── RsProcessingPipe.cs        # フレーム処理パイプライン & メモリ管理
     │   ├── RsPointCloudRenderer.cs    # 個別点群の GPU レンダリング & バッファ保持
     │   └── RsGlobalPointCloudManager.cs # 全点群バッファの GPU 非同期マージ統括
@@ -48,13 +52,13 @@ Assets/Features/PointCloud/
 sequenceDiagram
     autonumber
     participant HW as RealSense Hardware
-    participant Dev as RsDevice (Worker Thread)
+    participant Dev as RsDevice / RsPipelineSession
     participant Pipe as RsProcessingPipe (Main Thread)
     participant Render as RsPointCloudRenderer (GPU)
     participant Global as RsGlobalPointCloudManager (GPU)
 
-    HW->>Dev: RAW 深度 & カラーフレーム
-    Note over Dev: WaitForFrames() を別スレッドでポーリング<br/>10回連続エラー検出で自動停止
+    HW->>Dev: 非同期直列化起動 & RAW 深度・カラーフレーム
+    Note over Dev: _pipelineStartLock で直列化起動後、<br/>WaitForFrames() を別スレッドでポーリング<br/>10回連続エラー検出で自動停止
     Dev->>Pipe: FrameSet 転送 (Unityスレッド同期)
     Note over Pipe: 常に搭載されている RsIntegratedPointCloud ブロック稼働<br/>ColorFilter 配下 (HSV/YCbCr, Calibration) で抽出・アライメント補正
     Pipe->>Render: 最終処理済みフレーム
@@ -123,10 +127,11 @@ sequenceDiagram
 
 ### 4.1 RealSense ストリーミングパイプライン仕様
 
-#### A. デバイスポーリングとエラーハンドリング (`RsDevice.cs`)
-* `Multithread` モード: `WaitForFrames()` を別スレッドで非同期ループ処理し、メインスレッドのフレームタイムを圧迫しません。
-* `UnityThread` モード: `Update()` 内でスレッド安全に `PollForFrames()` を呼び出します。
-* **エラーリカバリ機能**: 連続 10 回のエラー検出 (`maxConsecutiveErrors = 10`) で安全にストリーミングを自動停止します。
+#### A. デバイス管理の責務分離とエラーハンドリング (`RsDevice.cs` / `RsPipelineSession.cs` / `RsDevicePathResolver.cs`)
+* `RsDevice.cs`（MonoBehaviour ファサード）: Inspector 設定の保持、Unity ライフサイクル（`OnEnable` / `Update` / `OnDestroy`）の制御、コルーチンによる非同期起動待ち受け、および `OnStart` / `OnStop` / `OnNewSample` イベントの中継を担当します。
+* `RsPipelineSession.cs`（純粋 C# `IDisposable`）: ネイティブ `Pipeline` と `PipelineProfile` を保持し、`Task.Run` と `_pipelineStartLock` によるバックグラウンド直列化起動、Worker Thread での `WaitForFrames()` ポーリング（`Multithread` モード）、`Update()` からの `PollFrames()`（`UnityThread` モード）、および `Dispose()` 時のリソース解放を担当します。
+* `RsDevicePathResolver.cs`（純粋 C# static ヘルパー）: `ResolveAbsolutePath` による再生・録画パス解決、保存先ディレクトリ生成（`EnsureRecordDirectory`）、および録画ファイル検証（`VerifyRecordedFile`）を担当します。
+* **エラーリカバリ機能**: 連続 10 回のエラー検出（`maxConsecutiveErrors = 10`）で安全にストリーミングを自動停止します。
 
 #### B. ネイティブメモリ管理 (`RsProcessingPipe.cs`)
 RealSense SDK のネイティブ `Frame` インスタンスは、`using` ステートメントおよび `try-finally` 節で毎フレーム確実に Dispose 処理され、アンマネージドメモリリークを抑止します。
@@ -146,7 +151,7 @@ RealSense SDK のネイティブ `Frame` インスタンスは、`using` ステ�
 
 ### 5.1 非同期点群マージ (`RsGlobalPointCloudManager`)
 
-* `_globalBuffer` および `_occlusionBuffer` (最大 300 万点) への統合マージは、CommandBuffer (`"RsPointCloud.GlobalMerge"`, `"RsPointCloud.OcclusionMerge"`) を構築して `Graphics.ExecuteCommandBuffer` により GPU キューに直接投入されます。そのため CPU 側の同期待ちが発生しません。
+* `_globalBuffer` (最大 300 万点) への統合マージは、再利用可能な `CommandBuffer` (`"RsPointCloud.GlobalMerge"`) に全レンダラー分のディスパッチを記録し、1 回の `Graphics.ExecuteCommandBuffer` により GPU キューへ投入されます。HCD 接触判定およびオクルージョン描画の双方で `_globalBuffer` を共有し、重複マージを排除しています。
 * **自動レンダラー探索機能**: `GetChildRenderers()` は `renderers` リストや直下階層にレンダラーが見つからない場合、シーン全体の全 `RsPointCloudRenderer` / `RsDummyPointCloudRenderer` を自動検出・統合します。
 * **PCD パイプライン自動連携**: マージ完了後、`PCDContextBuilder` が `RsGlobalPointCloudManager.Instance` の存在を安全に検出し、オクルージョン計算パスへ自動的に `GetOcclusionGlobalBuffer()` を `SetExternalBuffer` 経由で供給します。
 
