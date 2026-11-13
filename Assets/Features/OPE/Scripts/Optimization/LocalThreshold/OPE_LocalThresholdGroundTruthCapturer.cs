@@ -19,10 +19,10 @@ namespace OPE
         {
             public uint[] gtLeftData;
             public uint[] gtRightData;
-            public OPE_IdealDepthPyramidBuilder.IdealPyramidData leftIdealPyramid;
-            public OPE_IdealDepthPyramidBuilder.IdealPyramidData rightIdealPyramid;
-            public OPE_SparsePointCloudPyramidEvaluator.EyeEvaluationCache leftTestCache;
-            public OPE_SparsePointCloudPyramidEvaluator.EyeEvaluationCache rightTestCache;
+            public OPE_IdealPyramidData leftIdealPyramid;
+            public OPE_IdealPyramidData rightIdealPyramid;
+            public OPE_EyeEvaluationCache leftTestCache;
+            public OPE_EyeEvaluationCache rightTestCache;
             public int width;
             public int height;
 

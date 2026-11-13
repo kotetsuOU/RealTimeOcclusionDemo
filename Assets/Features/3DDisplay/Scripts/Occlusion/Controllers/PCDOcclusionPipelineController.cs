@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Serialization;
 using Core.Logging;
@@ -15,41 +16,18 @@ public class PCDOcclusionPipelineController : MonoBehaviour, IAppLoggable
 {
     public static PCDOcclusionPipelineController Instance { get; private set; }
 
-    #region 定数・事前定義LUT (Fixed Classification 最適解)
+    #region 定数エイリアス & LUT プロセッサ
 
     /// <summary> 256パターン独立最適LUTの最良解 (HEX: 64文字) </summary>
-    public const string DEFAULT_HEX_256 = "000BC04F0000018B0003000D8001908D000100010001000080000001D000DD45";
+    public const string DEFAULT_HEX_256 = PCDPatternLutProcessor.DEFAULT_HEX_256;
 
     /// <summary> 36クラス幾何学回転不変LUTの最良解 (HEX: 64文字) </summary>
-    public const string DEFAULT_HEX_36 = "130B008B0000808B000000008000808B5101000100000001D1010001D101D1DF";
+    public const string DEFAULT_HEX_36 = PCDPatternLutProcessor.DEFAULT_HEX_36;
 
-    /// <summary> Mode 256 最適解の uint[8] ワード表現 </summary>
-    private static readonly uint[] LUT_WORDS_256_DEFAULT = new uint[8]
-    {
-        0xD000DD45u, 0x80000001u, 0x00010000u, 0x00010001u,
-        0x8001908Du, 0x0003000Du, 0x0000018Bu, 0x000BC04Fu
-    };
+    /// <summary> 密度別 LUT の最大ビン数 </summary>
+    public const int MAX_DENSITY_LUT_BINS = PCDPatternLutProcessor.MAX_DENSITY_LUT_BINS;
 
-    /// <summary> Mode 36 最適解の uint[8] ワード表現 </summary>
-    private static readonly uint[] LUT_WORDS_36_DEFAULT = new uint[8]
-    {
-        0xD101D1DFu, 0xD1010001u, 0x00000001u, 0x51010001u,
-        0x8000808Bu, 0x00000000u, 0x0000808Bu, 0x130B008Bu
-    };
-
-    /// <summary> Mode 256 最適解の int[8] ワード表現 (GC Alloc 回避用キャッシュ) </summary>
-    private static readonly int[] LUT_WORDS_256_DEFAULT_INT = new int[8]
-    {
-        unchecked((int)0xD000DD45u), unchecked((int)0x80000001u), unchecked((int)0x00010000u), unchecked((int)0x00010001u),
-        unchecked((int)0x8001908Du), unchecked((int)0x0003000Du), unchecked((int)0x0000018Bu), unchecked((int)0x000BC04Fu)
-    };
-
-    /// <summary> Mode 36 最適解の int[8] ワード表現 (GC Alloc 回避用キャッシュ) </summary>
-    private static readonly int[] LUT_WORDS_36_DEFAULT_INT = new int[8]
-    {
-        unchecked((int)0xD101D1DFu), unchecked((int)0xD1010001u), unchecked((int)0x00000001u), unchecked((int)0x51010001u),
-        unchecked((int)0x8000808Bu), unchecked((int)0x00000000u), unchecked((int)0x0000808Bu), unchecked((int)0x130B008Bu)
-    };
+    private readonly PCDPatternLutProcessor _lutProcessor = new PCDPatternLutProcessor();
 
     #endregion
 
@@ -102,6 +80,12 @@ public class PCDOcclusionPipelineController : MonoBehaviour, IAppLoggable
 
     [Tooltip("【Mode 36 / 256 用】カスタム LUT 16進数文字列 (空欄の場合は最適化済みデフォルト解が使用されます)")]
     public string customPatternLutHex = "";
+
+    [Tooltip("【Mode 36 / 256 用】タイルごとのスクリーン点群密度に応じて最適 LUT を動的に切り替えます。")]
+    public bool useDensityAdaptiveLut = false;
+
+    [Tooltip("スクリーン密度ビン別の最適 LUT リスト（最大 8 ビン、maxScreenDensity 昇順で評価されます）")]
+    public List<PCD_DensityLutEntry> densityLutEntries = CreateDefaultDensityLutEntries();
 
     [Tooltip("オクルージョン近傍探索のベース/最小レベル(0〜6)。OFF時は固定レベルとして使用され、ON時は探索レベルの下限および空領域のデフォルト値として使用されます。")]
     [Range(0, 6)]
@@ -320,178 +304,74 @@ public class PCDOcclusionPipelineController : MonoBehaviour, IAppLoggable
 
     #endregion
 
-    #region 設定出力 & LUT 生成ロジック
+    #region 設定出力 & LUT 委譲
 
-    private readonly uint[] _tempUintWords = new uint[8];
-    private readonly int[] _cachedLutWords = new int[8];
-    private bool _isLutDirty = true;
-    private PCD_OcclusionEvaluationMode _lastEvaluationMode = (PCD_OcclusionEvaluationMode)(-1);
-    private int _lastMin8 = -1;
-    private int _lastMin20 = -1;
-    private int _lastMaxEmpty = -1;
-    private string _lastCustomHex = null;
+    [Serializable]
+    public class PCD_DensityLutEntry
+    {
+        [Tooltip("表示用ラベル（例: Sparse / Medium / Dense）")]
+        public string label = "Bin";
+        [Tooltip("参照用の物理点群密度 (pts/mm^2)。OPE 連携時に自動設定されます。")]
+        public float sourcePhysicalDensity = 1.0f;
+        [Tooltip("このビンに割り当てる GPU スクリーン密度の上限閾値 (0.0〜1.5)。最終ビンは残りすべてを受け持ちます。")]
+        [Range(0f, 1.5f)]
+        public float maxScreenDensity = 1.0f;
+        [Tooltip("この密度帯で適用する 256-bit LUT HEX (64文字)。空欄時は通常の単一 LUT へフォールバックします。")]
+        public string patternLutHex = "";
+    }
+
+    public static List<PCD_DensityLutEntry> CreateDefaultDensityLutEntries() =>
+        PCDPatternLutProcessor.CreateDefaultDensityLutEntries();
+
+    /// <summary>
+    /// 密度別 LUT リストを既定の 3 段階設定（0.25 / 1.0 / 4.0+）にリセットします。
+    /// </summary>
+    public void ResetDefaultDensityLutEntries()
+    {
+        densityLutEntries = PCDPatternLutProcessor.CreateDefaultDensityLutEntries();
+        MarkLutDirty();
+    }
 
     /// <summary>
     /// LUT の再計算フラグを立てます。設定パラメータを変更した際に呼び出してください。
     /// </summary>
-    public void MarkLutDirty()
-    {
-        _isLutDirty = true;
-    }
+    public void MarkLutDirty() => _lutProcessor.MarkDirty();
 
     /// <summary>
     /// 現在の評価モードおよび設定に応じた 256bit LUT の int[8] ワード配列を取得します。
-    /// パラメータが変化していない通常フレームではキャッシュ配列を返し、GC Alloc と計算コストをゼロ化します。
     /// </summary>
-    public int[] GetActiveLutWords()
-    {
-        bool settingsChanged = _isLutDirty ||
-                               _lastEvaluationMode != evaluationMode ||
-                               _lastMin8 != minOccludedSectorsMode8 ||
-                               _lastMin20 != minOccludedSectorsMode20 ||
-                               _lastMaxEmpty != maxConsecutiveEmptySectors ||
-                               _lastCustomHex != customPatternLutHex;
+    public int[] GetActiveLutWords() =>
+        _lutProcessor.GetActiveLutWords(
+            evaluationMode,
+            minOccludedSectorsMode8,
+            minOccludedSectorsMode20,
+            maxConsecutiveEmptySectors,
+            customPatternLutHex);
 
-        if (!settingsChanged)
-        {
-            return _cachedLutWords;
-        }
-
-        _isLutDirty = false;
-        _lastEvaluationMode = evaluationMode;
-        _lastMin8 = minOccludedSectorsMode8;
-        _lastMin20 = minOccludedSectorsMode20;
-        _lastMaxEmpty = maxConsecutiveEmptySectors;
-        _lastCustomHex = customPatternLutHex;
-
-        Array.Clear(_tempUintWords, 0, 8);
-
-        if (evaluationMode == PCD_OcclusionEvaluationMode.PatternLUT256)
-        {
-            if (!string.IsNullOrEmpty(customPatternLutHex) && TryParseHexToWords(customPatternLutHex, _tempUintWords))
-            {
-                CopyToIntArray(_tempUintWords, _cachedLutWords);
-                return _cachedLutWords;
-            }
-            Array.Copy(LUT_WORDS_256_DEFAULT_INT, _cachedLutWords, 8);
-            return _cachedLutWords;
-        }
-        else if (evaluationMode == PCD_OcclusionEvaluationMode.RotationLUT36)
-        {
-            if (!string.IsNullOrEmpty(customPatternLutHex) && TryParseHexToWords(customPatternLutHex, _tempUintWords))
-            {
-                CopyToIntArray(_tempUintWords, _cachedLutWords);
-                return _cachedLutWords;
-            }
-            Array.Copy(LUT_WORDS_36_DEFAULT_INT, _cachedLutWords, 8);
-            return _cachedLutWords;
-        }
-        else if (evaluationMode == PCD_OcclusionEvaluationMode.SectorThreshold) // Mode 8
-        {
-            // N_occ < minOccludedSectorsMode8 を満たすパターンを可視 (1) にセット
-            for (int m = 0; m < 256; m++)
-            {
-                int occ = CountBits((byte)m);
-                if (occ < minOccludedSectorsMode8)
-                {
-                    _tempUintWords[m >> 5] |= (1u << (m & 31));
-                }
-            }
-            CopyToIntArray(_tempUintWords, _cachedLutWords);
-            return _cachedLutWords;
-        }
-        else if (evaluationMode == PCD_OcclusionEvaluationMode.SectorConsecutiveZeros) // Mode 20
-        {
-            // N_occ >= minOccludedSectorsMode20 && L_max <= maxConsecutiveEmptySectors で遮蔽 (可視は反転)
-            for (int m = 0; m < 256; m++)
-            {
-                int occ = CountBits((byte)m);
-                int lMax = ComputeLMax((byte)m);
-                bool isOccluded = (occ >= minOccludedSectorsMode20) && (lMax <= maxConsecutiveEmptySectors);
-                if (!isOccluded)
-                {
-                    _tempUintWords[m >> 5] |= (1u << (m & 31));
-                }
-            }
-            CopyToIntArray(_tempUintWords, _cachedLutWords);
-            return _cachedLutWords;
-        }
-
-        // デフォルト (全可視)
-        for (int i = 0; i < 8; i++) _cachedLutWords[i] = unchecked((int)0xFFFFFFFFu);
-        return _cachedLutWords;
-    }
-
-    private static void CopyToIntArray(uint[] source, int[] destination)
-    {
-        for (int i = 0; i < 8; i++)
-        {
-            destination[i] = unchecked((int)source[i]);
-        }
-    }
-
-    private static bool TryParseHexToWords(string hex, uint[] outWords)
-    {
-        if (string.IsNullOrEmpty(hex)) return false;
-        string clean = hex.Trim().Replace("0x", "").Replace("0X", "").Replace(" ", "");
-        if (clean.Length < 64) clean = clean.PadLeft(64, '0');
-        if (clean.Length > 64) clean = clean.Substring(clean.Length - 64, 64);
-
-        try
-        {
-            // clean は上位ビットが先頭 (MSB=clean[0..7] -> word 7, LSB=clean[56..63] -> word 0)
-            for (int w = 0; w < 8; w++)
-            {
-                int start = 64 - (w + 1) * 8;
-                string sub = clean.Substring(start, 8);
-                outWords[w] = Convert.ToUInt32(sub, 16);
-            }
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    private static int CountBits(byte b)
-    {
-        int count = 0;
-        while (b != 0)
-        {
-            b = (byte)(b & (b - 1));
-            count++;
-        }
-        return count;
-    }
-
-    private static int ComputeLMax(byte m)
-    {
-        if (m == 0) return 8;
-        if (m == 255) return 0;
-        int maxZero = 0;
-        int curZero = 0;
-        for (int i = 0; i < 16; i++)
-        {
-            int bit = (m >> (i % 8)) & 1;
-            if (bit == 0)
-            {
-                curZero++;
-                if (curZero > maxZero) maxZero = curZero;
-            }
-            else
-            {
-                curZero = 0;
-            }
-        }
-        return Mathf.Min(maxZero, 8);
-    }
+    /// <summary>
+    /// 密度適応型 LUT 用のビン数・上限閾値配列・LUT ワード配列を取得します。
+    /// </summary>
+    public void GetDensityLutData(out int count, out Vector4[] thresholds, out int[] words) =>
+        _lutProcessor.GetDensityLutData(
+            useDensityAdaptiveLut,
+            densityLutEntries,
+            evaluationMode,
+            minOccludedSectorsMode8,
+            minOccludedSectorsMode20,
+            maxConsecutiveEmptySectors,
+            customPatternLutHex,
+            out count,
+            out thresholds,
+            out words);
 
     /// <summary>
     /// レンダラーパスへ渡す設定スナップショットを生成します。
     /// </summary>
     public PCDRenderSettings GetSettings()
     {
+        int[] activeLut = GetActiveLutWords();
+        GetDensityLutData(out int densityCount, out Vector4[] densityThresholds, out int[] densityWords);
+
         return new PCDRenderSettings
         {
             cameraTargetMode = this.cameraTargetMode,
@@ -536,76 +416,13 @@ public class PCDOcclusionPipelineController : MonoBehaviour, IAppLoggable
             morphKernelHalfSize = this.morphKernelHalfSize,
             morphErodeIterations = this.morphErodeIterations,
             morphDilateIterations = this.morphDilateIterations,
-            patternLutWords = GetActiveLutWords(),
+            patternLutWords = activeLut,
+            useDensityAdaptiveLut = this.useDensityAdaptiveLut && densityCount > 0,
+            densityLutCount = densityCount,
+            densityLutThresholds = densityThresholds,
+            densityLutWords = densityWords,
             _dynamicMultiplierRuntimeValue = PCDRendererFeature.Instance != null ? PCDRendererFeature.Instance._internalDynamicMultiplier : 1
         };
-    }
-
-    #endregion
-
-    #region Scene Gizmo
-
-    private void OnDrawGizmos()
-    {
-        if (!enableVirtualContactOcclusion || !Application.isPlaying) return;
-        if (HCD_Pipeline.Instance == null || HCD_Pipeline.Instance.distanceProcessor == null) return;
-
-        var trackedClusters = HCD_Pipeline.Instance.GetTrackedClusters();
-        if (trackedClusters == null) return;
-
-        float radius = virtualContactRadius;
-        float offset = HCD_Pipeline.Instance.distanceProcessor.surfaceDistanceThreshold;
-
-        Gizmos.color = virtualContactColor;
-
-        foreach (var c in trackedClusters)
-        {
-            if (!c.IsAlive) continue;
-
-            Vector3 centroid = c.Centroid;
-            Vector3 normal = c.Normal.normalized;
-            if (normal.sqrMagnitude < 0.1f) normal = Vector3.up;
-
-            centroid += normal * offset;
-
-#if UNITY_EDITOR
-            UnityEditor.Handles.color = virtualContactColor;
-            UnityEditor.Handles.DrawWireDisc(centroid, normal, radius);
-            Gizmos.DrawLine(centroid, centroid + normal * 0.05f);
-#endif
-        }
-    }
-
-    #endregion
-
-    #region キャプチャトリガーAPI
-
-    /// <summary>
-    /// 次のフレームで占有セクターマスク (SectorMask DebugMap) を1フレーム出力します。
-    /// 保存先: Assets/HandTrackingData/SectorMasks/ (.raw バイナリ, .csv サマリー, .png グレースケール)
-    /// </summary>
-    public void TriggerRecordSectorMask()
-    {
-        debugSettings.recordNeighborCountMap = true;
-        Debug.Log("[PCD] 占有セクターマスク (SectorMask DebugMap) のキャプチャをリクエストしました (次フレームで出力されます)");
-    }
-
-    /// <summary>
-    /// 次のフレームでオクルージョンマップ (OcclusionMap) を1フレーム出力します。
-    /// </summary>
-    public void TriggerRecordOcclusionMap()
-    {
-        debugSettings.recordOcclusionDebugMap = true;
-        Debug.Log("[PCD] オクルージョンマップ (OcclusionMap) のキャプチャをリクエストしました");
-    }
-
-    /// <summary>
-    /// 全てのデバッグマップを一括出力します。
-    /// </summary>
-    public void TriggerRecordAllDebugMaps()
-    {
-        debugSettings.RequestRecordAll();
-        Debug.Log("[PCD] 全デバッグマップの一括キャプチャをリクエストしました");
     }
 
     #endregion

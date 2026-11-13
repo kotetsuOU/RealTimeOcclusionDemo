@@ -1,76 +1,15 @@
-﻿using System;
-using UnityEngine;
+﻿using UnityEngine;
 
 namespace OPE
 {
     /// <summary>
-    /// 8セクター二値マスク（debugSectorId = 8 の統合8bitパターン画像）と
-    /// 深度ピラミッドから得られた正解（GT）8方向マスクとの間で、
-    /// セクター別 (0..7) および8方向統合のピクセル単位一致度 (IoU) を算出する Pure C# クラス。
+    /// 8 セクター二値マスクおよび評価キャッシュと正解（GT）8 方向マスクとの間で、
+    /// セクター別 (0..7) および 8 方向統合のピクセル単位一致度 (IoU) を算出する Pure C# 計算クラス。
     /// </summary>
     public static class OPE_Sector8IoUCalculator
     {
-        [Serializable]
-        public struct SingleSectorMetrics
-        {
-            public int sectorId;
-            public int tpPixels;
-            public int fpPixels;
-            public int fnPixels;
-            public int unionPixels;
-            public float iou;
-            public float overOccRatio;  // FP / Union (本来黒なのに白=過剰支持)
-            public float underOccRatio; // FN / Union (本来白なのに黒=支持漏れ)
-
-            public override string ToString()
-            {
-                return $"Sector {sectorId} IoU: {iou:P2} (TP:{tpPixels}, FP:{fpPixels}, FN:{fnPixels})";
-            }
-        }
-
-        [Serializable]
-        public class Sector8MetricsResult
-        {
-            public SingleSectorMetrics[] sectors = new SingleSectorMetrics[8];
-            public float macroMeanIoU;
-            public float microIoU;
-            public float meanOverOcc;
-            public float meanUnderOcc;
-            public int evaluatedPixels;
-
-            public SingleSectorMetrics this[int index] => sectors[index];
-        }
-
-        [Serializable]
-        public class Stereo8MetricsResult
-        {
-            public Sector8MetricsResult left;
-            public Sector8MetricsResult right;
-            public float meanIoU;
-            public float[] sectorMeanIoU = new float[8];
-
-            public static Stereo8MetricsResult FromStereo(Sector8MetricsResult left, Sector8MetricsResult right)
-            {
-                var result = new Stereo8MetricsResult
-                {
-                    left = left,
-                    right = right,
-                    meanIoU = (left.macroMeanIoU + right.macroMeanIoU) * 0.5f,
-                    sectorMeanIoU = new float[8]
-                };
-
-                for (int s = 0; s < 8; s++)
-                {
-                    result.sectorMeanIoU[s] = (left.sectors[s].iou + right.sectors[s].iou) * 0.5f;
-                }
-
-                return result;
-            }
-        }
-
         /// <summary>
-        /// GPU生データバッファ（NeighborCountMap の uint[]）から直接ステレオ 8方向 IoU メトリクスを計算します。
-        /// ガンマ変換や画面 Blit を介さないためビット完全性が 100% 保証され、超高速です。
+        /// GPU 生データバッファ（NeighborCountMap の uint[]）から直接ステレオ 8 方向 IoU メトリクスを計算します。
         /// </summary>
         public static Stereo8MetricsResult CalculateStereoFromGpuData(
             uint[] gtLeft, uint[] testLeft,
@@ -82,20 +21,17 @@ namespace OPE
         }
 
         /// <summary>
-        /// 単眼の GPU 生データバッファ（NeighborCountMap の uint[]）から 8方向 IoU を計算します。
+        /// 単眼の GPU 生データバッファ（NeighborCountMap の uint[]）から 8 方向 IoU を計算します。
         /// </summary>
-        public static Sector8MetricsResult CalculateSingleEyeFromGpuData(
-            uint[] gtData,
-            uint[] testData)
+        public static Sector8MetricsResult CalculateSingleEyeFromGpuData(uint[] gtData, uint[] testData)
         {
-            var result = new Sector8MetricsResult();
-            if (gtData == null || testData == null) return result;
+            if (gtData == null || testData == null) return new Sector8MetricsResult();
 
             int total = gtData.Length;
             if (testData.Length != total)
             {
                 Debug.LogError($"[OPE_Sector8IoUCalculator] GPUバッファ長が不一致です: GT({total}) vs Test({testData.Length})");
-                return result;
+                return new Sector8MetricsResult();
             }
 
             int[] tp = new int[8];
@@ -106,89 +42,19 @@ namespace OPE
             for (int i = 0; i < total; i++)
             {
                 uint testVal = testData[i];
-                // 評価領域判定: isEvaluated (bit 12) == 1
-                if (((testVal >> 12) & 1u) == 0u)
-                {
-                    continue;
-                }
+                if (((testVal >> 12) & 1u) == 0u) continue; // isEvaluated (bit 12) == 1
 
                 evaluatedCount++;
-
-                uint gtVal = gtData[i];
-                // GTマスク: bit 16..23 (手前に点群が存在したか: sVal < 1.999)
-                uint gtPattern = (gtVal >> 16) & 0xFFu;
-                // Testマスク: bit 0..7 (sVal < T_loc)
+                uint gtPattern = (gtData[i] >> 16) & 0xFFu;
                 uint testPattern = testVal & 0xFFu;
-
-                for (int s = 0; s < 8; s++)
-                {
-                    bool gtOccupied = ((gtPattern >> s) & 1u) != 0u;
-                    bool testOccupied = ((testPattern >> s) & 1u) != 0u;
-
-                    if (gtOccupied && testOccupied)
-                    {
-                        tp[s]++;
-                    }
-                    else if (!gtOccupied && testOccupied)
-                    {
-                        fp[s]++; // 偽陽性: 本来手前に点がないのに占有ありと判定
-                    }
-                    else if (gtOccupied && !testOccupied)
-                    {
-                        fn[s]++; // 偽陰性: 本来手前に点があるのに占有なしと判定
-                    }
-                }
+                AccumulateSectorCounts(gtPattern, testPattern, tp, fp, fn);
             }
 
-            result.evaluatedPixels = evaluatedCount;
-
-            float sumIoU = 0f;
-            float sumOverOcc = 0f;
-            float sumUnderOcc = 0f;
-            int totalTp = 0;
-            int totalFp = 0;
-            int totalFn = 0;
-
-            for (int s = 0; s < 8; s++)
-            {
-                int u = tp[s] + fp[s] + fn[s];
-                float iou = (u > 0) ? (float)tp[s] / u : 1f;
-                float over = (u > 0) ? (float)fp[s] / u : 0f;
-                float under = (u > 0) ? (float)fn[s] / u : 0f;
-
-                result.sectors[s] = new SingleSectorMetrics
-                {
-                    sectorId = s,
-                    tpPixels = tp[s],
-                    fpPixels = fp[s],
-                    fnPixels = fn[s],
-                    unionPixels = u,
-                    iou = iou,
-                    overOccRatio = over,
-                    underOccRatio = under
-                };
-
-                sumIoU += iou;
-                sumOverOcc += over;
-                sumUnderOcc += under;
-
-                totalTp += tp[s];
-                totalFp += fp[s];
-                totalFn += fn[s];
-            }
-
-            result.macroMeanIoU = sumIoU / 8f;
-            result.meanOverOcc = sumOverOcc / 8f;
-            result.meanUnderOcc = sumUnderOcc / 8f;
-
-            int totalUnion = totalTp + totalFp + totalFn;
-            result.microIoU = (totalUnion > 0) ? (float)totalTp / totalUnion : 1f;
-
-            return result;
+            return BuildSectorMetricsResult(tp, fp, fn, evaluatedCount);
         }
 
         /// <summary>
-        /// 左右眼の画像配列からステレオ 8方向 IoU メトリクスを計算します。
+        /// 左右眼の画像配列からステレオ 8 方向 IoU メトリクスを計算します。
         /// </summary>
         public static Stereo8MetricsResult CalculateStereo(
             Color32[] gtLeft, Color32[] testLeft, Color32[] voLeft,
@@ -201,7 +67,7 @@ namespace OPE
         }
 
         /// <summary>
-        /// 単眼の 8-bit パターン画像 (GT vs Test) と評価領域マスクから 8方向 IoU を計算します。
+        /// 単眼の 8-bit パターン画像 (GT vs Test) と評価領域マスクから 8 方向 IoU を計算します。
         /// </summary>
         public static Sector8MetricsResult CalculateSingleEye(
             Color32[] gtPixels,
@@ -209,18 +75,16 @@ namespace OPE
             Color32[] voPixels,
             byte voThreshold = 128)
         {
-            var result = new Sector8MetricsResult();
-            if (gtPixels == null || testPixels == null) return result;
+            if (gtPixels == null || testPixels == null) return new Sector8MetricsResult();
 
             int total = gtPixels.Length;
             if (testPixels.Length != total)
             {
                 Debug.LogError($"[OPE_Sector8IoUCalculator] ピクセル長が不一致です: GT({total}) vs Test({testPixels.Length})");
-                return result;
+                return new Sector8MetricsResult();
             }
 
-            bool hasVoMask = (voPixels != null && voPixels.Length == total);
-
+            bool hasVoMask = voPixels != null && voPixels.Length == total;
             int[] tp = new int[8];
             int[] fp = new int[8];
             int[] fn = new int[8];
@@ -228,97 +92,27 @@ namespace OPE
 
             for (int i = 0; i < total; i++)
             {
-                // 評価領域判定: 仮想オブジェクトの投影領域 (isEvaluated)
                 if (hasVoMask)
                 {
                     Color32 vc = voPixels[i];
-                    if (vc.r <= voThreshold && vc.g <= voThreshold && vc.b <= voThreshold)
-                    {
-                        continue;
-                    }
+                    if (vc.r <= voThreshold && vc.g <= voThreshold && vc.b <= voThreshold) continue;
                 }
 
                 evaluatedCount++;
-
-                byte gtPattern = gtPixels[i].r;
-                byte testPattern = testPixels[i].r;
-
-                for (int s = 0; s < 8; s++)
-                {
-                    bool gtOccupied = ((gtPattern >> s) & 1) != 0;
-                    bool testOccupied = ((testPattern >> s) & 1) != 0;
-
-                    if (gtOccupied && testOccupied)
-                    {
-                        tp[s]++;
-                    }
-                    else if (!gtOccupied && testOccupied)
-                    {
-                        fp[s]++; // 偽陽性: 本来占有なしなのに占有ありと判定
-                    }
-                    else if (gtOccupied && !testOccupied)
-                    {
-                        fn[s]++; // 偽陰性: 本来占有ありなのに占有なしと判定
-                    }
-                }
+                AccumulateSectorCounts(gtPixels[i].r, testPixels[i].r, tp, fp, fn);
             }
 
-            result.evaluatedPixels = evaluatedCount;
-
-            float sumIoU = 0f;
-            float sumOverOcc = 0f;
-            float sumUnderOcc = 0f;
-            int totalTp = 0;
-            int totalFp = 0;
-            int totalFn = 0;
-
-            for (int s = 0; s < 8; s++)
-            {
-                int u = tp[s] + fp[s] + fn[s];
-                float iou = (u > 0) ? (float)tp[s] / u : 1f; // 双方0かつ評価領域なら完全一致として1.0
-                float over = (u > 0) ? (float)fp[s] / u : 0f;
-                float under = (u > 0) ? (float)fn[s] / u : 0f;
-
-                result.sectors[s] = new SingleSectorMetrics
-                {
-                    sectorId = s,
-                    tpPixels = tp[s],
-                    fpPixels = fp[s],
-                    fnPixels = fn[s],
-                    unionPixels = u,
-                    iou = iou,
-                    overOccRatio = over,
-                    underOccRatio = under
-                };
-
-                sumIoU += iou;
-                sumOverOcc += over;
-                sumUnderOcc += under;
-
-                totalTp += tp[s];
-                totalFp += fp[s];
-                totalFn += fn[s];
-            }
-
-            result.macroMeanIoU = sumIoU / 8f;
-            result.meanOverOcc = sumOverOcc / 8f;
-            result.meanUnderOcc = sumUnderOcc / 8f;
-
-            int totalUnion = totalTp + totalFp + totalFn;
-            result.microIoU = (totalUnion > 0) ? (float)totalTp / totalUnion : 1f;
-
-            return result;
+            return BuildSectorMetricsResult(tp, fp, fn, evaluatedCount);
         }
 
         /// <summary>
-        /// 事前計算済みの評価キャッシュ (EyeEvaluationCache) と理想深度ピラミッド正解マスク (gtData) から、
-        /// 指定した閾値 T_loc におけるステレオ 8方向 IoU を GPU 再描画なしで瞬時に計算します。
+        /// 事前計算済みの評価キャッシュと正解マスクから、指定閾値 T_loc におけるステレオ 8 方向 IoU を計算します。
         /// </summary>
         public static Stereo8MetricsResult CalculateStereoFromEvaluationCache(
             uint[] gtLeftData,
-            OPE_SparsePointCloudPyramidEvaluator.EyeEvaluationCache testLeftCache,
+            OPE_EyeEvaluationCache testLeftCache,
             uint[] gtRightData,
-            OPE_SparsePointCloudPyramidEvaluator.EyeEvaluationCache testRightCache,
+            OPE_EyeEvaluationCache testRightCache,
             float tLoc)
         {
             var leftResult = CalculateSingleEyeFromEvaluationCache(gtLeftData, testLeftCache, tLoc);
@@ -327,14 +121,13 @@ namespace OPE
         }
 
         /// <summary>
-        /// 事前計算済みの評価キャッシュと正解マスクから、8セクター個別の閾値ベクトル sectorTLoc (サイズ8) における
-        /// ステレオ 8方向 IoU を瞬時に計算します。
+        /// 事前計算済みの評価キャッシュと正解マスクから、8 セクター個別閾値ベクトル sectorTLoc のステレオ 8 方向 IoU を計算します。
         /// </summary>
         public static Stereo8MetricsResult CalculateStereoFromEvaluationCache(
             uint[] gtLeftData,
-            OPE_SparsePointCloudPyramidEvaluator.EyeEvaluationCache testLeftCache,
+            OPE_EyeEvaluationCache testLeftCache,
             uint[] gtRightData,
-            OPE_SparsePointCloudPyramidEvaluator.EyeEvaluationCache testRightCache,
+            OPE_EyeEvaluationCache testRightCache,
             float[] sectorTLoc)
         {
             var leftResult = CalculateSingleEyeFromEvaluationCache(gtLeftData, testLeftCache, sectorTLoc);
@@ -343,117 +136,43 @@ namespace OPE
         }
 
         /// <summary>
-        /// 単眼の評価キャッシュと正解マスクから指定 T_loc の 8方向 IoU を計算します。
+        /// 単眼の評価キャッシュと正解マスクから指定 T_loc の 8 方向 IoU を計算します。
         /// </summary>
         public static Sector8MetricsResult CalculateSingleEyeFromEvaluationCache(
             uint[] gtData,
-            OPE_SparsePointCloudPyramidEvaluator.EyeEvaluationCache testCache,
+            OPE_EyeEvaluationCache testCache,
             float tLoc)
         {
-            var result = new Sector8MetricsResult();
-            if (gtData == null || testCache == null || testCache.evaluatedPixelIndices == null || testCache.evaluatedMinSectorOcclusion == null)
-            {
-                return result;
-            }
-
-            int[] evalIndices = testCache.evaluatedPixelIndices;
-            float[] minOcc = testCache.evaluatedMinSectorOcclusion;
-            int evalCount = evalIndices.Length;
-
-            int[] tp = new int[8];
-            int[] fp = new int[8];
-            int[] fn = new int[8];
-
-            for (int i = 0; i < evalCount; i++)
-            {
-                int pixelIdx = evalIndices[i];
-                uint gtPattern = (gtData[pixelIdx] >> 16) & 0xFFu;
-                int baseOffset = i * 8;
-
-                for (int s = 0; s < 8; s++)
-                {
-                    bool gtOccupied = ((gtPattern >> s) & 1u) != 0u;
-                    bool testOccupied = minOcc[baseOffset + s] < tLoc;
-
-                    if (gtOccupied && testOccupied)
-                    {
-                        tp[s]++;
-                    }
-                    else if (!gtOccupied && testOccupied)
-                    {
-                        fp[s]++; // 偽陽性: 本来手前に手メッシュ点がないのにノイズ等で占有ありと判定
-                    }
-                    else if (gtOccupied && !testOccupied)
-                    {
-                        fn[s]++; // 偽陰性: 本来手前に手メッシュ点があるのに疎または閾値不足で占有なしと判定
-                    }
-                }
-            }
-
-            result.evaluatedPixels = evalCount;
-
-            float sumIoU = 0f;
-            float sumOverOcc = 0f;
-            float sumUnderOcc = 0f;
-            int totalTp = 0;
-            int totalFp = 0;
-            int totalFn = 0;
-
-            for (int s = 0; s < 8; s++)
-            {
-                int u = tp[s] + fp[s] + fn[s];
-                float iou = (u > 0) ? (float)tp[s] / u : 1f;
-                float over = (u > 0) ? (float)fp[s] / u : 0f;
-                float under = (u > 0) ? (float)fn[s] / u : 0f;
-
-                result.sectors[s] = new SingleSectorMetrics
-                {
-                    sectorId = s,
-                    tpPixels = tp[s],
-                    fpPixels = fp[s],
-                    fnPixels = fn[s],
-                    unionPixels = u,
-                    iou = iou,
-                    overOccRatio = over,
-                    underOccRatio = under
-                };
-
-                sumIoU += iou;
-                sumOverOcc += over;
-                sumUnderOcc += under;
-
-                totalTp += tp[s];
-                totalFp += fp[s];
-                totalFn += fn[s];
-            }
-
-            result.macroMeanIoU = sumIoU / 8f;
-            result.meanOverOcc = sumOverOcc / 8f;
-            result.meanUnderOcc = sumUnderOcc / 8f;
-
-            int totalUnion = totalTp + totalFp + totalFn;
-            result.microIoU = (totalUnion > 0) ? (float)totalTp / totalUnion : 1f;
-
-            return result;
+            return CalculateFromEvaluationCacheCore(gtData, testCache, tLoc, null);
         }
 
         /// <summary>
-        /// 単眼の評価キャッシュと正解マスクから、8セクター個別の閾値ベクトル sectorTLoc (サイズ8) を用いて 8方向 IoU を計算します。
+        /// 単眼の評価キャッシュと正解マスクから、8 セクター個別閾値ベクトル sectorTLoc の 8 方向 IoU を計算します。
         /// </summary>
         public static Sector8MetricsResult CalculateSingleEyeFromEvaluationCache(
             uint[] gtData,
-            OPE_SparsePointCloudPyramidEvaluator.EyeEvaluationCache testCache,
+            OPE_EyeEvaluationCache testCache,
             float[] sectorTLoc)
         {
-            var result = new Sector8MetricsResult();
-            if (gtData == null || testCache == null || testCache.evaluatedPixelIndices == null || testCache.evaluatedMinSectorOcclusion == null)
+            return CalculateFromEvaluationCacheCore(gtData, testCache, 0.5f, sectorTLoc);
+        }
+
+        private static Sector8MetricsResult CalculateFromEvaluationCacheCore(
+            uint[] gtData,
+            OPE_EyeEvaluationCache testCache,
+            float scalarTLoc,
+            float[] sectorTLoc)
+        {
+            if (gtData == null || testCache == null ||
+                testCache.evaluatedPixelIndices == null || testCache.evaluatedMinSectorOcclusion == null)
             {
-                return result;
+                return new Sector8MetricsResult();
             }
 
             int[] evalIndices = testCache.evaluatedPixelIndices;
             float[] minOcc = testCache.evaluatedMinSectorOcclusion;
             int evalCount = evalIndices.Length;
+            bool useVector = sectorTLoc != null;
 
             int[] tp = new int[8];
             int[] fp = new int[8];
@@ -461,33 +180,42 @@ namespace OPE
 
             for (int i = 0; i < evalCount; i++)
             {
-                int pixelIdx = evalIndices[i];
-                uint gtPattern = (gtData[pixelIdx] >> 16) & 0xFFu;
+                uint gtPattern = (gtData[evalIndices[i]] >> 16) & 0xFFu;
                 int baseOffset = i * 8;
 
                 for (int s = 0; s < 8; s++)
                 {
-                    float sTh = (sectorTLoc != null && sectorTLoc.Length > s) ? sectorTLoc[s] : 0.5f;
+                    float threshold = useVector
+                        ? (s < sectorTLoc.Length ? sectorTLoc[s] : 0.5f)
+                        : scalarTLoc;
                     bool gtOccupied = ((gtPattern >> s) & 1u) != 0u;
-                    bool testOccupied = minOcc[baseOffset + s] < sTh;
+                    bool testOccupied = minOcc[baseOffset + s] < threshold;
 
-                    if (gtOccupied && testOccupied)
-                    {
-                        tp[s]++;
-                    }
-                    else if (!gtOccupied && testOccupied)
-                    {
-                        fp[s]++; // 偽陽性: 本来手前に手メッシュ点がないのにノイズ等で占有ありと判定
-                    }
-                    else if (gtOccupied && !testOccupied)
-                    {
-                        fn[s]++; // 偽陰性: 本来手前に手メッシュ点があるのに疎または閾値不足で占有なしと判定
-                    }
+                    if (gtOccupied && testOccupied) tp[s]++;
+                    else if (!gtOccupied && testOccupied) fp[s]++;
+                    else if (gtOccupied && !testOccupied) fn[s]++;
                 }
             }
 
-            result.evaluatedPixels = evalCount;
+            return BuildSectorMetricsResult(tp, fp, fn, evalCount);
+        }
 
+        private static void AccumulateSectorCounts(uint gtPattern, uint testPattern, int[] tp, int[] fp, int[] fn)
+        {
+            for (int s = 0; s < 8; s++)
+            {
+                bool gtOccupied = ((gtPattern >> s) & 1u) != 0u;
+                bool testOccupied = ((testPattern >> s) & 1u) != 0u;
+
+                if (gtOccupied && testOccupied) tp[s]++;
+                else if (!gtOccupied && testOccupied) fp[s]++;
+                else if (gtOccupied && !testOccupied) fn[s]++;
+            }
+        }
+
+        private static Sector8MetricsResult BuildSectorMetricsResult(int[] tp, int[] fp, int[] fn, int evaluatedCount)
+        {
+            var result = new Sector8MetricsResult { evaluatedPixels = evaluatedCount };
             float sumIoU = 0f;
             float sumOverOcc = 0f;
             float sumUnderOcc = 0f;
@@ -498,9 +226,9 @@ namespace OPE
             for (int s = 0; s < 8; s++)
             {
                 int u = tp[s] + fp[s] + fn[s];
-                float iou = (u > 0) ? (float)tp[s] / u : 1f;
-                float over = (u > 0) ? (float)fp[s] / u : 0f;
-                float under = (u > 0) ? (float)fn[s] / u : 0f;
+                float iou = u > 0 ? (float)tp[s] / u : 1f;
+                float over = u > 0 ? (float)fp[s] / u : 0f;
+                float under = u > 0 ? (float)fn[s] / u : 0f;
 
                 result.sectors[s] = new SingleSectorMetrics
                 {
@@ -528,8 +256,7 @@ namespace OPE
             result.meanUnderOcc = sumUnderOcc / 8f;
 
             int totalUnion = totalTp + totalFp + totalFn;
-            result.microIoU = (totalUnion > 0) ? (float)totalTp / totalUnion : 1f;
-
+            result.microIoU = totalUnion > 0 ? (float)totalTp / totalUnion : 1f;
             return result;
         }
     }

@@ -66,4 +66,31 @@ public class PCDOcclusionDebugSettings
         recordNeighborhoodMap = true;
         recordNeighborCountMap = true;
     }
+
+    /// <summary>
+    /// 次のフレームで占有セクターマスク (SectorMask DebugMap) を1フレーム出力します。
+    /// </summary>
+    public void TriggerRecordSectorMask()
+    {
+        recordNeighborCountMap = true;
+        Debug.Log("[PCD] 占有セクターマスク (SectorMask DebugMap) のキャプチャをリクエストしました (次フレームで出力されます)");
+    }
+
+    /// <summary>
+    /// 次のフレームでオクルージョンマップ (OcclusionMap) を1フレーム出力します。
+    /// </summary>
+    public void TriggerRecordOcclusionMap()
+    {
+        recordOcclusionDebugMap = true;
+        Debug.Log("[PCD] オクルージョンマップ (OcclusionMap) のキャプチャをリクエストしました");
+    }
+
+    /// <summary>
+    /// 全てのデバッグマップを一括出力します。
+    /// </summary>
+    public void TriggerRecordAllDebugMaps()
+    {
+        RequestRecordAll();
+        Debug.Log("[PCD] 全デバッグマップの一括キャプチャをリクエストしました");
+    }
 }
