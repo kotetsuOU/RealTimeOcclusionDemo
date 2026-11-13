@@ -116,6 +116,7 @@ Assets/Features/OPE/
     │   ├── OPE_MethodMetricsAccumulator.cs    # 手法別メトリクス累積 & 平均値計算
     │   ├── OPE_IoUCalculator.cs               # ステレオ画像 IoU・過剰遮蔽・遮蔽漏れ高速計算
     │   ├── OPE_Sector8IoUCalculator.cs        # 8セクター二値マスク vs 深度ピラミッドGT 8方向 IoU 計算
+    │   ├── OPE_Sector8MetricsModels.cs        # セクター別・ステレオ IoU メトリクスモデル群
     │   ├── OPE_EvaluationDatasetConfig.cs     # 3-Objects & 汎化セット構成定義
     │   └── OPE_DatasetSyncService.cs          # シーンとデータセット構成の自動同期
     ├── Presets/                      # 【配置プリセット管理】
@@ -146,8 +147,14 @@ Assets/Features/OPE/
     │   │   ├── OPE_LocalThresholdGroundTruthCapturer.cs    # 手メッシュ深度ピラミッド 8方向GTマスク取得
     │   │   ├── OPE_LocalThresholdSweepEvaluator.cs         # メモリ内 8方向 IoU 高速スイープ評価エンジン
     │   │   ├── OPE_LocalThresholdOptimalImageCapturer.cs   # 最適値における 8方向マスク撮影保存
-    │   │   ├── OPE_LocalThresholdOptimizationReporter.cs   # サマリー CSV (全体/セクター別/プリセット別) 出力
-    │   │   └── OPE_LocalThresholdSweepResult.cs            # スイープ測定結果データモデル
+    │   │   ├── OPE_LocalThresholdOptimizationReporter.cs # サマリー CSV (全体/セクター別/プリセット別) 出力
+    │   │   ├── OPE_LocalThresholdSweepResult.cs            # スイープ測定結果データモデル
+    │   │   ├── OPE_IdealDepthPyramidBuilder.cs             # 理想深度ピラミッド L1〜L6 構築・GT導出
+    │   │   ├── OPE_IdealPyramidData.cs                     # 理想深度ピラミッド保持モデル
+    │   │   ├── OPE_MeshFirstHitRasterizer.cs               # メッシュ初回交差 L0 ラスタライザ
+    │   │   ├── OPE_SparsePointCloudPyramidEvaluator.cs     # 疎点群投影・深度ピラミッド・局所評価値算出
+    │   │   ├── OPE_EyeEvaluationCache.cs                   # 単眼評価キャッシュ & NeighborCountMap パック生成
+    │   │   └── OPE_SearchLevelMapBuilder.cs                # グリッド Z-Min/密度/Median/勾配補正レベル構築
     │   ├── RuleOptimization/         # Python ルール最適化 (8/20/36/256)
     │   │   ├── OPE_PythonOptimizationRunner.cs           # Python 最適化バックグラウンド非同期実行ランナー
     │   │   └── OPE_OptimizationPresetRunner.cs           # プリセット最適化バッチ実行
@@ -639,8 +646,8 @@ python Assets/Features/OPE/Python/calc_stereoMaskedValue.py -c Bouchiba --export
 2. 対象データセットフォルダおよび目的関数（平均 IoU 最大化 / 相対低減率最大化）を選択します。
 3. **「🚀 Python 最適化を実行してパイプラインに自動置換」** ボタンをクリックします。
    * バックグラウンドプロセスとして `optimize_pattern_rules.py --skip-diff` が非同期実行されます（Unity エディタはフリーズしません）。
-   * 最適化完了後、生成された `optimized_parameters.json` から Mode 8（$R_{\mathrm{th}}$）、Mode 20（$R_{\mathrm{th}}, L_{\mathrm{th}}$）、Mode 36（HEX）、Mode 256（HEX）が [`PCDOcclusionPipelineController.cs`](file:///c:/Users/hongo/Documents/tsutsumi/RealTimeOcclusion/Assets/Features/3DDisplay/Scripts/Occlusion/Controllers/PCDOcclusionPipelineController.cs) および [`OPE_BenchmarkMethodRegistry.cs`](file:///c:/Users/hongo/Documents/tsutsumi/RealTimeOcclusion/Assets/Features/OPE/Scripts/Benchmark/OPE_BenchmarkMethodRegistry.cs) に即時反映・置換されます。
-   * **密度適応型最適化パラメータ (`densityRules`)**: 疎な点群（`0.25 pts/mm²`）での手の内部の穴埋め（$R=7$ や $R=4, L=1$）と、密な点群（`1.0`, `4.0 pts/mm²`）での輪郭過剰遮蔽防止（$R=8$）を両立するため、密度ごとの最適パラメータが `densityRules` として構造化保存され、ベンチマーク実行時および実行時において評価密度に応じて自動適応されます。
+   * 最適化完了後、生成された `optimized_parameters.json` から Mode 8（$R_{\mathrm{th}}$）、Mode 20（$R_{\mathrm{th}}, L_{\mathrm{th}}$）、Mode 36（HEX）、Mode 256（HEX）および `densityRules` が [`PCDOcclusionPipelineController.cs`](file:///c:/Users/hongo/Documents/tsutsumi/RealTimeOcclusion/Assets/Features/3DDisplay/Scripts/Occlusion/Controllers/PCDOcclusionPipelineController.cs) および [`OPE_BenchmarkMethodRegistry.cs`](file:///c:/Users/hongo/Documents/tsutsumi/RealTimeOcclusion/Assets/Features/OPE/Scripts/Benchmark/OPE_BenchmarkMethodRegistry.cs) に即時反映・置換されます。
+   * **密度適応型最適化パラメータ (`densityRules`)**: 疎な点群（`0.25 pts/mm²`）での手の内部の穴埋め（$R=7$ や $R=4, L=1$）と、密な点群（`1.0`, `4.0 pts/mm²`）での輪郭過剰遮蔽防止（$R=8$）を両立するため、密度ごとの最適パラメータが `densityRules` として構造化保存されます。[`OPE_OptimizationApplier.cs`](file:///c:/Users/hongo/Documents/tsutsumi/RealTimeOcclusion/Assets/Features/OPE/Scripts/Optimization/Common/OPE_OptimizationApplier.cs) の `ApplyToPipeline` 実行時には、`densityRules` が `density` 昇順（最大 `MAX_DENSITY_LUT_BINS = 8` ビン）で `PCDOcclusionPipelineController.densityLutEntries` へ自動変換・格納され、リアルタイム描画時の `Density-Adaptive LUT`（`useDensityAdaptiveLut`）とベンチマーク時の `TryGetDensityRule` の双方で活用されます。
    * 既に計算済みの結果がある場合は、**「📥 既存結果 (JSON/CSV) を再読み込みして適用」** ボタンから一瞬で最新値を再適用することも可能です。
 
 #### Step 8: 配置プリセットのフォルダー階層分類 & 個別 ON/OFF 管理による一括ベンチマーク
@@ -801,7 +808,7 @@ $$V_m = \sum_{p \in M, \mathrm{mask}(p) = m} \mathbf{1}_{\{\mathrm{GT}(p) = 0\}}
 | **Mode_256 (PatternLUT256)** | `PatternLUT256` | $T_{\mathrm{loc}}$ (一律または 8方向独立 $T_{\mathrm{loc}}[i]$) | 1 | 8 | `0x014FDA4F...` (256パターン最適) |
 
 > [!NOTE]
-> `OPE_BenchmarkMethodRegistry` はベンチマーク実行開始時に `PCDOcclusionPipelineController` の現在設定（$T_{\mathrm{ave}}$, $T_{\mathrm{loc}}$, `useSectorSpecificThreshold`, `sectorThreshold_T_loc`）を優先して読み込み、各手法エントリへ動的に束縛します。これにより、直前に最適化された最新の閾値構成で公平な比較評価が行われます。
+> `OPE_BenchmarkMethodRegistry` はベンチマーク実行開始時に `PCDOcclusionPipelineController` の現在設定（$T_{\mathrm{ave}}$, $T_{\mathrm{loc}}$, `useSectorSpecificThreshold`, `sectorThreshold_T_loc`）を優先して読み込み、各手法エントリへ動的に束縛します。また、単一手法スイープ評価中にランタイムの動的切替が混入しないよう、`ApplyMethodSettings` 内で `PCDOcclusionPipelineController.useDensityAdaptiveLut` および `PCDRendererFeature.Instance.settings.useDensityAdaptiveLut` を明示的に `false` へ設定したうえで、評価密度に応じたオフライン規則 (`TryGetDensityRule`) を適用します。これにより、直前に最適化された最新の閾値構成で公平な比較評価が行われます。
 
 ---
 

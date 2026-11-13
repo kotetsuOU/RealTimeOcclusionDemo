@@ -90,7 +90,7 @@ graph TD
 | | 🏗️ | [Keyboard.md](./Keyboard.md) | 統制キーボード管理システム (`AppKeyboardManager` & `AppKeyboard`) |
 | **1** | 🏗️ | [PointCloudPipeline.md](./PointCloudPipeline.md) | RealSense 点群取得 → GPU 非同期マージ |
 | | 🏗️ | └── [DummyPointCloud.md](./DummyPointCloud.md) | Unity 3Dモデルからのダミー点群生成・法線ノイズ・外れ値付与 |
-| **2** | 🏗️ | [OcclusionRendering.md](./OcclusionRendering.md) | URP RenderGraph 上の点群オクルージョン処理 (Mode 8/20/36/256 & 1クロックLUT参照) |
+| **2** | 🏗️ | [OcclusionRendering.md](./OcclusionRendering.md) | URP RenderGraph 上の点群オクルージョン処理 (Mode 8/20/36/256, 密度適応型LUT, 神クラス解消済み) |
 | **3** | 🏗️ | [Collision.md](./Collision.md) | GPU 衝突判定・クラスタリング (HCD Pipeline) |
 | | 🔬 | └── [CollisionAlgorithmComparison.md](./CollisionAlgorithmComparison.md) | Native C++ vs GPU の数理モデル比較 |
 | **4** | 🏗️ | [Haptics.md](./Haptics.md) | AUTD3 超音波ハプティクス出力制御 |
@@ -125,7 +125,7 @@ RealSense からの非同期データ取得（`RsDevice` / `RsPipelineSession` /
 ---
 
 ### 🎨 2. 視覚オクルージョン・レンダリングシステム
-URP RenderGraph 上で点群をスクリーン空間に投影し、仮想オブジェクトとの前後遮蔽を計算します。多段 Compute Shader（Joint Bilateral 補間、Pull-Push 補完、モルフォロジー演算）により、エッジ保存型の滑らかな Hole Filling を実現しています。
+URP RenderGraph 上で点群をスクリーン空間に投影し、仮想オブジェクトとの前後遮蔽を計算します。`PCDPatternLutProcessor`（Pure C# LUT 構築・キャッシュ）・`PCDOcclusionDebugSettings`・`PCDVirtualContactGizmoDrawer` への責務分離により神クラス化を解消しつつ、`CalculateDensity` で算出したタイルごとのスクリーン密度に応じた最適 LUT 自動切替（`Density-Adaptive LUT`）と、多段 Compute Shader によるエッジ保存型 Hole Filling を実現しています。
 
 📎 詳細: [OcclusionRendering.md](./OcclusionRendering.md)
 
