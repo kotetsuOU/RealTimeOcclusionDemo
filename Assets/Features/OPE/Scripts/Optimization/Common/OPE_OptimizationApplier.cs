@@ -1,4 +1,6 @@
-﻿using UnityEngine;
+﻿using System;
+using System.Collections.Generic;
+using UnityEngine;
 using Core.Logging;
 
 #if UNITY_EDITOR
@@ -93,6 +95,9 @@ namespace OPE
                 pipeline.evaluationMode = targetMode;
             }
 
+            ApplyDensityLutEntries(pipeline, result, targetMode);
+            pipeline.MarkLutDirty();
+
 #if UNITY_EDITOR
             EditorUtility.SetDirty(pipeline);
 #endif
@@ -102,8 +107,77 @@ namespace OPE
             AppLogger.Log(pipeline, $"  Mode 8 閾値 R: {pipeline.minOccludedSectorsMode8}", Tag);
             AppLogger.Log(pipeline, $"  Mode 20 閾値 R: {pipeline.minOccludedSectorsMode20}, L: {pipeline.maxConsecutiveEmptySectors}", Tag);
             AppLogger.Log(pipeline, $"  Custom LUT HEX: {(string.IsNullOrEmpty(pipeline.customPatternLutHex) ? "(default)" : pipeline.customPatternLutHex.Substring(0, Mathf.Min(16, pipeline.customPatternLutHex.Length)) + "...")}", Tag);
+            AppLogger.Log(pipeline, $"  Density-Adaptive LUT: {(pipeline.useDensityAdaptiveLut ? "ON" : "OFF")} ({(pipeline.densityLutEntries != null ? pipeline.densityLutEntries.Count : 0)} bins)", Tag);
 
             return true;
+        }
+
+        /// <summary>
+        /// 最適化結果の <c>densityRules</c> を <see cref="PCDOcclusionPipelineController.densityLutEntries"/> へ変換して反映します。
+        /// </summary>
+        private static void ApplyDensityLutEntries(
+            PCDOcclusionPipelineController pipeline,
+            OPE_OptimizationResult result,
+            PCDRendererFeature.PCD_OcclusionEvaluationMode targetMode)
+        {
+            if (pipeline == null || result?.densityRules == null || result.densityRules.Count == 0)
+            {
+                return;
+            }
+
+            bool useMode36 = targetMode == PCDRendererFeature.PCD_OcclusionEvaluationMode.RotationLUT36;
+            var validRules = new List<OPE_DensityRuleEntry>(result.densityRules.Count);
+            for (int i = 0; i < result.densityRules.Count; i++)
+            {
+                var rule = result.densityRules[i];
+                if (rule == null) continue;
+                string hex = useMode36 ? rule.mode36Hex : rule.mode256Hex;
+                if (string.IsNullOrEmpty(hex)) continue;
+                validRules.Add(rule);
+            }
+
+            if (validRules.Count == 0)
+            {
+                return;
+            }
+
+            validRules.Sort((a, b) => a.density.CompareTo(b.density));
+
+            int count = Math.Min(validRules.Count, PCDOcclusionPipelineController.MAX_DENSITY_LUT_BINS);
+            var existingEntries = pipeline.densityLutEntries;
+            bool reuseExistingThresholds = existingEntries != null && existingEntries.Count == count;
+            var newEntries = new List<PCDOcclusionPipelineController.PCD_DensityLutEntry>(count);
+
+            const float minAutoScreenDensity = 0.08f;
+            for (int i = 0; i < count; i++)
+            {
+                var rule = validRules[i];
+                float maxScreenDensity;
+                if (reuseExistingThresholds && existingEntries[i] != null)
+                {
+                    maxScreenDensity = existingEntries[i].maxScreenDensity;
+                }
+                else if (count == 1 || i == count - 1)
+                {
+                    maxScreenDensity = 1.0f;
+                }
+                else
+                {
+                    // 既存の 0.08 -> 0.28 -> 1.00 と整合する対数ステップで上限を割り当てる
+                    float t = (float)i / (count - 1);
+                    maxScreenDensity = Mathf.Round(minAutoScreenDensity * Mathf.Pow(1.0f / minAutoScreenDensity, t) * 100f) * 0.01f;
+                }
+
+                newEntries.Add(new PCDOcclusionPipelineController.PCD_DensityLutEntry
+                {
+                    label = $"Density {rule.density:0.##} pts/mm²",
+                    sourcePhysicalDensity = rule.density,
+                    maxScreenDensity = maxScreenDensity,
+                    patternLutHex = useMode36 ? rule.mode36Hex : rule.mode256Hex
+                });
+            }
+
+            pipeline.densityLutEntries = newEntries;
         }
 
         /// <summary>

@@ -48,6 +48,8 @@ internal class PCDResourcePool : System.IDisposable
     // =========================================================================
     public RTHandle GridLevelMap { get; private set; }
     public RTHandle FilteredGridLevelMap { get; private set; }
+    private readonly PCDOptionalTexture _gridDensityBinMap = new PCDOptionalTexture(FormatR8UInt, "PCD_GridDensityBinMap");
+    public RTHandle GridDensityBinMap => _gridDensityBinMap.Handle;
 
     // =========================================================================
     // 近傍サイズマップ（フル解像度: R8_UInt 1B/px）
@@ -175,7 +177,10 @@ internal class PCDResourcePool : System.IDisposable
         }
 
         // --- デバッグ・記録マップ（必要時のみフル解像度、それ以外は 1×1 ダミー） ---
+        int gridGroupsX = (screenWidth + gs - 1) / gs;
+        int gridGroupsY = (screenHeight + gs - 1) / gs;
         bool debugAllocated = false;
+        debugAllocated |= _gridDensityBinMap.Update(req.DensityAdaptiveLut, gridGroupsX, gridGroupsY);
         debugAllocated |= _debugDisplayMap.Update(req.DebugDisplay, screenWidth, screenHeight);
         debugAllocated |= _occlusionValueMap.Update(req.OcclusionDebug, screenWidth, screenHeight);
         debugAllocated |= _neighborCountMap.Update(req.OcclusionDebug, screenWidth, screenHeight);
@@ -284,6 +289,7 @@ internal class PCDResourcePool : System.IDisposable
         ReleasePullPush();
         ReleaseMorphology();
 
+        _gridDensityBinMap.Release();
         _debugDisplayMap.Release();
         _occlusionValueMap.Release();
         _neighborCountMap.Release();

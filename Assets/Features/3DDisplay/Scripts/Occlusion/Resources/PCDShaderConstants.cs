@@ -66,6 +66,14 @@ internal static class PCDShaderConstants
     public static readonly int OcclusionFadeWidth = Shader.PropertyToID("_OcclusionFadeWidth");
     /// <summary> 256パターンLUT (uint[8] 配列) </summary>
     public static readonly int PatternLUT = Shader.PropertyToID("_PatternLUT");
+    /// <summary> 密度適応型LUT有効化フラグ </summary>
+    public static readonly int UseDensityAdaptiveLUT = Shader.PropertyToID("_UseDensityAdaptiveLUT");
+    /// <summary> 有効な密度ビン数 (1..8) </summary>
+    public static readonly int DensityLutCount = Shader.PropertyToID("_DensityLutCount");
+    /// <summary> 密度ビンの上限スクリーン密度閾値 (Vector4[2]) </summary>
+    public static readonly int DensityLutThresholds = Shader.PropertyToID("_DensityLutThresholds");
+    /// <summary> 密度ビン別 256bit LUT テーブル (int[64]) </summary>
+    public static readonly int DensityPatternLUT = Shader.PropertyToID("_DensityPatternLUT");
 
     // =====================================================================
     // メインテクスチャマップ（読み取り / 書き込み）
@@ -82,6 +90,8 @@ internal static class PCDShaderConstants
     public static readonly int GridLevelMap_RW = Shader.PropertyToID("_GridLevelMap_RW");
     public static readonly int FilteredGridLevelMap = Shader.PropertyToID("_FilteredGridLevelMap");
     public static readonly int FilteredGridLevelMap_RW = Shader.PropertyToID("_FilteredGridLevelMap_RW");
+    public static readonly int GridDensityBinMap = Shader.PropertyToID("_GridDensityBinMap");
+    public static readonly int GridDensityBinMap_RW = Shader.PropertyToID("_GridDensityBinMap_RW");
     public static readonly int NeighborhoodSizeMap = Shader.PropertyToID("_NeighborhoodSizeMap");
     public static readonly int NeighborhoodSizeMap_RW = Shader.PropertyToID("_NeighborhoodSizeMap_RW");
 

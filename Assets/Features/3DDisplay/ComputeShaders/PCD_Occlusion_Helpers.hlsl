@@ -8,6 +8,8 @@
 // ==========================================
 float4 ZMinPhysicalDownsample(Texture2D<float4> posTex, Texture2D<uint> typeTex, uint2 uv)
 {
+    float4 minP = float4(0.0, 0.0, 0.0, SENTINEL_DEPTH);
+
     if (_EnableTagBasedOptimization > 0)
     {
         // 先に軽量な OriginTypeMap (R8_UInt) のみを読み取り、物理点群(0u)が存在しないブロックの ViewPositionMap 読み取りを回避する
@@ -16,23 +18,24 @@ float4 ZMinPhysicalDownsample(Texture2D<float4> posTex, Texture2D<uint> typeTex,
         uint t2 = typeTex[uv + uint2(0, 1)];
         uint t3 = typeTex[uv + uint2(1, 1)];
 
-        float4 minP = float4(0.0, 0.0, 0.0, SENTINEL_DEPTH);
         if (t0 == 0u) { float4 p0 = posTex[uv + uint2(0, 0)]; if (p0.w < minP.w) minP = p0; }
         if (t1 == 0u) { float4 p1 = posTex[uv + uint2(1, 0)]; if (p1.w < minP.w) minP = p1; }
         if (t2 == 0u) { float4 p2 = posTex[uv + uint2(0, 1)]; if (p2.w < minP.w) minP = p2; }
         if (t3 == 0u) { float4 p3 = posTex[uv + uint2(1, 1)]; if (p3.w < minP.w) minP = p3; }
-        return minP;
+    }
+    else
+    {
+        float4 p0 = posTex[uv + uint2(0, 0)];
+        float4 p1 = posTex[uv + uint2(1, 0)];
+        float4 p2 = posTex[uv + uint2(0, 1)];
+        float4 p3 = posTex[uv + uint2(1, 1)];
+
+        minP = p0;
+        if (p1.w < minP.w) minP = p1;
+        if (p2.w < minP.w) minP = p2;
+        if (p3.w < minP.w) minP = p3;
     }
 
-    float4 p0 = posTex[uv + uint2(0, 0)];
-    float4 p1 = posTex[uv + uint2(1, 0)];
-    float4 p2 = posTex[uv + uint2(0, 1)];
-    float4 p3 = posTex[uv + uint2(1, 1)];
-
-    float4 minP = p0;
-    if (p1.w < minP.w) minP = p1;
-    if (p2.w < minP.w) minP = p2;
-    if (p3.w < minP.w) minP = p3;
     return minP;
 }
 

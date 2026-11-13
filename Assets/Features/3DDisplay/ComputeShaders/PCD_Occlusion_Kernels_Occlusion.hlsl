@@ -320,7 +320,19 @@ void ComputeOcclusion(uint3 id : SV_DispatchThreadID)
         // ビットが 1 なら可視 (alpha = 1.0)、0 なら遮蔽 (alpha = 0.0)
         uint wordIdx = (occupiedSectorMask >> 5u) & 7u;
         uint bitIdx = occupiedSectorMask & 31u;
-        uint wordVal = (wordIdx < 4u) ? _PatternLUT[0][wordIdx] : _PatternLUT[1][wordIdx - 4u];
+        uint wordVal;
+        if (_UseDensityAdaptiveLUT > 0)
+        {
+            uint count = (uint)clamp(_DensityLutCount, 1, 8);
+            uint bin = min(_GridDensityBinMap[fullResUV / GRID_SIZE], count - 1u);
+            uint lutBase = bin * 2u;
+            uint4 lutVec = (wordIdx < 4u) ? _DensityPatternLUT[lutBase] : _DensityPatternLUT[lutBase + 1u];
+            wordVal = lutVec[wordIdx & 3u];
+        }
+        else
+        {
+            wordVal = (wordIdx < 4u) ? _PatternLUT[0][wordIdx] : _PatternLUT[1][wordIdx - 4u];
+        }
         bool isVisible = ((wordVal >> bitIdx) & 1u) != 0u;
 
         // LUT判定: isVisible が false (0) なら完全に遮蔽 (alpha = 0.0)。

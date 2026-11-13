@@ -29,8 +29,11 @@ internal readonly struct PCDResourceRequirements
     /// <summary> モルフォロジーホールフィリング用バッファが必要か </summary>
     public readonly bool Morphology;
 
+    /// <summary> 密度適応型 LUT 用のグリッド密度ビンマップが必要か </summary>
+    public readonly bool DensityAdaptiveLut;
+
     private PCDResourceRequirements(bool debugDisplay, bool occlusionDebug, bool integratedDepth,
-        bool neighborhoodRecord, bool pullPush, bool morphology)
+        bool neighborhoodRecord, bool pullPush, bool morphology, bool densityAdaptiveLut)
     {
         DebugDisplay = debugDisplay;
         OcclusionDebug = occlusionDebug;
@@ -38,6 +41,7 @@ internal readonly struct PCDResourceRequirements
         NeighborhoodRecord = neighborhoodRecord;
         PullPush = pullPush;
         Morphology = morphology;
+        DensityAdaptiveLut = densityAdaptiveLut;
     }
 
     /// <summary>
@@ -62,15 +66,20 @@ internal readonly struct PCDResourceRequirements
         bool morphology = method == PCDRendererFeature.PCD_HoleFillingMethod.Morphology_OC
                        || method == PCDRendererFeature.PCD_HoleFillingMethod.Morphology_CO;
 
+        bool densityAdaptiveLut = s.useDensityAdaptiveLut
+            && (s.evaluationMode == PCDRendererFeature.PCD_OcclusionEvaluationMode.RotationLUT36
+                || s.evaluationMode == PCDRendererFeature.PCD_OcclusionEvaluationMode.PatternLUT256);
+
         return new PCDResourceRequirements(
             debugDisplay,
             occlusionDebug,
             s.recordIntegratedDepthMap,
             s.recordNeighborhoodMap,
             pullPush,
-            morphology);
+            morphology,
+            densityAdaptiveLut);
     }
 
     /// <summary> すべてのリソースを必要とする安全フォールバック </summary>
-    public static PCDResourceRequirements All => new PCDResourceRequirements(true, true, true, true, true, true);
+    public static PCDResourceRequirements All => new PCDResourceRequirements(true, true, true, true, true, true, true);
 }

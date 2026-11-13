@@ -172,6 +172,7 @@ namespace OPE
             if (pipeline == null) return;
 
             pipeline.evaluationMode = method.mode;
+            pipeline.useDensityAdaptiveLut = false;
             pipeline.T_ave = method.tAve;
             pipeline.T_loc = method.tLoc;
             pipeline.occlusionThreshold = (method.mode == PCDRendererFeature.PCD_OcclusionEvaluationMode.Average) ? method.tAve : method.tLoc;
@@ -233,6 +234,7 @@ namespace OPE
                 }
                 PCDRendererFeature.Instance.settings.minOccludedSectors = pipeline.minOccludedSectors;
                 PCDRendererFeature.Instance.settings.maxConsecutiveEmptySectors = pipeline.maxConsecutiveEmptySectors;
+                PCDRendererFeature.Instance.settings.useDensityAdaptiveLut = false;
             }
 
             pipeline.MarkLutDirty();

@@ -148,6 +148,25 @@ void CalculateDensity(uint3 id : SV_DispatchThreadID, uint3 groupID : SV_GroupID
             level = min(6, (int) floor(log2(L))); // 最大レベル 6 でクランプしてサンプリング境界を保証
         }
         _GridLevelMap_RW[groupID.xy] = max(_MinSearchLevel, level);
+
+        if (_UseDensityAdaptiveLUT > 0)
+        {
+            int count = clamp(_DensityLutCount, 1, 8);
+            uint bin = (uint)(count - 1);
+            [unroll]
+            for (int i = 6; i >= 0; --i)
+            {
+                if (i < count - 1)
+                {
+                    float thresh = (i < 4) ? _DensityLutThresholds[0][i] : _DensityLutThresholds[1][i - 4];
+                    if (density <= thresh)
+                    {
+                        bin = (uint)i;
+                    }
+                }
+            }
+            _GridDensityBinMap_RW[groupID.xy] = bin;
+        }
     }
 }
 

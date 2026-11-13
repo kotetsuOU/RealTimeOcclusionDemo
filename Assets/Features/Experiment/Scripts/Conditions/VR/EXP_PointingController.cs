@@ -58,12 +58,6 @@ public class EXP_PointingController : MonoBehaviour
     [Tooltip("Tool中心軸からの最大許容半径 [m]（これより離れた周囲の背景・身体点は破棄）")]
     public float maxToolRadius = 0.08f;
 
-    /// <summary>試行開始～終了までに蓄積された全点群座標</summary>
-    private readonly List<Vector3> _accumulatedTrialPoints = new List<Vector3>();
-
-    /// <summary>現在点群を蓄積中かどうか</summary>
-    private bool _isAccumulating = false;
-
     private GameObject? currentTargetInstance;
     private EXP_PointingCondition? currentCondition;
     private EXP_TrialData? currentTrial;

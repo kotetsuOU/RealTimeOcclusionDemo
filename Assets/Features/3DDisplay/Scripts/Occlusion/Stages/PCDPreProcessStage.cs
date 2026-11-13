@@ -143,6 +143,19 @@ internal class PCDPreProcessStage : IPCDPipelineStage
             cmd.SetComputeIntParams(cs, PCDShaderConstants.PatternLUT, s.patternLutWords);
         }
 
+        bool isLutMode = s.evaluationMode == PCDRendererFeature.PCD_OcclusionEvaluationMode.RotationLUT36 ||
+                         s.evaluationMode == PCDRendererFeature.PCD_OcclusionEvaluationMode.PatternLUT256;
+        bool useDensityLut = s.useDensityAdaptiveLut && isLutMode && s.densityLutCount > 0 &&
+                             s.densityLutThresholds != null && s.densityLutThresholds.Length >= 2 &&
+                             s.densityLutWords != null && s.densityLutWords.Length >= s.densityLutCount * 8;
+        cmd.SetComputeIntParam(cs, PCDShaderConstants.UseDensityAdaptiveLUT, useDensityLut ? 1 : 0);
+        if (useDensityLut)
+        {
+            cmd.SetComputeIntParam(cs, PCDShaderConstants.DensityLutCount, s.densityLutCount);
+            cmd.SetComputeVectorArrayParam(cs, PCDShaderConstants.DensityLutThresholds, s.densityLutThresholds);
+            cmd.SetComputeIntParams(cs, PCDShaderConstants.DensityPatternLUT, s.densityLutWords);
+        }
+
         // 提案手法の各最適化フラグ
         cmd.SetComputeIntParam(cs, PCDShaderConstants.EnableTagBasedOptimization, s.enableTagBasedOptimization ? 1 : 0);
         cmd.SetComputeIntParam(cs, PCDShaderConstants.EnableTypeAwareDensity, s.enableTypeAwareDensity ? 1 : 0);
@@ -278,14 +291,22 @@ internal class PCDPreProcessStage : IPCDPipelineStage
         var s = ctx.Settings;
         var depthMap = s.recordIntegratedDepthMap ? r.IntegratedDepthMap : r.DepthMap;
 
-        if (s.enableDensityBasedLOD)
+        bool isLutMode = s.evaluationMode == PCDRendererFeature.PCD_OcclusionEvaluationMode.RotationLUT36 ||
+                         s.evaluationMode == PCDRendererFeature.PCD_OcclusionEvaluationMode.PatternLUT256;
+        bool needDensityCalc = s.enableDensityBasedLOD || (s.useDensityAdaptiveLut && isLutMode && s.densityLutCount > 0);
+
+        if (needDensityCalc)
         {
-            // ステージ4〜6: 各グリッドセルの最小深度(Z-Min)・点群密度・近傍探索レベルを一括算出
+            // ステージ4〜6: 各グリッドセルの最小深度(Z-Min)・点群密度・近傍探索レベル・密度ビンを一括算出
             cmd.SetComputeTextureParam(cs, k.CalcDensity, PCDShaderConstants.DepthMap, depthMap);
             cmd.SetComputeTextureParam(cs, k.CalcDensity, PCDShaderConstants.OriginTypeMap, r.OriginTypeMap);
             cmd.SetComputeTextureParam(cs, k.CalcDensity, PCDShaderConstants.GridLevelMap_RW, r.GridLevelMap);
+            cmd.SetComputeTextureParam(cs, k.CalcDensity, PCDShaderConstants.GridDensityBinMap_RW, r.GridDensityBinMap);
             cmd.DispatchCompute(cs, k.CalcDensity, ctx.GridGroupsX, ctx.GridGroupsY, 1);
+        }
 
+        if (s.enableDensityBasedLOD)
+        {
             // ステージ7: メディアンフィルターでグリッドレベルを平滑化
             int gridThreadX = (ctx.GridGroupsX + 15) / 16;
             int gridThreadY = (ctx.GridGroupsY + 15) / 16;

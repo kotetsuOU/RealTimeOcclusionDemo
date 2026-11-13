@@ -53,6 +53,7 @@ internal class PCDOcclusionStage : IPCDPipelineStage
             cmd.SetComputeTextureParam(cs, k.ComputeOcclusion, PCDShaderConstants.VirtualDepthMap, ctx.VirtualDepthTexture);
             cmd.SetComputeTextureParam(cs, k.ComputeOcclusion, PCDShaderConstants.OriginTypeMap_RW, r.OriginTypeMap);
             cmd.SetComputeTextureParam(cs, k.ComputeOcclusion, PCDShaderConstants.FinalNeighborhoodSizeMap, ctx.ActiveNeighborhoodSizeMap);
+            cmd.SetComputeTextureParam(cs, k.ComputeOcclusion, PCDShaderConstants.GridDensityBinMap, r.GridDensityBinMap);
 
             // 深度ピラミッド全レベルをバインド
             for (int i = 0; i < PCDShaderConstants.PYRAMID_LEVELS; i++)

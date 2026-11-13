@@ -18,6 +18,7 @@ RWTexture2D<uint> _DepthMap_RW;
 RWTexture2D<float4> _ViewPositionMap_RW;
 RWTexture2D<int> _GridLevelMap_RW;
 RWTexture2D<int> _FilteredGridLevelMap_RW;
+RWTexture2D<uint> _GridDensityBinMap_RW;
 RWTexture2D<uint> _NeighborhoodSizeMap_RW;
 RWTexture2D<float4> _DepthPyramidL1_RW;
 RWTexture2D<float4> _DepthPyramidL2_RW;
@@ -46,6 +47,7 @@ Texture2D<uint> _DepthMap;
 Texture2D<float4> _ViewPositionMap;
 Texture2D<int> _GridLevelMap;
 Texture2D<int> _FilteredGridLevelMap;
+Texture2D<uint> _GridDensityBinMap;
 Texture2D<uint> _NeighborhoodSizeMap;
 Texture2D<float4> _DepthPyramidL1;
 Texture2D<float4> _DepthPyramidL2;
@@ -140,6 +142,10 @@ int _MaxConsecutiveEmptySectors;
 int _MinSearchLevel;
 float _Alpha;
 uint4 _PatternLUT[2];
+int _UseDensityAdaptiveLUT;              // 0: 単一 _PatternLUT, 1: _GridDensityBinMap で _DensityPatternLUT を切替
+int _DensityLutCount;                    // 有効な密度ビン数 (1..8)
+float4 _DensityLutThresholds[2];         // 各ビンの上限スクリーン密度閾値 (最大8要素)
+uint4 _DensityPatternLUT[16];            // 最大8ビン × 256bit LUT (各ビン uint4[2])
 
 int _PullPushMaxLevel;
 int _PullPushCurrentLevel;

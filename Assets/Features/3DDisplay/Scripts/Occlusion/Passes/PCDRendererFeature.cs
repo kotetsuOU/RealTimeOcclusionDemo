@@ -139,6 +139,10 @@ public class PCDRendererFeature : ScriptableRendererFeature
         [Range(0, 5)] public int morphErodeIterations;
         [Range(1, 5)] public int morphDilateIterations;
         public int[] patternLutWords;
+        public bool useDensityAdaptiveLut;
+        public int densityLutCount;
+        public Vector4[] densityLutThresholds;
+        public int[] densityLutWords;
 
         [HideInInspector] public uint _dynamicMultiplierRuntimeValue;
     }
