@@ -1,12 +1,14 @@
-using UnityEngine;
 using System.Collections.Generic;
+using UnityEngine;
+using Features.Haptics.Debug;
+using Features.Haptics.Processors;
 
 #nullable enable
 
 /// <summary>
-/// 【触覚錯覚・実験用コントローラー】
-/// HAP_FoxFootHapticsController のボーン検出・接触判定ロジックを100%継承しつつ、
-/// 足の接点側(AUTD #0)と「反対側/裏側 (AUTD #1)」のそれぞれから独立した単焦点/STMを照射するためのモデル。
+/// 触覚錯覚・実験用 Fox 足部コントローラー。
+/// <see cref="HAP_FoxFootHapticsController"/> のボーン検出・接触判定を維持しつつ、
+/// 接点側と反対側（裏側）へ独立した単焦点／STM を生成します。
 /// </summary>
 public class HAP_HapticsIllusionFoxFootController : HAP_FoxFootHapticsController
 {
@@ -53,7 +55,7 @@ public class HAP_HapticsIllusionFoxFootController : HAP_FoxFootHapticsController
     public Vector3 contactOffset = Vector3.zero;
 
     [Tooltip("反対側（裏側）焦点の位置オフセット。\n footTargetTouchDirection (デフォルト down) の逆方向(上方向)への押し込み距離や、裏側回り込み検証位置の調整に使用します。")]
-    public Vector3 oppositeOffset = new Vector3(0f, 0.03f, 0f); // デフォルトで上方/裏側へ3cmオフセット
+    public Vector3 oppositeOffset = new Vector3(0f, 0.03f, 0f);
 
     [Header("STM Settings (Illusion Focus)")]
     [Tooltip("STM時分割回転を使用するか。false の場合は定点照射。")]
@@ -70,159 +72,50 @@ public class HAP_HapticsIllusionFoxFootController : HAP_FoxFootHapticsController
     public int stmPoints = 16;
 
     /// <summary>
-    /// FoxFootの足検知・接触判定を維持したまま、
-    /// 接点側 (contactDeviceGroup) と 反対側 (oppositeDeviceGroup) に独立した焦点データを生成して返します。
+    /// 接点側および反対側のデバイスグループ向けに独立した焦点データを生成して返します。
     /// </summary>
     public override List<HAP_FociGenerator.ClusterFociData> GetHapticsTargets(float defaultIntensityPascal, Vector3 offset)
     {
         var result = new List<HAP_FociGenerator.ClusterFociData>();
 
-        // アクティブなターゲット（足・尻尾など）を取得
         foreach (var info in TargetInfos)
         {
             if (info.Transform == null) continue;
             if (!IsTargetActive(info.Transform, info.IsEnabled, info.IsTail)) continue;
 
             Vector3 footPos = info.Transform.position + offset;
-            Vector3 normal = info.TouchDirection.normalized; // 例: down
+            Vector3 normal = info.TouchDirection.normalized;
 
-            // 1. 接点側の焦点データ生成 (contactDeviceGroup 用)
-            Vector3 contactPos = footPos + contactOffset;
-            var contactFociData = CreateFociDataForGroup(
-                contactPos,
+            result.Add(HAP_IllusionFociBuilder.BuildForDirectionalGroup(
+                footPos + contactOffset,
                 normal,
                 contactDeviceGroup.SelectedDeviceIDs,
-                defaultIntensityPascal
-            );
-            result.Add(contactFociData);
+                defaultIntensityPascal,
+                useSTM,
+                stmFrequency,
+                stmRadius,
+                stmPoints));
 
-            // 2. 反対側（裏側）の焦点データ生成 (oppositeDeviceGroup 用)
             if (enableOppositeFocus)
             {
-                Vector3 oppositePos = footPos + oppositeOffset;
-                var oppositeFociData = CreateFociDataForGroup(
-                    oppositePos,
-                    -normal, // 反対向きのベクトル
+                result.Add(HAP_IllusionFociBuilder.BuildForDirectionalGroup(
+                    footPos + oppositeOffset,
+                    -normal,
                     oppositeDeviceGroup.SelectedDeviceIDs,
-                    defaultIntensityPascal
-                );
-                result.Add(oppositeFociData);
+                    defaultIntensityPascal,
+                    useSTM,
+                    stmFrequency,
+                    stmRadius,
+                    stmPoints));
             }
         }
 
         return result;
     }
 
-    /// <summary>
-    /// 指定された位置・デバイスグループ向けに ClusterFociData を構築するヘルパー
-    /// </summary>
-    private HAP_FociGenerator.ClusterFociData CreateFociDataForGroup(
-        Vector3 position,
-        Vector3 normal,
-        List<int> deviceIDs,
-        float intensityPascal)
-    {
-        TrackedCluster dummyCluster = new TrackedCluster
-        {
-            Centroid = position,
-            Normal = normal,
-            Force = 1.0f,
-            IsAlive = true
-        };
-
-        var fociData = new HAP_FociGenerator.ClusterFociData(dummyCluster);
-        fociData.AssignedDeviceIndices = new List<int>(deviceIDs);
-        if (deviceIDs.Count > 0)
-        {
-            fociData.AssignedDeviceIndex = deviceIDs[0];
-        }
-        fociData.UseSTM = useSTM;
-        fociData.STMFrequency = stmFrequency;
-
-        if (useSTM && stmRadius > 0f && stmPoints >= 4)
-        {
-            Vector3 right = Vector3.Cross(normal, Vector3.up);
-            if (right.sqrMagnitude < 0.001f)
-            {
-                right = Vector3.Cross(normal, Vector3.right);
-            }
-            right.Normalize();
-            Vector3 up = Vector3.Cross(right, normal).normalized;
-
-            for (int i = 0; i < stmPoints; i++)
-            {
-                float angle = (2.0f * Mathf.PI * i) / stmPoints;
-                Vector3 p = position + (right * Mathf.Cos(angle) + up * Mathf.Sin(angle)) * stmRadius;
-                fociData.STMFrames.Add(new List<Vector3> { p });
-            }
-
-            fociData.SequentialFoci.Add(new HAP_FocusPoint(position, intensityPascal));
-        }
-        else
-        {
-            fociData.SequentialFoci.Add(new HAP_FocusPoint(position, intensityPascal));
-        }
-
-        return fociData;
-    }
-
     protected override void OnDrawGizmos()
     {
         if (!ShouldDrawGizmos()) return;
-
-        foreach (var info in TargetInfos)
-        {
-            if (info.Transform == null) continue;
-
-            bool isActive = IsTargetActive(info.Transform, info.IsEnabled, info.IsTail);
-            Vector3 footPos = info.Transform.position;
-
-            // 接点側 Gizmo (緑 or 赤)
-            Gizmos.color = isActive ? activeColor : inactiveColor;
-            Vector3 contactPos = footPos + contactOffset;
-            Gizmos.DrawWireSphere(contactPos, 0.005f);
-
-            if (isActive && useSTM && stmRadius > 0f)
-            {
-                DrawSTMCircle(contactPos, footTargetTouchDirection.normalized, stmRadius, Color.cyan);
-            }
-
-            // 反対側 Gizmo (マゼンタ)
-            if (enableOppositeFocus)
-            {
-                Vector3 oppositePos = footPos + oppositeOffset;
-                Gizmos.color = isActive ? Color.magenta : Color.gray;
-                Gizmos.DrawWireSphere(oppositePos, 0.005f);
-                Gizmos.DrawLine(contactPos, oppositePos);
-
-                if (isActive && useSTM && stmRadius > 0f)
-                {
-                    DrawSTMCircle(oppositePos, -footTargetTouchDirection.normalized, stmRadius, Color.magenta);
-                }
-            }
-
-        }
-    }
-
-    private void DrawSTMCircle(Vector3 center, Vector3 normal, float radius, Color color)
-    {
-        Gizmos.color = color;
-        Vector3 right = Vector3.Cross(normal, Vector3.up);
-        if (right.sqrMagnitude < 0.001f)
-        {
-            right = Vector3.Cross(normal, Vector3.right);
-        }
-        right.Normalize();
-        Vector3 up = Vector3.Cross(right, normal).normalized;
-
-        int segments = 20;
-        Vector3 prev = center + right * radius;
-        for (int i = 1; i <= segments; i++)
-        {
-            float angle = (2.0f * Mathf.PI * i) / segments;
-            Vector3 next = center + (right * Mathf.Cos(angle) + up * Mathf.Sin(angle)) * radius;
-            Gizmos.DrawLine(prev, next);
-            prev = next;
-        }
+        HAP_IllusionGizmoDrawer.DrawFoxFootIllusionGizmos(this);
     }
 }
