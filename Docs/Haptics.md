@@ -15,7 +15,7 @@
 ### 主な特徴
 
 * **マルチアレイデバイス統括**: 複数の AUTD3 フェーズドアレイの空間配置（トランスフォーム）を一括管理し、位相・振幅パターンを最適計算します。
-* **プラグイン型バックエンド分離**: AUTD3 SDK v3.x (Legacy) および v0.9.0 (Current) の両方に対応し、`switch-sdk.ps1` によりシームレスに切り替え動作が可能です。
+* **プラグイン型バックエンド分離**: AUTD3 SDK v3.x (Legacy) および v0.14.1 (Current / Firmware v0.14.0 対応) の両方に対応し、`switch-sdk.ps1` によりシームレスに切り替え動作が可能です。
 * **責務分離と神クラス解消**: 主コントローラー [`HAP_AUTDHapticsController`](file:///c:/Users/hongo/Documents/tsutsumi/RealTimeOcclusion/Assets/Features/Haptics/Scripts/Core/HAP_AUTDHapticsController.cs) はライフサイクル統括に特化し、設定データ ([`HAP_AcousticConfig`](file:///c:/Users/hongo/Documents/tsutsumi/RealTimeOcclusion/Assets/Features/Haptics/Scripts/Config/HAP_AcousticConfig.cs) 等)、ターゲット抽出 ([`HAP_TargetSourceDispatcher`](file:///c:/Users/hongo/Documents/tsutsumi/RealTimeOcclusion/Assets/Features/Haptics/Scripts/Processors/HAP_TargetSourceDispatcher.cs))、パイプライン実行 ([`HAP_AcousticPipelineExecutor`](file:///c:/Users/hongo/Documents/tsutsumi/RealTimeOcclusion/Assets/Features/Haptics/Scripts/Processors/HAP_AcousticPipelineExecutor.cs)) に完全分離されています。
 * **2段タブ式統合 Inspector**: 1画面から通信設定、配置管理、音響、STM、焦点設定、プロファイリングを統合管理できます。また、個別コンポーネント用スリムエディタにより、インスペクター上での設定の二重展開を防止しています。
 * **指向性グルーピング照射**: 接触面の法線ベクトルとデバイスの向きを比較し、最適なデバイスからのみ超音波を照射する高効率照射機能を備えています。
@@ -30,12 +30,16 @@
 Assets/Features/Haptics/Scripts/
 ├── Haptics.asmdef                             # SDK非依存の共通アセンブリ
 ├── Backends/                                  # 新旧SDKバックエンド実装
-│   ├── Current/                               # autd3-sdk v0.9.0 実装 (Backend, HardwareConfigurator, HoloBuilder, STMBuilder, PatternBuilder)
-│   └── Legacy/                                # AUTD3Sharp v3.x 実装 (HAP_LegacyAUTDBackend, HAP_LegacyDatagramBuilder)
-├── Config/                                    # Pure C# 設定クラス
+│   ├── Current/                               # autd3-sdk v0.14.1 実装 (Backend, ConnectionSession, HardwareConfigurator, HoloBuilder, STMBuilder, PatternBuilder, FociSender, SendDiagnostics)
+│   └── Legacy/                                # AUTD3Sharp v3.x 実装 (HAP_LegacyAUTDBackend, HAP_LegacyDatagramBuilder, HAP_LegacyHardwareConfigurator)
+├── Config/                                    # Pure C# 設定・スナップショットクラス
 │   ├── HAP_AcousticConfig.cs                  # 音響・ホログラフィ設定
+│   ├── HAP_AUTDTransformConfig.cs             # AUTD配置JSONスナップショット設定
+│   ├── HAP_DebugFocusConfig.cs                # 単焦点デバッグ照射・キャリブレーション設定
+│   ├── HAP_ProfilingConfig.cs                 # 処理時間計測設定
 │   ├── HAP_STMConfig.cs                       # STM変調設定
-│   └── HAP_ProfilingConfig.cs                 # 処理時間計測設定
+│   ├── HapticsIllusionTargetConfig.cs         # 触覚錯覚用独立焦点設定
+│   └── HapticsModulationOverride.cs           # ソース別変調オーバーライド設定
 ├── Core/                                      # 共通コア・インターフェース
 │   ├── HAP_AUTDBackendRegistry.cs             # バックエンド登録レジストリ
 │   ├── HAP_AUTDEnums.cs                       # 共通列挙型定義
@@ -47,32 +51,29 @@ Assets/Features/Haptics/Scripts/
 │   ├── HAP_FoxBodyHapticsController.cs        # 狐全身8部位の触覚ターゲット管理
 │   ├── HAP_FoxFootHapticsController.cs        # 狐4足・尻尾の足部触覚管理
 │   └── HapticsIllusion/                       # 触覚錯覚カスタムコントローラー群
-├── Debug/                                     # デバッグ・Gizmo・統一ログ
-│   ├── HAP_AUTDDebugDisabler.cs               # 特定デバイス強制停止
-│   ├── HAP_GizmoVisualizer.cs                 # 焦点・アレイ範囲可視化
-│   ├── HAP_ObjectGizmoDrawer.cs               # オブジェクト部位 Gizmo 描画ヘルパー
-│   ├── HAP_ObjectHapticsDiagnostics.cs        # オブジェクト触覚診断レポート生成
-│   └── HAP_LogTriggers.cs                     # AppLogManager 登録＆定期ログ
+├── Debug/                                     # デバッグ・Gizmo・統一ログ（機能別サブフォルダ分離）
+│   ├── Control/                               # 強制ミュート・HCD連携ブリッジ
+│   ├── Diagnostics/                           # AppLogManager 登録・診断レポート出力
+│   └── Gizmos/                                # デバイス枠線・表面OBB・単焦点・部位別・錯覚 Gizmo 描画
 ├── Hardware/                                  # 物理デバイス通信・配置
 │   ├── AUTD3Device.cs                         # 単一アレイデバイス定義
+│   ├── HAP_AUTDCalibration.cs                 # キャリブレーションコンポーネント
+│   ├── HAP_AUTDDeviceGroup.cs                 # デバイスグループ定義
 │   ├── HAP_AUTDHardwareController.cs          # 物理通信・リンク管理
-│   ├── HAP_AUTDTransformLoader.cs             # デバイス配置JSON保存/復元
-│   └── HAP_DeviceOrientationHelper.cs         # 物理照射面ローカル反転整合ヘルパー
-├── Processors/                                # アルゴリズム・パイプライン実行者
-│   ├── HAP_AcousticPipelineExecutor.cs        # 焦点生成〜バックエンド送信実行
-│   ├── HAP_AUTDPerformanceProfiler.cs         # パフォーマンス計測
-│   ├── HAP_DeviceGrouping.cs                  # デバイス幾何グルーピング
-│   ├── HAP_FociGenerator.cs                   # 接触点焦点生成
-│   ├── HAP_HCDFociSettings.cs                 # HCD焦点生成パラメータ設定
-│   ├── HAP_ObjectFociGenerator.cs             # オブジェクト部位焦点組み立て
-│   ├── HAP_TargetContactEvaluator.cs          # 接地・手近接判定評価 (Pure C#)
-│   └── HAP_TargetSourceDispatcher.cs          # ターゲットデータ抽出
+│   ├── HAP_AUTDTransformLoader.cs             # デバイス配置JSON復元・生成オーケストレーター
+│   ├── HAP_AUTDTransformSerializer.cs         # デバイス配置JSONファイル I/O ヘルパー
+│   └── HAP_DeviceOrientationHelper.cs         # 物理照射面・SDK座標系整合ヘルパー
+├── Processors/                                # アルゴリズム・パイプライン実行者（機能別サブフォルダ分離）
+│   ├── Foci/                                  # 焦点生成・グルーピング・HCD/オブジェクト/錯覚ビルダー
+│   ├── Fox/                                   # Foxボーン階層自動検出・接地/手接触評価
+│   ├── Pipeline/                              # 実行パイプライン・ディスパッチ・単焦点処理・計測
+│   └── Sources/                               # 焦点生成ソース (Centroid / Ellipse / Random)
 └── Editor/                                    # エディタ拡張
     ├── HAP_AUTDHapticsControllerEditor.cs     # 2段タブ親インスペクター
-    ├── Drawers/                               # タブ専任 Drawer 群
+    ├── Drawers/                               # 共通Context・DebugFocus/・Tabs/ (6タブ専任Drawer)
     ├── SubComponents/                         # 個別コンポーネント用スリムエディタ
-    ├── Calibration/                           # キャリブレーション用エディタ
-    └── CustomControllers/                     # カスタムコントローラー用エディタ
+    ├── Calibration/                           # キャリブレーション用エディタ＆状態永続化
+    └── CustomControllers/                     # カスタムコントローラー用エディタ＆セクション描画
 ```
 
 ### 2.2 クラス相関図
@@ -87,7 +88,7 @@ graph TD
     TD --> HCD["HCD_Pipeline (接触クラスタ)"]
     TD --> CC["CustomControllers (オブジェクト部位)"]
 
-    PE --> FS["HAP_HCDFociSettings / HAP_FociGenerator"]
+    PE --> FS["HAP_STMConfig / HAP_FociGenerator"]
     PE --> HW["HAP_AUTDHardwareController (物理接続)"]
     PE --> PP["HAP_AUTDPerformanceProfiler"]
 
@@ -120,14 +121,16 @@ graph TD
 [AUTD3 超音波アレイ実機 / Simulator]
 ```
 
-### 2.4 物理配置と照射面ローカル反転整合仕様 (`HAP_DeviceOrientationHelper`)
+### 2.4 物理配置と照射面座標整合仕様 (`HAP_DeviceOrientationHelper`)
 
-Unity 上の `AUTD3.prefab` 構造（親 Transform に対してメッシュが配置されている階層構造）と超音波照射面（物理トランスデューサ開口面）の幾何学的定義の差異を吸収するため、全デバイス一律のローカル回転補正規約を定めています。
+Unity 上の `AUTD3.prefab` 構造（トランスデューサ `(0,0)` を原点としてローカル `+X/+Y` 方向に振動子配列を展開し、ローカル `-Z` 方向へ超音波を照射する定義）と各 SDK バックエンドの座標変換規約を整合させるため、[`HAP_DeviceOrientationHelper`](file:///c:/Users/hongo/Documents/tsutsumi/RealTimeOcclusion/Assets/Features/Haptics/Scripts/Hardware/HAP_DeviceOrientationHelper.cs) で回転・方向取得を管理しています。
 
-* **一貫したローカル Y 軸 180° 反転**:  
-  Scene ビュー上の配置や Transform（UI 表示）を変更することなく、SDK (`Autd3` / `AUTD3Sharp.AUTD3`) 初期化時および幾何グルーピング判定 (`HAP_DeviceGrouping`) 時に、全デバイス共通でローカル Y 軸回りに 180° 反転（`rotation * Quaternion.Euler(0f, 180f, 0f)`）を適用します。
+* **新版 SDK (`autd3-sdk` v0.14.1 / Current SDK)**:
+  `Coords.cs` が Unity 左手系から `Autd3` 右手系へ `Z` 軸反転して変換するため、`GetCurrentSdkRotation` により Unity の `transform.rotation` をそのまま（Y 軸 180° 反転なしで）渡します。これにより `Autd3` の振動子配列（`+X`/`+Y`）および照射方向（`AxialDirection = -transform.forward`）がプレハブと 1 対 1 で一致します。
+* **旧版 SDK (`AUTD3Sharp` v3.x / Legacy SDK) および Unity 側幾何判定**:
+  旧版 SDK はローカル `+Z` 照射基準であるため、`GetAdjustedRotation`（`rotation * Quaternion.Euler(0f, 180f, 0f)`）を適用します。また、指向性グルーピング (`HAP_DeviceGrouping`) や Gizmo 描画での照射ベクトル取得は `GetAdjustedForward`（`-transform.forward` 相当）を使用します。
 * **物理照射ベクトルの整合性**:  
-  この統一変換により、机の上に上向き（$+Y$）に設置された床面 4 台（Device 2, 3, 4, 5）および斜めスタンドに設置された側面 4 台（Device 0, 1, 6, 7）のすべてが、ターゲット領域（中央のキャラクター）に向かって正しい同位相で照射されます。
+  上記仕様により、床面 4 台（Device 2, 3, 4, 5）および斜めスタンド 4 台（Device 0, 1, 6, 7）のすべての振動子位置と位相計算が、シーン上の配置と正確に一致します。
 
 ---
 
@@ -145,16 +148,16 @@ Unity 上の `AUTD3.prefab` 構造（親 Transform に対してメッシュが�
 `HAP_AUTDHapticsController` の Inspector 上部にある 2 段ツールバーから各タブを切り替えて設定を行います：
 
 ```
-[ ⚙️ General ]   [ 📡 Hardware ]   [ 📐 Placement ]
-[ 🔊 Acoustics ] [ 🎯 HCD Foci ]   [ ⏱️ Debug ]
+[ ⚙️ General ]   [ 📡 Hardware ]     [ 📐 Placement ]
+[ 🔊 Acoustics ] [ 🎯 Calibration ]  [ ⏱️ Debug ]
 ```
 
 * **⚙️ General**: 動作モード (`AutoHCD`: 手指接触クラスタ連動 / `ObjectTarget`: 仮想オブジェクト部位 / `Manual`: 手動API) を選択します。
-* **📡 Hardware**: 通信リンク種別 (`SOEM`, `TwinCAT`, `Simulator`)、変調周波数、サイレンサーを設定します。
+* **📡 Hardware**: 通信リンク種別（新版: `LAN (UDP/IPv6)`, `Simulator` / 旧版: `TwinCAT`, `SOEM`, `Simulator`）、変調周波数、サイレンサーを設定します。
 * **📐 Placement**: デバイス配置 JSON の保存/復元、プレハブ自動生成、全体焦点オフセットを調整します。
-* **🔊 Acoustics**: ホログラフィアルゴリズム (`GSPAT`, `Naive`)、照射強度 (`focusIntensityPascal`: デフォルト 10,000 Pa)、GSPAT 反復回数、指向性グルーピングを設定します。
-* **🎯 HCD Foci**: 手指接触領域に対する焦点生成方式 (`Simplified`, `Precision`) を設定します。
-* **⏱️ Debug**: 処理時間プロファイラーの有効化、Scene ビューの Gizmo 表示、特定デバイスの強制ミュートを制御します。
+* **🔊 Acoustics**: ホログラフィアルゴリズム (`GSPAT`, `Naive`)、照射強度 (`focusIntensityPascal`: デフォルト 10,000 Pa)、GSPAT 反復回数、指向性グルーピング、STM（AutoHCD 用楕円 STM / Precision ソース含む）を設定します。
+* **🎯 Calibration**: 単焦点デバッグ照射・空間キャリブレーション（任意座標・Transform 追従・1mm/10mm 微調整・出力/変調オーバーライド・差分 Offset 自動補正）を制御します。
+* **⏱️ Debug**: Scene ビューの Gizmo 表示 ON/OFF、特定デバイスの強制ミュート、処理時間プロファイラー、および `AppLogManager` 連携を制御します。
 
 #### Step 3: 実行
 
