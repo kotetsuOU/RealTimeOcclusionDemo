@@ -41,9 +41,14 @@ namespace Features.Haptics.Editor
                 EditorGUILayout.Space(4);
                 using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
                 {
-                    string connText = hw.IsConnected ? $"● 接続中 ({hw.linkType}) - デバイス数: {hw.ConnectedDevices.Count}" : "○ 未接続 (Disconnected)";
+                    string backendName = hw.Backend?.BackendName ?? "None";
+                    string effectiveLink = GetEffectiveLinkDisplay(hw);
+                    string connText = hw.IsConnected
+                        ? $"● 接続中 ({effectiveLink}) - デバイス数: {hw.ConnectedDevices.Count}"
+                        : $"○ 未接続 (Disconnected / 設定: {effectiveLink})";
                     EditorGUILayout.LabelField("ハードウェア状態:", EditorStyles.boldLabel);
                     EditorGUILayout.LabelField(connText, EditorStyles.miniLabel);
+                    EditorGUILayout.LabelField($"Backend: {backendName}", EditorStyles.miniLabel);
                 }
             }
 
@@ -53,12 +58,7 @@ namespace Features.Haptics.Editor
             EditorGUILayout.LabelField("物理通信リンク (Link Settings)", EditorStyles.boldLabel);
             using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
             {
-                if (ctx.HwLinkTypeProp != null) EditorGUILayout.PropertyField(ctx.HwLinkTypeProp, new GUIContent("接続リンク種別"));
-
-                if (ctx.HwLinkTypeProp != null && ctx.HwLinkTypeProp.enumValueIndex == (int)AUTDLinkType.SOEM)
-                {
-                    if (ctx.HwSoemAdapterProp != null) EditorGUILayout.PropertyField(ctx.HwSoemAdapterProp, new GUIContent("SOEM アダプタ名"));
-                }
+                DrawLinkSettings(ctx);
             }
 
             EditorGUILayout.Space(8);
@@ -116,6 +116,117 @@ namespace Features.Haptics.Editor
             ctx.HardwareControllerProp.objectReferenceValue = hw;
             ctx.SerializedObject.ApplyModifiedProperties();
             ctx.RefreshLinkedObjects();
+        }
+
+        private static string GetEffectiveLinkDisplay(HAP_AUTDHardwareController hw)
+        {
+#if USE_AUTD3_LEGACY
+            return hw.linkType switch
+            {
+                AUTDLinkType.LAN => "TwinCAT (LAN fallback)",
+                AUTDLinkType.SOEM => string.IsNullOrWhiteSpace(hw.soemAdapterName) ? "SOEM" : $"SOEM ({hw.soemAdapterName})",
+                _ => hw.linkType.ToString()
+            };
+#else
+            return hw.linkType switch
+            {
+                AUTDLinkType.Simulator => string.IsNullOrWhiteSpace(hw.simulatorAddress) ? "Simulator ([::1]:44336)" : $"Simulator ({hw.simulatorAddress})",
+                _ => string.IsNullOrWhiteSpace(hw.lanInterfaceName) ? "LAN (Auto)" : $"LAN ({hw.lanInterfaceName})"
+            };
+#endif
+        }
+
+        private static void DrawLinkSettings(HAP_EditorContext ctx)
+        {
+            if (ctx.HwLinkTypeProp == null) return;
+
+            var currentType = (AUTDLinkType)ctx.HwLinkTypeProp.intValue;
+
+#if USE_AUTD3_LEGACY
+            var legacyOptions = new[]
+            {
+                AUTDLinkType.TwinCAT,
+                AUTDLinkType.SOEM,
+                AUTDLinkType.Simulator
+            };
+            var legacyLabels = new[]
+            {
+                "TwinCAT",
+                "SOEM",
+                "Simulator"
+            };
+
+            int currentIdx = System.Array.IndexOf(legacyOptions, currentType);
+            if (currentIdx < 0)
+            {
+                currentIdx = 0; // LAN 等の新SDK専用値は TwinCAT として表示
+                EditorGUILayout.HelpBox("新SDK向け設定 (LAN) が保存されています。旧SDKでは TwinCAT として接続されます。", MessageType.Info);
+            }
+
+            EditorGUI.BeginChangeCheck();
+            int newIdx = EditorGUILayout.Popup("接続リンク種別", currentIdx, legacyLabels);
+            if (EditorGUI.EndChangeCheck())
+            {
+                ctx.HwLinkTypeProp.intValue = (int)legacyOptions[newIdx];
+            }
+
+            if (legacyOptions[newIdx] == AUTDLinkType.SOEM && ctx.HwSoemAdapterProp != null)
+            {
+                EditorGUILayout.PropertyField(ctx.HwSoemAdapterProp, new GUIContent("SOEM アダプタ名"));
+            }
+#else
+            var currentOptions = new[]
+            {
+                AUTDLinkType.LAN,
+                AUTDLinkType.Simulator
+            };
+            var currentLabels = new[]
+            {
+                "LAN (UDP/IPv6)",
+                "Simulator"
+            };
+
+            int currentIdx = System.Array.IndexOf(currentOptions, currentType);
+            bool isLegacyValue = currentIdx < 0;
+            if (isLegacyValue)
+            {
+                currentIdx = 0; // TwinCAT / SOEM は LAN として扱う
+            }
+
+            EditorGUI.BeginChangeCheck();
+            int newIdx = EditorGUILayout.Popup("接続リンク種別", currentIdx, currentLabels);
+            if (EditorGUI.EndChangeCheck())
+            {
+                ctx.HwLinkTypeProp.intValue = (int)currentOptions[newIdx];
+            }
+
+            if (isLegacyValue)
+            {
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    EditorGUILayout.HelpBox($"旧版設定 ({currentType}) が保存されています。新SDKでは LAN (UDP) として接続されます。", MessageType.Info);
+                    if (GUILayout.Button("LAN に更新", GUILayout.Width(84), GUILayout.Height(36)))
+                    {
+                        ctx.HwLinkTypeProp.intValue = (int)AUTDLinkType.LAN;
+                    }
+                }
+            }
+
+            if (currentOptions[newIdx] == AUTDLinkType.Simulator)
+            {
+                if (ctx.HwSimulatorAddressProp != null)
+                {
+                    EditorGUILayout.PropertyField(ctx.HwSimulatorAddressProp, new GUIContent("Simulator アドレス"));
+                }
+            }
+            else
+            {
+                if (ctx.HwLanInterfaceProp != null)
+                {
+                    EditorGUILayout.PropertyField(ctx.HwLanInterfaceProp, new GUIContent("ネットワークインタフェース名 (空欄で自動)"));
+                }
+            }
+#endif
         }
     }
 }

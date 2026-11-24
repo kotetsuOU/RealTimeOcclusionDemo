@@ -1,5 +1,6 @@
 #if AUTD3_SDK_CURRENT
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
 using Core.Logging;
@@ -13,7 +14,7 @@ using static AUTD3.Units;
 namespace Features.Haptics.Backends.Current
 {
     /// <summary>
-    /// autd3-sdk (v0.9.0 / Current SDK) におけるハードウェア設定（Modulation, Silencer, Fan, Temperature）
+    /// autd3-sdk (v0.14.1 / Current SDK) におけるハードウェア設定（Modulation, Silencer, Fan, Temperature）
     /// の適用・キャッシュ管理、および安全シャットダウンコマンドの送信を担当する専任コンフィグレーター。
     /// </summary>
     public class HAP_CurrentHardwareConfigurator
@@ -61,39 +62,53 @@ namespace Features.Haptics.Backends.Current
         /// <summary>
         /// 振幅変調（Modulation）設定を非同期送信します。
         /// </summary>
-        public async Task ApplyModulationAsync(Client? client, Geometry? geometry, ModulationMode mode, float sineFreq, float staticAmp)
+        public async Task ApplyModulationAsync(
+            Client? client,
+            Geometry? geometry,
+            ModulationMode mode,
+            float sineFreq,
+            float staticAmp,
+            CancellationToken cancellationToken = default)
         {
             if (client == null || geometry == null) return;
             if (IsModulationUnchanged(mode, sineFreq, staticAmp)) return;
 
             try
             {
-                using var builder = client.DatagramBuilder();
                 using var modulation = Modulation.ModulationBuffer();
+                float appliedFreq = sineFreq;
 
                 switch (mode)
                 {
                     case ModulationMode.Sine:
-                        Modulation.Sine(Nearest(sineFreq * Hz), new SineOption(), modulation);
+                        try
+                        {
+                            Modulation.Sine(sineFreq * Hz, new SineOption(), SamplingConfig.Freq4k, modulation);
+                        }
+                        catch (Autd3Exception ex)
+                        {
+                            // 4kHz サンプリングで表現できない小数周波数などが指定された場合は整数周波数へ丸めてリトライする
+                            appliedFreq = Mathf.Clamp(Mathf.Round(sineFreq), 1f, 1999f);
+                            AppLogger.LogWarning(null, HAP_LogTriggers.TagModulationService,
+                                $"[CurrentBackend] Sine frequency {sineFreq}Hz is not representable at 4kHz ({ex.Message}). Rounding to {appliedFreq}Hz.");
+                            Modulation.Sine(appliedFreq * Hz, new SineOption(), SamplingConfig.Freq4k, modulation);
+                        }
                         break;
+
                     case ModulationMode.Static:
                         byte intensity = (byte)Mathf.Clamp(staticAmp * 255f, 0, 255);
                         Modulation.Constant(intensity, modulation);
                         break;
                 }
 
-                builder.Push(new Modulation(SamplingConfig.Freq4k, modulation));
-                using var frames = builder.Build();
-                foreach (var frame in frames)
-                {
-                    await client.SendCheckedAsync(frame).ConfigureAwait(false);
-                }
+                await client.SendAsync(new Modulation(SamplingConfig.Freq4k, modulation), cancellationToken).ConfigureAwait(false);
 
                 _prevModMode = mode;
                 _prevSineFreq = sineFreq;
                 _prevStaticAmp = staticAmp;
 
-                AppLogger.Log(null, HAP_LogTriggers.TagModulationService, $"[CurrentBackend] Applied Modulation: Mode={mode}, SineFreq={sineFreq}Hz, StaticAmp={staticAmp:F2}");
+                AppLogger.Log(null, HAP_LogTriggers.TagModulationService,
+                    $"[CurrentBackend] Applied Modulation: Mode={mode}, SineFreq={appliedFreq}Hz, StaticAmp={staticAmp:F2}");
             }
             catch (Exception ex)
             {
@@ -101,39 +116,30 @@ namespace Features.Haptics.Backends.Current
             }
         }
 
-        public void ApplyModulation(Client? client, Geometry? geometry, ModulationMode mode, float sineFreq, float staticAmp)
-            => _ = ApplyModulationAsync(client, geometry, mode, sineFreq, staticAmp);
-
         /// <summary>
         /// サイレンサー（Silencer）設定を非同期送信します。
         /// </summary>
-        public async Task ApplySilencerAsync(Client? client, Geometry? geometry, SilencerMode mode, ushort stepPhase, ushort stepAmp)
+        public async Task ApplySilencerAsync(
+            Client? client,
+            Geometry? geometry,
+            SilencerMode mode,
+            ushort stepPhase,
+            ushort stepAmp,
+            CancellationToken cancellationToken = default)
         {
             if (client == null || geometry == null) return;
             if (IsSilencerUnchanged(mode, stepPhase, stepAmp)) return;
 
             try
             {
-                using var builder = client.DatagramBuilder();
-
-                switch (mode)
+                ICommand command = mode switch
                 {
-                    case SilencerMode.Disabled:
-                        builder.Push(SetSilencer.Disable());
-                        break;
-                    case SilencerMode.FixedUpdateRate:
-                        builder.Push(new SetSilencer(new FixedUpdateRate(stepAmp, stepPhase)));
-                        break;
-                    case SilencerMode.FixedCompletionTime:
-                        builder.Push(new SetSilencer(new FixedCompletionTime()));
-                        break;
-                }
+                    SilencerMode.Disabled => SetSilencer.Disable(),
+                    SilencerMode.FixedUpdateRate => new SetSilencer(new FixedUpdateRate(Math.Max((ushort)1, stepAmp), Math.Max((ushort)1, stepPhase))),
+                    _ => new SetSilencer(new FixedCompletionTime()),
+                };
 
-                using var frames = builder.Build();
-                foreach (var frame in frames)
-                {
-                    await client.SendCheckedAsync(frame).ConfigureAwait(false);
-                }
+                await client.SendAsync(command, cancellationToken).ConfigureAwait(false);
 
                 _prevSilencerMode = mode;
                 _prevSilStepPhase = stepPhase;
@@ -145,27 +151,21 @@ namespace Features.Haptics.Backends.Current
             }
         }
 
-        public void ApplySilencer(Client? client, Geometry? geometry, SilencerMode mode, ushort stepPhase, ushort stepAmp)
-            => _ = ApplySilencerAsync(client, geometry, mode, stepPhase, stepAmp);
-
         /// <summary>
         /// 冷却ファンの ON/OFF を非同期送信します。
         /// </summary>
-        public async Task ApplyFanAsync(Client? client, Geometry? geometry, bool enableFan)
+        public async Task ApplyFanAsync(
+            Client? client,
+            Geometry? geometry,
+            bool enableFan,
+            CancellationToken cancellationToken = default)
         {
             if (client == null || geometry == null) return;
             if (IsFanUnchanged(enableFan)) return;
 
             try
             {
-                using var builder = client.DatagramBuilder();
-                builder.Push(new ForceFan(enableFan));
-                using var frames = builder.Build();
-                foreach (var frame in frames)
-                {
-                    await client.SendCheckedAsync(frame).ConfigureAwait(false);
-                }
-
+                await client.SendAsync(new ForceFan(enableFan), cancellationToken).ConfigureAwait(false);
                 _prevFanState = enableFan;
             }
             catch (Exception ex)
@@ -174,30 +174,19 @@ namespace Features.Haptics.Backends.Current
             }
         }
 
-        public void ApplyFan(Client? client, Geometry? geometry, bool enableFan)
-            => _ = ApplyFanAsync(client, geometry, enableFan);
-
         /// <summary>
         /// 出力停止（Null パターン）を非同期送信します。
         /// </summary>
-        public async Task SendNullAsync(Client? client, Geometry? geometry)
+        public async Task SendNullAsync(
+            Client? client,
+            Geometry? geometry,
+            CancellationToken cancellationToken = default)
         {
             if (client == null || geometry == null) return;
             try
             {
-                using var builder = client.DatagramBuilder();
-                using var patterns = geometry.PatternBuffer();
-                Pattern.SetPhaseAndIntensity(Phase.Zero, Intensity.Min, patterns);
-                builder.Push(new Pattern(patterns));
-
-                using var frames = builder.Build();
-                foreach (var frame in frames)
-                {
-                    await client.SendCheckedAsync(frame).ConfigureAwait(false);
-                }
-
-                // 出力停止後、再開時に確実に Modulation を FPGA へ再適用させるためにキャッシュをリセット
-                ResetModulationCache();
+                using var zeroPhases = geometry.PhaseBuffer();
+                await client.SendAsync(new Pattern(zeroPhases, Intensity.Min), cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -208,18 +197,15 @@ namespace Features.Haptics.Backends.Current
         /// <summary>
         /// シャットダウン時にサイレンサーを無効化（初期状態へ復帰）します。
         /// </summary>
-        public async Task SendSilencerDisableAsync(Client? client, Geometry? geometry)
+        public async Task SendSilencerDisableAsync(
+            Client? client,
+            Geometry? geometry,
+            CancellationToken cancellationToken = default)
         {
             if (client == null || geometry == null) return;
             try
             {
-                using var builder = client.DatagramBuilder();
-                builder.Push(SetSilencer.Disable());
-                using var frames = builder.Build();
-                foreach (var frame in frames)
-                {
-                    await client.SendCheckedAsync(frame).ConfigureAwait(false);
-                }
+                await client.SendAsync(SetSilencer.Disable(), cancellationToken).ConfigureAwait(false);
                 _prevSilencerMode = SilencerMode.Disabled;
             }
             catch (Exception ex)
@@ -231,18 +217,15 @@ namespace Features.Haptics.Backends.Current
         /// <summary>
         /// シャットダウン時に冷却ファンを停止します。
         /// </summary>
-        public async Task SendFanStopAsync(Client? client, Geometry? geometry)
+        public async Task SendFanStopAsync(
+            Client? client,
+            Geometry? geometry,
+            CancellationToken cancellationToken = default)
         {
             if (client == null || geometry == null) return;
             try
             {
-                using var builder = client.DatagramBuilder();
-                builder.Push(new ForceFan(false));
-                using var frames = builder.Build();
-                foreach (var frame in frames)
-                {
-                    await client.SendCheckedAsync(frame).ConfigureAwait(false);
-                }
+                await client.SendAsync(new ForceFan(false), cancellationToken).ConfigureAwait(false);
                 _prevFanState = false;
             }
             catch (Exception ex)

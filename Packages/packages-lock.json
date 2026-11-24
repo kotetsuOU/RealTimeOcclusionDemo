@@ -8,65 +8,47 @@
       "hash": "9d13ba48c1e2f2d3628e4728b07b65ace21c975a"
     },
     "com.shinolab.autd3-sdk": {
-      "version": "0.9.0",
+      "version": "0.14.1",
       "depth": 0,
       "source": "registry",
       "dependencies": {
-        "com.shinolab.autd3-sdk.core": "0.9.0",
-        "com.shinolab.autd3-sdk.pattern": "0.9.0",
-        "com.shinolab.autd3-sdk.modulation": "0.9.0"
+        "com.shinolab.autd3-sdk.core": "0.14.1",
+        "com.shinolab.autd3-sdk.pattern": "0.14.1",
+        "com.shinolab.autd3-sdk.modulation": "0.14.1"
       },
       "url": "https://registry.npmjs.org"
     },
     "com.shinolab.autd3-sdk.core": {
-      "version": "0.9.0",
+      "version": "0.14.1",
       "depth": 1,
       "source": "registry",
       "dependencies": {},
       "url": "https://registry.npmjs.org"
     },
-    "com.shinolab.autd3-sdk.link.remote": {
-      "version": "0.9.0",
-      "depth": 0,
-      "source": "registry",
-      "dependencies": {
-        "com.shinolab.autd3-sdk": "0.9.0"
-      },
-      "url": "https://registry.npmjs.org"
-    },
-    "com.shinolab.autd3-sdk.link.twincat": {
-      "version": "0.9.0",
-      "depth": 0,
-      "source": "registry",
-      "dependencies": {
-        "com.shinolab.autd3-sdk": "0.9.0"
-      },
-      "url": "https://registry.npmjs.org"
-    },
     "com.shinolab.autd3-sdk.modulation": {
-      "version": "0.9.0",
+      "version": "0.14.1",
       "depth": 1,
       "source": "registry",
       "dependencies": {
-        "com.shinolab.autd3-sdk.core": "0.9.0"
+        "com.shinolab.autd3-sdk.core": "0.14.1"
       },
       "url": "https://registry.npmjs.org"
     },
     "com.shinolab.autd3-sdk.pattern": {
-      "version": "0.9.0",
+      "version": "0.14.1",
       "depth": 1,
       "source": "registry",
       "dependencies": {
-        "com.shinolab.autd3-sdk.core": "0.9.0"
+        "com.shinolab.autd3-sdk.core": "0.14.1"
       },
       "url": "https://registry.npmjs.org"
     },
     "com.shinolab.autd3-sdk.pattern.holo": {
-      "version": "0.9.0",
+      "version": "0.14.1",
       "depth": 0,
       "source": "registry",
       "dependencies": {
-        "com.shinolab.autd3-sdk.pattern": "0.9.0"
+        "com.shinolab.autd3-sdk.pattern": "0.14.1"
       },
       "url": "https://registry.npmjs.org"
     },
@@ -79,7 +61,7 @@
         "com.unity.mathematics": "1.3.2",
         "com.unity.textmeshpro": "5.0.0"
       },
-      "hash": "120c9e7cad32f4c07397e83f5650acc18bc9d1df"
+      "hash": "3da1267579ce15d6ffeccbce434283f4a0ea07b0"
     },
     "com.ultraleap.tracking": {
       "version": "7.3.0",

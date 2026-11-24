@@ -69,9 +69,10 @@ public enum HapticsSourceMode
 /// </summary>
 public enum AUTDLinkType
 {
-    TwinCAT,
-    SOEM,
-    Simulator
+    TwinCAT = 0,
+    SOEM = 1,
+    Simulator = 2,
+    LAN = 3
 }
 
 /// <summary>
@@ -106,4 +107,25 @@ public enum GainSTMMode : byte
     PhaseFull = 1,
     /// <summary>位相半波長</summary>
     PhaseHalf = 2
+}
+
+/// <summary>
+/// Haptics の各種 Source 共通の振幅算出モード
+/// </summary>
+public enum HapticsForceAmplitudeMode
+{
+    Constant,
+    VectorSum,
+    VectorMean,
+    MagnitudeSum,
+    MagnitudeMean
+}
+
+/// <summary>
+/// STM / シーケンシャル焦点の出力方式
+/// </summary>
+public enum HapticsOutputMode
+{
+    FociStm,
+    Sequential
 }

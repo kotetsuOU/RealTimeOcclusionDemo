@@ -1,4 +1,5 @@
 #if AUTD3_SDK_CURRENT
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 using Features.Haptics.Core;
@@ -11,21 +12,21 @@ using AUTD3.Holo;
 namespace Features.Haptics.Backends.Current
 {
     /// <summary>
-    /// autd3-sdk (v0.9.0 / Current SDK) における静的超音波ホログラフィ (Naive / GSPAT) パターンの構築を担当する専任ビルダー。
+    /// autd3-sdk (v0.14.1 / Current SDK) における静的超音波ホログラフィ (Naive / GSPAT) パターンの構築を担当する専任ビルダー。
     /// </summary>
     public class HAP_CurrentHoloBuilder
     {
         /// <summary>
-        /// クラスタ焦点データからホログラフィパターンを計算し、<see cref="DatagramBuilder"/> に登録します。
+        /// クラスタ焦点データからホログラフィパターンを計算し、バッファを所有する <see cref="HAP_CurrentPatternBuilder.BuiltCommand"/> を返します。
         /// </summary>
-        public void Build(
-            DatagramBuilder builder,
+        public HAP_CurrentPatternBuilder.BuiltCommand Build(
             Geometry geometry,
             Length wavelength,
             List<HAP_FociGenerator.ClusterFociData> clusterList,
             HoloAlgorithm holoAlgorithm,
             float focusIntensityPascal,
-            uint gspatRepeat)
+            uint gspatRepeat,
+            TransducerMask transducerMask)
         {
             var mergedFoci = new List<AmplitudeTarget>();
             foreach (var cData in clusterList)
@@ -47,19 +48,47 @@ namespace Features.Haptics.Backends.Current
             }
 
             if (mergedFoci.Count == 0)
+            {
                 mergedFoci.Add(new AmplitudeTarget(Vector3.zero, Amplitude.FromPascal(0f)));
-
-            var patterns = geometry.PatternBuffer();
-            if (holoAlgorithm == HoloAlgorithm.GSPAT)
-            {
-                Holo.Gspat(geometry, mergedFoci.ToArray(), wavelength, new GspatOption(repeat: gspatRepeat), patterns);
-            }
-            else
-            {
-                Holo.Naive(geometry, mergedFoci.ToArray(), wavelength, new NaiveOption(), patterns);
             }
 
-            builder.Push(new Pattern(patterns));
+            var phases = geometry.PhaseBuffer();
+            var intensities = geometry.IntensityBuffer();
+            try
+            {
+                if (holoAlgorithm == HoloAlgorithm.GSPAT)
+                {
+                    Holo.Gspat(
+                        geometry,
+                        mergedFoci.ToArray(),
+                        wavelength,
+                        new GspatOption { Repeat = gspatRepeat, Mask = transducerMask },
+                        phases,
+                        intensities);
+                }
+                else
+                {
+                    Holo.Naive(
+                        geometry,
+                        mergedFoci.ToArray(),
+                        wavelength,
+                        new NaiveOption { Mask = transducerMask },
+                        phases,
+                        intensities);
+                }
+
+                return new HAP_CurrentPatternBuilder.BuiltCommand(
+                    new Pattern(phases, intensities),
+                    useStreaming: false,
+                    phases,
+                    intensities);
+            }
+            catch
+            {
+                phases.Dispose();
+                intensities.Dispose();
+                throw;
+            }
         }
     }
 }

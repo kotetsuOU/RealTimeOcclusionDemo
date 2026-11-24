@@ -45,6 +45,11 @@ namespace Features.Haptics.Editor
                     EditorGUILayout.PropertyField(ctx.TlOffsetProp, new GUIContent("全体焦点オフセット (Offset)"));
                     EditorGUILayout.HelpBox("すべての焦点座標に加算されるオフセット (m) です。デバイス座標系とUnity空間の微調整に使用します。", MessageType.None);
                 }
+
+                if (GUILayout.Button("🎯 単焦点テスト照射でキャリブレーション (Debug タブを開く)", GUILayout.Height(24)))
+                {
+                    HAP_AUTDHapticsControllerEditor.SwitchToTab(HAP_AUTDHapticsControllerEditor.Tab.Debug);
+                }
             }
 
             EditorGUILayout.Space(8);
