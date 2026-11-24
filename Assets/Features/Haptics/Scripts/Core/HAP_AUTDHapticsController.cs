@@ -39,9 +39,6 @@ public class HAP_AUTDHapticsController : MonoBehaviour, IAppLoggable, ISerializa
     [Tooltip("接触判定を行う HCD_Pipeline の参照。自動モード時に毎フレームここからクラスタ情報を取得します。")]
     public HCD_Pipeline hcdPipeline = null!;
 
-    [Tooltip("HCDの焦点生成設定を行う HAP_HCDFociSettings の参照。未指定時は自動取得します。")]
-    public HAP_HCDFociSettings hcdFociSettings = null!;
-
     [Tooltip("オブジェクトのハプティクス制御コンポーネントのリスト。アタッチされている場合、特定オブジェクト位置へ照射します。")]
     public List<HAP_BaseObjectHapticsController> objectHapticsControllers = new List<HAP_BaseObjectHapticsController>();
 
@@ -119,6 +116,10 @@ public class HAP_AUTDHapticsController : MonoBehaviour, IAppLoggable, ISerializa
     [Tooltip("エディタ上でデバイスのサイズと位置を Gizmo (青色の枠) で表示します。")]
     public bool visualizeDevices = true;
 
+    [Header("Debug Focus / Calibration")]
+    [Tooltip("任意座標へ単焦点（Naive）を照射して位置確認・空間キャリブレーションを行う設定")]
+    public HAP_DebugFocusConfig debugFocusConfig = new HAP_DebugFocusConfig();
+
     [HideInInspector]
     public HAP_AUTDPerformanceProfiler performanceProfiler = new HAP_AUTDPerformanceProfiler();
 
@@ -179,21 +180,6 @@ public class HAP_AUTDHapticsController : MonoBehaviour, IAppLoggable, ISerializa
         {
             hcdPipeline = FindAnyObjectByType<HCD_Pipeline>();
         }
-
-        if (hcdFociSettings == null)
-        {
-            if (hcdPipeline != null)
-            {
-                hcdFociSettings = hcdPipeline.GetComponent<HAP_HCDFociSettings>()
-                               ?? hcdPipeline.GetComponentInChildren<HAP_HCDFociSettings>();
-            }
-            if (hcdFociSettings == null)
-            {
-                hcdFociSettings = GetComponent<HAP_HCDFociSettings>()
-                               ?? GetComponentInChildren<HAP_HCDFociSettings>()
-                               ?? FindAnyObjectByType<HAP_HCDFociSettings>();
-            }
-        }
     }
 
 #if UNITY_EDITOR
@@ -202,7 +188,6 @@ public class HAP_AUTDHapticsController : MonoBehaviour, IAppLoggable, ISerializa
         if (hardwareController == null) hardwareController = GetComponent<HAP_AUTDHardwareController>() ?? GetComponentInChildren<HAP_AUTDHardwareController>() ?? FindAnyObjectByType<HAP_AUTDHardwareController>();
         if (transformLoader == null) transformLoader = GetComponent<HAP_AUTDTransformLoader>() ?? GetComponentInChildren<HAP_AUTDTransformLoader>() ?? FindAnyObjectByType<HAP_AUTDTransformLoader>();
         if (hcdPipeline == null) hcdPipeline = FindAnyObjectByType<HCD_Pipeline>();
-        if (hcdFociSettings == null) hcdFociSettings = GetComponent<HAP_HCDFociSettings>() ?? GetComponentInChildren<HAP_HCDFociSettings>() ?? FindAnyObjectByType<HAP_HCDFociSettings>();
         if (debugDisabler == null) debugDisabler = GetComponent<HAP_AUTDDebugDisabler>() ?? GetComponentInChildren<HAP_AUTDDebugDisabler>();
     }
 #endif
@@ -224,43 +209,62 @@ public class HAP_AUTDHapticsController : MonoBehaviour, IAppLoggable, ISerializa
     private void UpdateHaptics()
     {
         Vector3 currentOffset = offset;
+        HAP_DebugFocusConfig? activeDebugFocus = (!bypassHaptics && debugFocusConfig.enableDebugFocus)
+            ? debugFocusConfig
+            : null;
 
-        bool hasActiveTargets = _targetDispatcher.CollectTargets(
-            sourceMode,
-            bypassHaptics,
-            hcdPipeline,
-            objectHapticsControllers,
-            activeObjectControllerIndex,
-            acousticConfig.focusIntensityPascal,
-            currentOffset,
-            out var activeClusters,
-            out var objectFociList);
+        bool hasActiveTargets = false;
+        List<TrackedCluster> activeClusters = new List<TrackedCluster>();
+        List<HAP_FociGenerator.ClusterFociData> objectFociList = new List<HAP_FociGenerator.ClusterFociData>();
+
+        if (activeDebugFocus == null)
+        {
+            hasActiveTargets = _targetDispatcher.CollectTargets(
+                sourceMode,
+                bypassHaptics,
+                hcdPipeline,
+                objectHapticsControllers,
+                activeObjectControllerIndex,
+                acousticConfig.focusIntensityPascal,
+                currentOffset,
+                out activeClusters,
+                out objectFociList);
+        }
 
         _pipelineExecutor.Execute(
             hasActiveTargets,
             sourceMode,
             activeClusters,
             objectFociList,
-            hcdFociSettings,
             hardwareController,
             performanceProfiler,
             debugDisabler,
             acousticConfig,
             stmConfig,
             profilingConfig,
-            currentOffset);
+            currentOffset,
+            this,
+            activeDebugFocus);
     }
 
     private void OnDisable()
     {
-        if (hardwareController != null && hardwareController.IsConnected)
+        if (hardwareController != null)
         {
-            _pipelineExecutor.StopOutput(hardwareController);
+            if (hardwareController.IsConnected)
+            {
+                _pipelineExecutor.StopOutput(hardwareController, this);
+            }
+            else
+            {
+                hardwareController.ClearModulationOverride();
+            }
         }
     }
 
     private void OnDrawGizmos()
     {
         HAP_GizmoVisualizer.DrawControllerGizmos(this);
+        HAP_DebugFocusGizmoDrawer.Draw(this);
     }
 }

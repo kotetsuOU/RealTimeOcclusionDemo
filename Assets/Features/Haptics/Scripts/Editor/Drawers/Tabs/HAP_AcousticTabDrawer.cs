@@ -1,15 +1,19 @@
 #if UNITY_EDITOR
+#nullable enable
 using UnityEditor;
 using UnityEngine;
 
 namespace Features.Haptics.Editor
 {
     /// <summary>
-    /// HAP_AUTDHapticsController の「Acoustics & STM」タブ描画クラス。
-    /// ホログラフィアルゴリズム、出力強度、GSPAT反復回数、指向性グルーピング、およびSTM（時空間変調）を一元管理します。
+    /// HAP_AUTDHapticsController の「Acoustics &amp; STM」タブ描画クラス。
+    /// ホログラフィアルゴリズム、出力強度、GSPAT 反復回数、指向性グルーピング、
+    /// および STM（AutoHCD 用楕円 STM / 接触形状ソース含む）を一元管理します。
     /// </summary>
     public static class HAP_AcousticTabDrawer
     {
+        private const string PrefFoldEllipseSources = "HAP_AcousticTab_FoldPrecisionSources";
+
         public static void Draw(HAP_EditorContext ctx)
         {
             EditorGUILayout.LabelField("🔊 音響演算 & STM (時空間変調) 設定", EditorStyles.boldLabel);
@@ -66,7 +70,45 @@ namespace Features.Haptics.Editor
                     if (ctx.GainStmModeProp != null) EditorGUILayout.PropertyField(ctx.GainStmModeProp, new GUIContent("Gain STM モード"));
                     EditorGUILayout.HelpBox("GainSTM: CPU上でGSPATホログラム波形を全フレーム事前生成し、マルチフォーカスの軌跡を再生します。", MessageType.None);
                 }
+
+                EditorGUILayout.Space(4);
+                DrawAutoHcdPrecisionSection(ctx);
             }
+        }
+
+        private static void DrawAutoHcdPrecisionSection(HAP_EditorContext ctx)
+        {
+            if (ctx.StmGenerationModeProp == null) return;
+
+            EditorGUILayout.PropertyField(ctx.StmGenerationModeProp, new GUIContent("AutoHCD 焦点生成方式"));
+            var genMode = (HapticsGenerationMode)ctx.StmGenerationModeProp.enumValueIndex;
+
+            if (genMode == HapticsGenerationMode.Simplified)
+            {
+                EditorGUILayout.HelpBox("Simplified: 1クラスタあたり重心1点の軽量出力です。", MessageType.None);
+                return;
+            }
+
+            bool fold = SessionState.GetBool(PrefFoldEllipseSources, true);
+            fold = EditorGUILayout.Foldout(fold, "楕円 STM / 接触形状ソース設定 (Precision)", true);
+            SessionState.SetBool(PrefFoldEllipseSources, fold);
+
+            if (!fold) return;
+
+            EditorGUI.indentLevel++;
+            if (ctx.StmEllipseSourceProp != null)
+            {
+                EditorGUILayout.PropertyField(ctx.StmEllipseSourceProp, new GUIContent("楕円 STM ソース (Ellipse)"), true);
+            }
+            if (ctx.StmCentroidSourceProp != null)
+            {
+                EditorGUILayout.PropertyField(ctx.StmCentroidSourceProp, new GUIContent("重心ソース (Centroid)"), true);
+            }
+            if (ctx.StmRandomSourceProp != null)
+            {
+                EditorGUILayout.PropertyField(ctx.StmRandomSourceProp, new GUIContent("ランダムノイズソース (Random)"), true);
+            }
+            EditorGUI.indentLevel--;
         }
     }
 }

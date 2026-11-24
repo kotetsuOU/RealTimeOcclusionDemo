@@ -2,6 +2,8 @@
 #nullable enable
 using UnityEditor;
 using UnityEngine;
+using Core.Logging;
+using Features.Haptics.Debug;
 
 namespace Features.Haptics.Editor
 {
@@ -31,12 +33,7 @@ namespace Features.Haptics.Editor
                 {
                     EditorGUILayout.HelpBox("HCD_Pipeline が未割り当てです。Awake時にシーンから自動検出されます。", MessageType.Info);
                 }
-
-                EditorGUILayout.PropertyField(ctx.HcdFociSettingsProp, new GUIContent("HCD Foci Settings (焦点生成設定)"));
-                if (ctx.HcdFociSettingsProp.objectReferenceValue == null)
-                {
-                    EditorGUILayout.HelpBox("HCD_FociSettings が未割り当てです。「🎯 HCD Foci」タブで設定可能です。", MessageType.None);
-                }
+                EditorGUILayout.HelpBox("楕円 STM / 焦点生成方式は「🔊 Acoustics」タブの STM 設定から調整できます。", MessageType.None);
             }
             else if (sourceMode == HapticsSourceMode.ObjectTarget)
             {
@@ -83,7 +80,6 @@ namespace Features.Haptics.Editor
             {
                 DrawComponentStatus("Hardware Controller", ctx.HardwareControllerProp.objectReferenceValue != null, "「📡 Hardware」タブで設定");
                 DrawComponentStatus("Transform Loader", ctx.TransformLoaderProp.objectReferenceValue != null, "「📐 Placement」タブで設定");
-                DrawComponentStatus("HCD Foci Settings", ctx.HcdFociSettingsProp.objectReferenceValue != null, "「🎯 HCD Foci」タブで設定");
             }
 
             // ─── 子オブジェクト化（二重表示解消）アシスト ───
@@ -159,7 +155,7 @@ namespace Features.Haptics.Editor
             EditorUtility.SetDirty(parentGo);
             EditorUtility.SetDirty(childGo);
 
-            UnityEngine.Debug.Log("[HAP_AUTDHapticsController] 依存コンポーネントを子オブジェクト (AUTD3_Services) に分離しました。");
+            AppLogger.Log(ctx.Controller, HAP_LogTriggers.TagController, "[HAP_AUTDHapticsController] 依存コンポーネントを子オブジェクト (AUTD3_Services) に分離しました。");
         }
 
         private static void DrawComponentStatus(string label, bool isAssigned, string tabHint)
