@@ -63,7 +63,7 @@ namespace RealSense.DummyPointCloud
         /// 現在のフレームで点群の再サンプリング・更新が必要かどうかを総合判定します。
         /// </summary>
         public bool CheckShouldUpdate(
-            RsDummyPointCloudProvider provider,
+            IRsDummyPointCloudSource provider,
             RsPointCloudNoiseSettings noiseSettings,
             out bool isDynamicNoise,
             out bool requiresCacheInvalidation)
@@ -79,21 +79,21 @@ namespace RealSense.DummyPointCloud
                 return true;
             }
 
-            if (HasSettingsChanged(provider, noiseSettings) || HasTargetObjectsChanged(provider.targetObjects))
+            if (HasSettingsChanged(provider, noiseSettings) || HasTargetObjectsChanged(provider.TargetObjects))
             {
                 requiresCacheInvalidation = true;
                 return true;
             }
 
-            Transform camXform = provider.simulatedCameraTransform != null ? provider.simulatedCameraTransform : provider.transform;
-            if (HasTransformsOrRenderersChanged(provider.targetObjects, provider.includeChildren, camXform))
+            Transform camXform = provider.SimulatedCameraTransform != null ? provider.SimulatedCameraTransform : provider.OwnerTransform;
+            if (HasTransformsOrRenderersChanged(provider.TargetObjects, provider.IncludeChildren, camXform))
             {
                 return true;
             }
 
             if (isDynamicNoise)
             {
-                float interval = 1.0f / Mathf.Max(1, provider.updateFPS);
+                float interval = 1.0f / Mathf.Max(1, provider.UpdateFPS);
                 if (Time.time - _lastDynamicUpdateTime >= interval)
                 {
                     _lastDynamicUpdateTime = Time.time;
@@ -107,16 +107,16 @@ namespace RealSense.DummyPointCloud
         /// <summary>
         /// 設定値やターゲット数の変化を検知します。
         /// </summary>
-        private bool HasSettingsChanged(RsDummyPointCloudProvider provider, RsPointCloudNoiseSettings noiseSettings)
+        private bool HasSettingsChanged(IRsDummyPointCloudSource provider, RsPointCloudNoiseSettings noiseSettings)
         {
-            if (_cachedDensityUnit != provider.densityUnit) return true;
-            if (!Mathf.Approximately(_cachedDensityValue, provider.densityValue)) return true;
-            if (_cachedMaxPointLimit != provider.maxPointLimit) return true;
-            if (_cachedColorMode != provider.colorMode) return true;
-            if (_cachedSolidColor != provider.solidColor) return true;
-            if (_cachedIncludeChildren != provider.includeChildren) return true;
-            if (_cachedUseCameraPerspective != provider.useCameraPerspective) return true;
-            if (_cachedSimulatedCameraTransform != provider.simulatedCameraTransform) return true;
+            if (_cachedDensityUnit != provider.DensityUnit) return true;
+            if (!Mathf.Approximately(_cachedDensityValue, provider.DensityValue)) return true;
+            if (_cachedMaxPointLimit != provider.MaxPointLimit) return true;
+            if (_cachedColorMode != provider.ColorMode) return true;
+            if (_cachedSolidColor != provider.SolidColor) return true;
+            if (_cachedIncludeChildren != provider.IncludeChildren) return true;
+            if (_cachedUseCameraPerspective != provider.UseCameraPerspective) return true;
+            if (_cachedSimulatedCameraTransform != provider.SimulatedCameraTransform) return true;
 
             if (noiseSettings != null)
             {
@@ -215,18 +215,18 @@ namespace RealSense.DummyPointCloud
         /// <summary>
         /// サンプリング完了後、最新の状態スナップショットを記録します。
         /// </summary>
-        public void UpdateSnapshots(RsDummyPointCloudProvider provider, RsPointCloudNoiseSettings noiseSettings)
+        public void UpdateSnapshots(IRsDummyPointCloudSource provider, RsPointCloudNoiseSettings noiseSettings)
         {
             _isDirty = false;
 
-            _cachedDensityUnit = provider.densityUnit;
-            _cachedDensityValue = provider.densityValue;
-            _cachedMaxPointLimit = provider.maxPointLimit;
-            _cachedColorMode = provider.colorMode;
-            _cachedSolidColor = provider.solidColor;
-            _cachedIncludeChildren = provider.includeChildren;
-            _cachedUseCameraPerspective = provider.useCameraPerspective;
-            _cachedSimulatedCameraTransform = provider.simulatedCameraTransform;
+            _cachedDensityUnit = provider.DensityUnit;
+            _cachedDensityValue = provider.DensityValue;
+            _cachedMaxPointLimit = provider.MaxPointLimit;
+            _cachedColorMode = provider.ColorMode;
+            _cachedSolidColor = provider.SolidColor;
+            _cachedIncludeChildren = provider.IncludeChildren;
+            _cachedUseCameraPerspective = provider.UseCameraPerspective;
+            _cachedSimulatedCameraTransform = provider.SimulatedCameraTransform;
 
             if (noiseSettings != null)
             {
@@ -241,11 +241,11 @@ namespace RealSense.DummyPointCloud
             }
 
             _cachedTargetSnapshots.Clear();
-            if (provider.targetObjects != null)
+            if (provider.TargetObjects != null)
             {
-                for (int i = 0; i < provider.targetObjects.Count; i++)
+                for (int i = 0; i < provider.TargetObjects.Count; i++)
                 {
-                    var obj = provider.targetObjects[i];
+                    var obj = provider.TargetObjects[i];
                     _cachedTargetSnapshots.Add(new TargetObjectSnapshot
                     {
                         gameObject = obj,
@@ -255,12 +255,12 @@ namespace RealSense.DummyPointCloud
             }
 
             _trackedTransforms.Clear();
-            if (provider.targetObjects != null)
+            if (provider.TargetObjects != null)
             {
-                foreach (var obj in provider.targetObjects)
+                foreach (var obj in provider.TargetObjects)
                 {
                     if (obj == null || !obj.activeInHierarchy) continue;
-                    var renderers = provider.includeChildren ? obj.GetComponentsInChildren<Renderer>() : obj.GetComponents<Renderer>();
+                    var renderers = provider.IncludeChildren ? obj.GetComponentsInChildren<Renderer>() : obj.GetComponents<Renderer>();
                     foreach (var r in renderers)
                     {
                         if (r == null || !RsMeshPointCloudSampler.IsRendererActiveForSampling(r, obj)) continue;
