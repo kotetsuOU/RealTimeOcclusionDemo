@@ -16,6 +16,7 @@
 * **マルチカメラアライメント機能**: 各 RealSense カメラの `Transform` 姿勢パラメータを JSON ファイルとして即座にセーブ／ロード保存可能です。
 * **ガイドボックス表示機能**: Scene ビュー上に位置合わせ基準となるワイヤーフレーム（ガイドボックス）を可視化表示し、直感的なキャリブレーションをサポートします。
 * **Undo / Redo 対応**: Unity エディタの Undo システムに完全対応し、アライメント設定ロード時の誤操作を安全にキャンセルできます。
+* **統合タブ管理 (`RsGeneralController`)**: `RealSense` 親オブジェクト上の複数管理コンポーネント（`Global` / `Device` / `Transform` / `Material` / `Capture`）を `RsGeneralControllerEditor` のタブ UI で一元操作し、サブコンポーネントの `HideInInspector` 表示を切り替えられます。
 * **動的マテリアル・カラーモード連動**: `RsMaterialController` により、全カメラの点群カラーモード (`Skin`, `Black`, `Blue`, `Custom`) をリアルタイム一括制御します。
 
 ---
@@ -25,17 +26,20 @@
 ### 2.1 生成ファイル・ディレクトリ構成
 
 ```text
-Assets/Features/PointCloud/
-├── Settings/
-│   └── Config/RealSense/
-│       └── ChildTransforms.json        # 位置合わせキャリブレーションJSONファイル
+Assets/Settings/Config/RealSense/
+└── ChildTransforms.json               # 位置合わせキャリブレーション JSON ファイル
+
+Assets/Features/RealSense/
+├── Editor/
+│   ├── RsGeneralControllerEditor.cs   # 統合タブ Inspector
+│   ├── RsGlobalTabDrawer.cs           # Global タブ & スキャン範囲ギズモ描画
+│   └── RsTransformTabDrawer.cs        # Transform タブ描画
 └── Scripts/
-    ├── Core/
-    │   └── RsGlobalPointCloudManager.cs # 子カメラレンダラーの統合・管理ハブ
-    ├── Filter/
-    │   └── RsTransformController.cs    # アライメント位置合わせ・JSON入出力制御
-    └── Material/
-        └── RsMaterialController.cs     # 点群マテリアル・カラーモード制御
+    ├── RsGeneralController.cs         # 親管理コンポーネント統合ハブ
+    └── PointCloud/
+        ├── RsGlobalPointCloudManager.cs # 子カメラレンダラーの統合・管理ハブ
+        ├── RsTransformController.cs   # アライメント位置合わせ・JSON 入出力制御
+        └── RsMaterialController.cs    # 点群マテリアル・カラーモード制御
 ```
 
 ### 2.2 クラス相関図

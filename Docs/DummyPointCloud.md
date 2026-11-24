@@ -31,21 +31,27 @@
 Assets/Features/RealSense/
 ├── Scripts/
 │   └── DummyMeasuredPointCloud/
-│       ├── RsDummyPointCloudProvider.cs       # 統括 Facade プロバイダー (RsFrameProvider)
-│       ├── RsDummyChangeTracker.cs            # ターゲット・Active・Transform変更検知 (Pure C#)
+│       ├── IRsDummyPointCloudSource.cs        # ダミー点群設定値の共通インターフェース
+│       ├── RsDummyRealSenseRenderer.cs        # 生成・GPU 描画を 1 つに統合したコンポーネント
+│       ├── RsDummyPointCloudProvider.cs       # 従来構成用 Facade プロバイダー (RsFrameProvider)
+│       ├── RsDummyPointCloudRenderer.cs       # 従来構成用 GPU Procedural Instancing レンダラー
+│       ├── RsDummyGpuBuffer.cs                # GPU バッファ確保・転送・描画ヘルパー (Pure C#)
+│       ├── RsDummyChangeTracker.cs            # ターゲット・Active・Transform 変更検知 (Pure C#)
 │       ├── RsDummyMaterialColorPresenter.cs   # MaterialPropertyBlock カラー同期 (Pure C#)
 │       ├── RsDummySamplingProcessor.cs        # メッシュサンプリング & ノイズパイプライン (Pure C#)
 │       ├── RsDummyStreamingBridge.cs          # RealSense SoftwareDevice ブリッジ (Pure C#)
 │       ├── RsDummySoftwareDevice.cs           # 仮想 RealSense デバイス DepthFrame 生成
-│       ├── RsDummyPointCloudRenderer.cs       # GPU Procedural Instancing (Indirect Draw) レンダラー
-│       ├── RsMeshPointCloudSampler.cs         # メッシュ面・頂点点群サンプラー
+│       ├── RsDummyPointCloudTypes.cs          # 密度単位・カラーモード・点群データ型定義
+│       ├── RsMeshPointCloudSampler.cs         # レンダラー収集・変更キャッシュ管理
+│       ├── RsMeshTriangleSampler.cs           # 三角形表面積計算・一様サンプリング (Pure C#)
 │       ├── RsPointCloudNoiseProcessor.cs      # 法線ノイズ・外れ値計算
-│       ├── RsDummyProcessingPipe.cs           # ダミーフレームパイプライン
+│       ├── RsDummyProcessingPipe.cs           # 従来構成用ダミーフレームパイプライン
 │       └── DPC_LogTriggers.cs                 # AppLogManager 連動用ログトリガー
 └── Editor/
-    ├── RsDummyPointCloudProviderEditor.cs     # プロバイダー用カスタム Inspector
-    ├── RsDummyPointCloudRendererEditor.cs     # レンダラー用カスタム Inspector
-    └── RsDummyProcessingPipeEditor.cs         # パイプライン用カスタム Inspector
+    ├── RsDummyRealSenseRendererEditor.cs      # 統合コンポーネント用カスタム Inspector
+    ├── RsDummyPointCloudProviderEditor.cs     # 従来プロバイダー用カスタム Inspector
+    ├── RsDummyPointCloudRendererEditor.cs     # 従来レンダラー用カスタム Inspector
+    └── RsDummyProcessingPipeEditor.cs         # 従来パイプライン用カスタム Inspector
 ```
 
 ### 2.2 クラス相関図
@@ -126,10 +132,9 @@ graph TD
 
 ### 3.1 クイックスタート手順
 
-#### Step 1: プロバイダーの配置
+#### Step 1: 統合コンポーネントの配置
 
-1. Scene 上の任意の GameObject に `RsDummyPointCloudProvider` をアタッチします。
-2. 同一オブジェクトまたは描画用 GameObject に `RsDummyPointCloudRenderer` をアタッチします。
+1. Scene 上の任意の GameObject（`RealSense` 親オブジェクト配下等）に `RsDummyRealSenseRenderer` をアタッチします（従来の `RsDummyPointCloudProvider` + `RsDummyPointCloudRenderer` を別々に配置する構成も互換維持されています）。
 
 #### Step 2: ターゲットオブジェクトの登録
 
