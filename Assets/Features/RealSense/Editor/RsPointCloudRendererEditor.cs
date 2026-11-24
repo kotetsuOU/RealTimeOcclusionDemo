@@ -39,7 +39,7 @@ public class RsPointCloudRendererEditor : Editor
         RsPointCloudSceneGizmo.DrawPCAEstimationGizmo(renderer);
     }
 
-    private void DrawRangeFilterUI(RsPointCloudRenderer renderer)
+    internal static void DrawRangeFilterUI(RsPointCloudRenderer renderer)
     {
         EditorGUILayout.Space();
         EditorGUILayout.Space();
