@@ -6,7 +6,8 @@ using Core.Logging;
 
 public class RsPointCloudInitializer
 {
-    private readonly RsProcessingPipe _processingPipe;
+    private readonly IRsFrameSource _frameSource;
+    private readonly RsProcessingProfile _processingProfile;
     private readonly ComputeShader _filterShader;
     private readonly ComputeShader _transformShader;
 
@@ -38,8 +39,18 @@ public class RsPointCloudInitializer
         RsProcessingPipe processingPipe,
         ComputeShader filterShader,
         ComputeShader transformShader)
+        : this(processingPipe, processingPipe != null ? processingPipe.profile : null, filterShader, transformShader)
     {
-        _processingPipe = processingPipe;
+    }
+
+    public RsPointCloudInitializer(
+        IRsFrameSource frameSource,
+        RsProcessingProfile processingProfile,
+        ComputeShader filterShader,
+        ComputeShader transformShader)
+    {
+        _frameSource = frameSource;
+        _processingProfile = processingProfile;
         _filterShader = filterShader;
         _transformShader = transformShader;
     }
@@ -65,7 +76,7 @@ public class RsPointCloudInitializer
         else
         {
             // 個別のRealSenseカメラからデータプロバイダーを経由して随時コピーするモード
-            _dataProvider = new RsDataProvider(_processingPipe);
+            _dataProvider = new RsDataProvider(_frameSource);
             _dataProvider.Start();
             width = _dataProvider.FrameWidth;
             height = _dataProvider.FrameHeight;
@@ -119,9 +130,9 @@ public class RsPointCloudInitializer
     // パイプラインのブロック内で、統合点群マネージャ(RsIntegratedPointCloud)が存在するかを探す
     private void TryConnectIntegratedPointCloud()
     {
-        if (_processingPipe == null || _processingPipe.profile == null) return;
+        if (_processingProfile == null || _processingProfile._processingBlocks == null) return;
 
-        foreach (var block in _processingPipe.profile._processingBlocks)
+        foreach (var block in _processingProfile._processingBlocks)
         {
             if (block is RsIntegratedPointCloud integrated)
             {
@@ -137,6 +148,67 @@ public class RsPointCloudInitializer
     public void UpdateIntegratedTransform(Matrix4x4 matrix)
     {
         _integratedPointCloud?.UpdateTransformMatrix(matrix);
+    }
+
+    /// <summary>
+    /// 現在のフレームの点群処理（統合点群モードまたは単体RealSenseモード）を実行し、描画用ArgsBufferを返す
+    /// </summary>
+    public ComputeBuffer ExecuteFrame(
+        Vector3 linePoint,
+        Vector3 lineDir,
+        bool isGlobalRangeFilterEnabled,
+        int frameCounter,
+        float maxPlaneDistance)
+    {
+        if (_frameProcessor == null)
+            return null;
+
+        if (_useIntegratedPointCloud)
+        {
+            if (_integratedPointCloud?.PointCloudBuffer == null)
+                return null;
+
+            int pointCount = _integratedPointCloud.LastPointCount;
+            if (pointCount == 0)
+                return null;
+
+            return _frameProcessor.ProcessIntegratedFrame(
+                _integratedPointCloud.PointCloudBuffer, pointCount,
+                linePoint, lineDir, isGlobalRangeFilterEnabled, frameCounter, maxPlaneDistance);
+        }
+
+        if (_dataProvider == null || !_dataProvider.PollForFrame(out var points))
+            return null;
+
+        using (points)
+        {
+            return _frameProcessor.ProcessRealSenseFrame(
+                points, _rawVertices, _rawVerticesBuffer,
+                linePoint, lineDir, isGlobalRangeFilterEnabled, frameCounter, maxPlaneDistance);
+        }
+    }
+
+    /// <summary>
+    /// フィルタリング済みの頂点配列をCPU側に読み戻す（同期実行）
+    /// </summary>
+    public Vector3[] ReadFilteredVertices(UnityEngine.Object logContext)
+    {
+        if (_compute == null)
+        {
+            AppLogger.LogWarning(logContext, "Compute instance is null.");
+            return System.Array.Empty<Vector3>();
+        }
+
+        int count = _compute.GetLastFilteredCount();
+        if (count <= 0)
+        {
+            AppLogger.LogWarning(logContext, $"Vertex count is {count}.");
+            return System.Array.Empty<Vector3>();
+        }
+
+        Vector3[] result = new Vector3[count];
+        _compute.GetFilteredVerticesData(result, count);
+        return result;
     }
 
     // リソースを安全に解放し、ComputeBufferからのメモリリークを防ぐ

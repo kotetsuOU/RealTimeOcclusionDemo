@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using Intel.RealSense;
 using UnityEngine;
 
-public abstract class RsFrameProvider : MonoBehaviour
+public abstract class RsFrameProvider : MonoBehaviour, IRsFrameSource
 {
     public bool Streaming { get; protected set; }
     public PipelineProfile ActiveProfile { get; protected set; }
