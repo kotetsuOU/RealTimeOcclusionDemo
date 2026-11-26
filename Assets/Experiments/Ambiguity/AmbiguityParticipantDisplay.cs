@@ -103,6 +103,7 @@ public class AmbiguityParticipantDisplay : MonoBehaviour
         _textCamera.backgroundColor = backgroundColor;
         _textCamera.cullingMask = 1 << textCanvas.gameObject.layer;
         _textCamera.orthographic = true;
+        _textCamera.orthographicSize = 0.5f; // Canvas は視野いっぱいに広がる。小さくして Scene ビューで邪魔にならないようにする
         _textCamera.targetTexture = _rt;
         _textCamera.allowHDR = false;
         _textCamera.allowMSAA = false;
