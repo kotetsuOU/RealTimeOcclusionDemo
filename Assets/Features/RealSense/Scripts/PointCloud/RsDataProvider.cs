@@ -4,31 +4,40 @@ using System.Linq;
 
 public class RsDataProvider : IDisposable
 {
-    private readonly RsProcessingPipe _processingPipe;
+    private readonly IRsFrameSource _frameSource;
     private FrameQueue _frameQueue;
     public int FrameWidth { get; private set; }
     public int FrameHeight { get; private set; }
 
-    public RsDataProvider(RsProcessingPipe processingPipe)
+    public RsDataProvider(IRsFrameSource frameSource)
     {
-        _processingPipe = processingPipe;
+        _frameSource = frameSource;
     }
 
     public void Start()
     {
-        _processingPipe.OnStart += OnStartStreaming;
-        _processingPipe.OnStop += Dispose;
+        if (_frameSource == null) return;
+
+        _frameSource.OnStart += OnStartStreaming;
+        _frameSource.OnStop += Dispose;
+
+        if (_frameSource.Streaming && _frameSource.ActiveProfile != null)
+        {
+            OnStartStreaming(_frameSource.ActiveProfile);
+        }
     }
 
     private void OnStartStreaming(PipelineProfile profile)
     {
+        if (_frameQueue != null) return;
+
         _frameQueue = new FrameQueue(1);
         using (var depth = profile.Streams.FirstOrDefault(s => s.Stream == Intel.RealSense.Stream.Depth && s.Format == Format.Z16).As<VideoStreamProfile>())
         {
             FrameWidth = depth.Width;
             FrameHeight = depth.Height;
         }
-        _processingPipe.OnNewSample += OnNewSample;
+        _frameSource.OnNewSample += OnNewSample;
     }
 
     private void OnNewSample(Frame frame)
@@ -61,11 +70,11 @@ public class RsDataProvider : IDisposable
 
     public void Dispose()
     {
-        if (_processingPipe != null)
+        if (_frameSource != null)
         {
-            _processingPipe.OnNewSample -= OnNewSample;
-            _processingPipe.OnStart -= OnStartStreaming;
-            _processingPipe.OnStop -= Dispose;
+            _frameSource.OnNewSample -= OnNewSample;
+            _frameSource.OnStart -= OnStartStreaming;
+            _frameSource.OnStop -= Dispose;
         }
         _frameQueue?.Dispose();
         _frameQueue = null;

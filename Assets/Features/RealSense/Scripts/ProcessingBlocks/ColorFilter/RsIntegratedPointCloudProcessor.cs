@@ -13,29 +13,7 @@ using Core.Logging;
 /// </summary>
 public class RsIntegratedPointCloudProcessor : IDisposable
 {
-    // プロファイリング用に、従来手法でもスキップさせず毎回リードバックを発行させるフラグ
     public bool ForceReadbackEveryFrame { get; set; } = true;
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct RsIntrinsics { public int width, height; public float ppx, ppy, fx, fy; }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct RsExtrinsics
-    {
-        public float r0, r1, r2, r3, r4, r5, r6, r7, r8;
-        public float t0, t1, t2;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct CullingParams
-    {
-        public int width, height, mode;
-        public float minDist, maxDist, minHue, maxHue, minSat, maxSat, minVal, maxVal;
-        public int minY, maxY, minCb, maxCb, minCr, maxCr;
-        public Matrix4x4 transformMatrix;
-        public int coordinateConversion;
-        public int colorFormat; // 0: RGB8, 1: YUYV
-    }
 
     private ComputeShader _shader;
     private int _kernelIndex;
@@ -59,18 +37,19 @@ public class RsIntegratedPointCloudProcessor : IDisposable
     private int _latestPointCount = 0;
     private bool _hasNewPointCloud = false;
 
-    private RsIntrinsics _dIntrin;
-    private RsIntrinsics _cIntrin;
-    private RsExtrinsics _extrin;
+    private RsIntegratedPointCloudTypes.RsIntrinsics _dIntrin;
+    private RsIntegratedPointCloudTypes.RsIntrinsics _cIntrin;
+    private RsIntegratedPointCloudTypes.RsExtrinsics _extrin;
     private bool _initialized = false;
 
-    private readonly CullingParams[] _cullingParamsCache = new CullingParams[1];
+    private readonly RsIntegratedPointCloudTypes.CullingParams[] _cullingParamsCache = new RsIntegratedPointCloudTypes.CullingParams[1];
 
     private byte[] _colorDataCache;
     private byte[] _depthDataCache;
-    private CullingParams _pendingParams;
+    private RsIntegratedPointCloudTypes.CullingParams _pendingParams;
     private volatile bool _hasPendingFrame = false;
     private readonly object _frameLock = new object();
+    private readonly Action _cachedProcessAction;
 
     public ComputeBuffer PointCloudBuffer => _pointCloudBuffers != null ? _pointCloudBuffers[_lastDispatchedIndex] : null;
     public int LastPointCount => _latestPointCount;
@@ -80,6 +59,7 @@ public class RsIntegratedPointCloudProcessor : IDisposable
     {
         _shader = shader;
         _kernelIndex = _shader.FindKernel("CSMain");
+        _cachedProcessAction = ProcessPendingFrame;
     }
 
     public void Initialize(RsDepthToColorCalibration calibration)
@@ -101,9 +81,9 @@ public class RsIntegratedPointCloudProcessor : IDisposable
             try { ex = dp.GetExtrinsicsTo(cp); } catch { }
         }
 
-        _dIntrin = new RsIntrinsics { width = dp.Width, height = dp.Height, ppx = di.ppx, ppy = di.ppy, fx = di.fx, fy = di.fy };
-        _cIntrin = new RsIntrinsics { width = cp.Width, height = cp.Height, ppx = ci.ppx, ppy = ci.ppy, fx = ci.fx, fy = ci.fy };
-        _extrin = new RsExtrinsics
+        _dIntrin = new RsIntegratedPointCloudTypes.RsIntrinsics { width = dp.Width, height = dp.Height, ppx = di.ppx, ppy = di.ppy, fx = di.fx, fy = di.fy };
+        _cIntrin = new RsIntegratedPointCloudTypes.RsIntrinsics { width = cp.Width, height = cp.Height, ppx = ci.ppx, ppy = ci.ppy, fx = ci.fx, fy = ci.fy };
+        _extrin = new RsIntegratedPointCloudTypes.RsExtrinsics
         {
             r0 = ex.rotation != null && ex.rotation.Length >= 9 ? ex.rotation[0] : 1,
             r1 = ex.rotation != null && ex.rotation.Length >= 9 ? ex.rotation[1] : 0,
@@ -130,13 +110,13 @@ public class RsIntegratedPointCloudProcessor : IDisposable
     {
         ReleaseBuffers();
 
-        _depthIntrinsicsBuffer = new ComputeBuffer(1, Marshal.SizeOf(typeof(RsIntrinsics)));
-        _colorIntrinsicsBuffer = new ComputeBuffer(1, Marshal.SizeOf(typeof(RsIntrinsics)));
-        _extrinsicsBuffer = new ComputeBuffer(1, Marshal.SizeOf(typeof(RsExtrinsics)));
+        _depthIntrinsicsBuffer = new ComputeBuffer(1, Marshal.SizeOf(typeof(RsIntegratedPointCloudTypes.RsIntrinsics)));
+        _colorIntrinsicsBuffer = new ComputeBuffer(1, Marshal.SizeOf(typeof(RsIntegratedPointCloudTypes.RsIntrinsics)));
+        _extrinsicsBuffer = new ComputeBuffer(1, Marshal.SizeOf(typeof(RsIntegratedPointCloudTypes.RsExtrinsics)));
 
-        _depthIntrinsicsBuffer.SetData(new RsIntrinsics[] { _dIntrin });
-        _colorIntrinsicsBuffer.SetData(new RsIntrinsics[] { _cIntrin });
-        _extrinsicsBuffer.SetData(new RsExtrinsics[] { _extrin });
+        _depthIntrinsicsBuffer.SetData(new[] { _dIntrin });
+        _colorIntrinsicsBuffer.SetData(new[] { _cIntrin });
+        _extrinsicsBuffer.SetData(new[] { _extrin });
 
         int colorBytes = _cIntrin.width * _cIntrin.height * 3;
         int alignedColorBytes = ((colorBytes + 3) / 4) * 4;
@@ -145,7 +125,7 @@ public class RsIntegratedPointCloudProcessor : IDisposable
 
         for (int i = 0; i < 2; i++)
         {
-            _paramsBuffers[i] = new ComputeBuffer(1, Marshal.SizeOf(typeof(CullingParams)));
+            _paramsBuffers[i] = new ComputeBuffer(1, Marshal.SizeOf(typeof(RsIntegratedPointCloudTypes.CullingParams)));
             _inputColorBuffers[i] = new ComputeBuffer(alignedColorBytes / 4, 4, ComputeBufferType.Raw);
             _inputDepthBuffers[i] = new ComputeBuffer(totalBytes / 4, 4, ComputeBufferType.Raw);
             _pointCloudBuffers[i] = new ComputeBuffer(depthPixelCount, sizeof(float) * 3, ComputeBufferType.Append);
@@ -184,7 +164,7 @@ public class RsIntegratedPointCloudProcessor : IDisposable
             if (depthFrame != null)
                 Marshal.Copy(depthFrame.Data, _depthDataCache, 0, System.Math.Min(depthBytes, _depthDataCache.Length));
 
-            _pendingParams = new CullingParams
+            _pendingParams = new RsIntegratedPointCloudTypes.CullingParams
             {
                 width = _dIntrin.width,
                 height = _dIntrin.height,
@@ -207,10 +187,14 @@ public class RsIntegratedPointCloudProcessor : IDisposable
                 coordinateConversion = (int)parent._coordinateConversion,
                 colorFormat = (colorFrame != null && colorFrame.Profile.Format == Format.Yuyv) ? 1 : 0
             };
+            bool shouldEnqueue = !_hasPendingFrame;
             _hasPendingFrame = true;
-        }
 
-        dispatcher.Enqueue(ProcessPendingFrame);
+            if (shouldEnqueue)
+            {
+                dispatcher.Enqueue(_cachedProcessAction);
+            }
+        }
 
         return null;
     }
@@ -268,26 +252,22 @@ public class RsIntegratedPointCloudProcessor : IDisposable
         }
     }
 
-    public void UpdateTransformMatrix(Matrix4x4 matrix)
-    {
-    }
-
     private void ReleaseBuffers()
     {
         _countReadbackPending = false;
-        if (_depthIntrinsicsBuffer != null) { _depthIntrinsicsBuffer.Release(); _depthIntrinsicsBuffer = null; }
-        if (_colorIntrinsicsBuffer != null) { _colorIntrinsicsBuffer.Release(); _colorIntrinsicsBuffer = null; }
-        if (_extrinsicsBuffer != null) { _extrinsicsBuffer.Release(); _extrinsicsBuffer = null; }
+        _depthIntrinsicsBuffer?.Release(); _depthIntrinsicsBuffer = null;
+        _colorIntrinsicsBuffer?.Release(); _colorIntrinsicsBuffer = null;
+        _extrinsicsBuffer?.Release(); _extrinsicsBuffer = null;
 
         if (_paramsBuffers != null)
         {
             for (int i = 0; i < 2; i++)
             {
-                if (_paramsBuffers[i] != null) { _paramsBuffers[i].Release(); _paramsBuffers[i] = null; }
-                if (_inputDepthBuffers[i] != null) { _inputDepthBuffers[i].Release(); _inputDepthBuffers[i] = null; }
-                if (_pointCloudBuffers[i] != null) { _pointCloudBuffers[i].Release(); _pointCloudBuffers[i] = null; }
-                if (_pointCloudCountBuffers[i] != null) { _pointCloudCountBuffers[i].Release(); _pointCloudCountBuffers[i] = null; }
-                if (_inputColorBuffers[i] != null) { _inputColorBuffers[i].Release(); _inputColorBuffers[i] = null; }
+                _paramsBuffers[i]?.Release(); _paramsBuffers[i] = null;
+                _inputDepthBuffers[i]?.Release(); _inputDepthBuffers[i] = null;
+                _pointCloudBuffers[i]?.Release(); _pointCloudBuffers[i] = null;
+                _pointCloudCountBuffers[i]?.Release(); _pointCloudCountBuffers[i] = null;
+                _inputColorBuffers[i]?.Release(); _inputColorBuffers[i] = null;
             }
         }
     }

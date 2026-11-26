@@ -8,11 +8,11 @@ namespace Features.Haptics.Core
 {
     /// <summary>
     /// AUTD3 ハードウェアとの通信・設定・焦点送信を担当するバックエンドの抽象インターフェース。
-    /// 旧 SDK (AUTD3Sharp v3.x) および 新 SDK (autd3-sdk 0.9.x) の具象実装がこれを実装します。
+    /// 旧 SDK (AUTD3Sharp v3.x) および 新 SDK (autd3-sdk 0.14.x) の具象実装がこれを実装します。
     /// </summary>
     public interface IHAP_AUTDBackend : IDisposable
     {
-        /// <summary>バックエンドの識別名（例: "Legacy (AUTD3Sharp)", "Current (autd3-sdk 0.9)"）。</summary>
+        /// <summary>バックエンドの識別名（例: "Legacy (AUTD3Sharp)", "Current (autd3-sdk 0.14.1)"）。</summary>
         string BackendName { get; }
 
         /// <summary>現在ハードウェアまたはシミュレータに接続中かどうか。</summary>
@@ -21,7 +21,10 @@ namespace Features.Haptics.Core
         /// <summary>
         /// AUTD3 デバイスへの接続を開始します。
         /// </summary>
-        Task OpenAsync(AUTDLinkType linkType, string soemAdapterName, IReadOnlyList<AUTD3Device> devices);
+        /// <param name="linkType">接続リンク種別</param>
+        /// <param name="linkTarget">接続先識別子（SOEM: アダプタ名, LAN: インタフェース名, Simulator: アドレス文字列）</param>
+        /// <param name="devices">接続対象のデバイス一覧</param>
+        Task OpenAsync(AUTDLinkType linkType, string linkTarget, IReadOnlyList<AUTD3Device> devices);
 
         /// <summary>
         /// デバイス接続を破棄・クローズします。

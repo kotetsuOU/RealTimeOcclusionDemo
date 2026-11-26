@@ -2,6 +2,9 @@
 using UnityEngine;
 using UnityEditor;
 
+/// <summary>
+/// <see cref="HAP_HapticsIllusionCustomController"/> 用のカスタム Inspector。
+/// </summary>
 [CustomEditor(typeof(HAP_HapticsIllusionCustomController))]
 public class HAP_HapticsIllusionCustomControllerEditor : Editor
 {

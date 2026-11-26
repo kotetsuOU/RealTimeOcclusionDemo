@@ -36,10 +36,13 @@ public class RsDeviceController : MonoBehaviour, ISerializationCallbackReceiver
     {
         if (adaptIntervalFrame)
         {
-            var pipes = FindObjectsByType<RsProcessingPipe>(FindObjectsSortMode.None);
-            foreach (var pipe in pipes)
+            var behaviours = FindObjectsByType<MonoBehaviour>(FindObjectsSortMode.None);
+            for (int i = 0; i < behaviours.Length; i++)
             {
-                pipe.SetProcessIntervalFrames(rsProcessIntervalFrames);
+                if (behaviours[i] is IRsProcessIntervalConfigurable configurable)
+                {
+                    configurable.SetProcessIntervalFrames(rsProcessIntervalFrames);
+                }
             }
         }
     }

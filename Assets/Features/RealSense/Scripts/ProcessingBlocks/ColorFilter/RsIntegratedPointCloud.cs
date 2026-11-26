@@ -119,10 +119,6 @@ public class RsIntegratedPointCloud : RsProcessingBlock
     public void UpdateTransformMatrix(Matrix4x4 matrix)
     {
         _transformMatrix = matrix;
-        if (_gpuProcessor != null)
-        {
-            _gpuProcessor.UpdateTransformMatrix(matrix);
-        }
 
         // Debug log to verify matrix update
         if (SaveDebugFrames)

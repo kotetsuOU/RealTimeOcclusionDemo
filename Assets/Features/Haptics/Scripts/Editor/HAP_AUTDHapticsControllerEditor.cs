@@ -11,9 +11,9 @@ using Features.Haptics.Editor;
 /// - HAP_GeneralTabDrawer: 動作モード・照射先オブジェクト選択・パイプライン連携
 /// - HAP_HardwareTabDrawer: 通信リンク種別・変調（Modulation）・サイレンサー・温度/ファン
 /// - HAP_PlacementTabDrawer: デバイス配置（JSON保存/復元）・プレハブ生成・焦点オフセット
-/// - HAP_AcousticTabDrawer: ホログラフィアルゴリズム・音圧強度・GSPAT反復回数・STM設定
-/// - HAP_HCDFociTabDrawer: 手指接触領域に対する焦点生成方式（Simplified/Precision）・ソース設定
-/// - HAP_DebugTabDrawer: 処理時間プロファイラ・Gizmos・特定デバイス強制停止（ミュート）
+/// - HAP_AcousticTabDrawer: ホログラフィアルゴリズム・音圧強度・GSPAT反復回数・STM（楕円STM含む）設定
+/// - HAP_CalibrationTabDrawer: 単焦点テスト照射・ターゲット位置微調整・空間キャリブレーション (Offset)
+/// - HAP_DebugTabDrawer: Gizmos・特定デバイス強制停止（ミュート）・処理時間プロファイラ・AppLogger
 /// </summary>
 [CustomEditor(typeof(HAP_AUTDHapticsController))]
 public class HAP_AUTDHapticsControllerEditor : Editor
@@ -24,12 +24,21 @@ public class HAP_AUTDHapticsControllerEditor : Editor
         Hardware = 1,
         Placement = 2,
         Acoustics = 3,
-        HCDFoci = 4,
+        Calibration = 4,
         Debug = 5
     }
 
     private const string PrefKeyTab = "HAP_AUTDHapticsControllerEditor_CurrentTab";
     private static Tab _currentTab = Tab.General;
+
+    /// <summary>
+    /// 指定したタブへ切り替えます（他タブのショートカットボタンから利用）。
+    /// </summary>
+    public static void SwitchToTab(Tab tab)
+    {
+        _currentTab = tab;
+        EditorPrefs.SetInt(PrefKeyTab, (int)tab);
+    }
 
     private HAP_EditorContext _ctx = null!;
 
@@ -86,8 +95,8 @@ public class HAP_AUTDHapticsControllerEditor : Editor
                 case Tab.Acoustics:
                     HAP_AcousticTabDrawer.Draw(_ctx);
                     break;
-                case Tab.HCDFoci:
-                    HAP_HCDFociTabDrawer.Draw(_ctx);
+                case Tab.Calibration:
+                    HAP_CalibrationTabDrawer.Draw(_ctx);
                     break;
                 case Tab.Debug:
                     HAP_DebugTabDrawer.Draw(_ctx);
@@ -97,6 +106,14 @@ public class HAP_AUTDHapticsControllerEditor : Editor
         }
 
         _ctx.ApplyAll();
+    }
+
+    private void OnSceneGUI()
+    {
+        if (_ctx != null)
+        {
+            HAP_CalibrationTabDrawer.DrawSceneGUI(_ctx);
+        }
     }
 
     private void DrawTabToolbar()
@@ -112,9 +129,9 @@ public class HAP_AUTDHapticsControllerEditor : Editor
 
         var row2Labels = new[]
         {
-            new GUIContent("🔊 Acoustics", "ホログラフィアルゴリズム・音圧強度・GSPAT反復回数・STM"),
-            new GUIContent("🎯 HCD Foci", "手指接触領域に対する焦点生成方式(Simplified/Precision)・ソース設定"),
-            new GUIContent("⏱️ Debug", "処理時間プロファイリング・Gizmos・特定デバイス強制ミュート")
+            new GUIContent("🔊 Acoustics", "ホログラフィアルゴリズム・音圧強度・GSPAT反復回数・STM・楕円STM"),
+            new GUIContent("🎯 Calibration", "単焦点テスト照射・ターゲット位置微調整・空間キャリブレーション"),
+            new GUIContent("⏱️ Debug", "Gizmos・特定デバイス強制ミュート・処理時間プロファイリング・AppLogger")
         };
 
         int currentInt = (int)_currentTab;
@@ -141,11 +158,21 @@ public class HAP_AUTDHapticsControllerEditor : Editor
         var ctrl = _ctx.Controller;
         bool isHwConnected = ctrl.hardwareController != null && ctrl.hardwareController.IsConnected;
         string connStr = isHwConnected ? "● Hardware Connected" : "○ Hardware Disconnected";
+        bool isDebugFocus = ctrl.debugFocusConfig != null && ctrl.debugFocusConfig.enableDebugFocus && !ctrl.bypassHaptics;
 
         EditorGUILayout.BeginVertical(EditorStyles.helpBox);
         EditorGUILayout.BeginHorizontal();
         EditorGUILayout.LabelField(connStr, EditorStyles.boldLabel);
-        EditorGUILayout.LabelField($"Mode: {ctrl.sourceMode} | Output: {ctrl.focusIntensityPascal:F0} Pa", EditorStyles.miniLabel);
+        if (isDebugFocus)
+        {
+            GUI.color = new Color(1f, 0.7f, 0.25f);
+            EditorGUILayout.LabelField("🎯 DEBUG FOCUS OVERRIDE", EditorStyles.boldLabel);
+            GUI.color = Color.white;
+        }
+        else
+        {
+            EditorGUILayout.LabelField($"Mode: {ctrl.sourceMode} | Output: {ctrl.focusIntensityPascal:F0} Pa", EditorStyles.miniLabel);
+        }
         EditorGUILayout.EndHorizontal();
         EditorGUILayout.EndVertical();
     }

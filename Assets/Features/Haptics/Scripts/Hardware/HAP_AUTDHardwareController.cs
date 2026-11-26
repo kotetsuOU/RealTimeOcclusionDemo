@@ -16,10 +16,20 @@ public class HAP_AUTDHardwareController : MonoBehaviour
 {
     [Header("Link Settings")]
     [Tooltip("AUTDデバイスとの接続方法を選択します")]
+#if USE_AUTD3_LEGACY
     public AUTDLinkType linkType = AUTDLinkType.TwinCAT;
+#else
+    public AUTDLinkType linkType = AUTDLinkType.LAN;
+#endif
 
-    [Tooltip("SOEM使用時のネットワークアダプタ名（必要であれば指定）")]
+    [Tooltip("SOEM使用時のネットワークアダプタ名（旧SDK用・必要であれば指定）")]
     public string soemAdapterName = "";
+
+    [Tooltip("LAN (UDP/IPv6) 使用時のネットワークインタフェース名（空欄時は自動検出 Interface.Auto）")]
+    public string lanInterfaceName = "";
+
+    [Tooltip("Simulator 接続先アドレス（新SDK v0.14 既定: [::1]:44336）")]
+    public string simulatorAddress = "[::1]:44336";
 
     [Header("Hardware Environment")]
     [Tooltip("環境温度（摂氏）。音速計算に使用され、焦点の正確さに影響します。室温に合わせてください。")]
@@ -51,6 +61,26 @@ public class HAP_AUTDHardwareController : MonoBehaviour
     private IHAP_AUTDBackend? _backend;
     public IHAP_AUTDBackend? Backend => _backend;
 
+    // 実行時一時オーバーライド用状態（シリアライズ対象外・デバッグ単焦点モード等で使用）
+    private bool _hasModulationOverride;
+    private ModulationMode _overrideModulationMode = ModulationMode.Sine;
+    private float _overrideSineFrequency = 150f;
+
+    /// <summary>
+    /// 実行時の変調オーバーライドが有効かどうか。
+    /// </summary>
+    public bool HasModulationOverride => _hasModulationOverride;
+
+    /// <summary>
+    /// オーバーライドを考慮した実効変調モード。
+    /// </summary>
+    public ModulationMode EffectiveModulationMode => _hasModulationOverride ? _overrideModulationMode : modulationMode;
+
+    /// <summary>
+    /// オーバーライドを考慮した実効サイン波変調周波数 (Hz)。
+    /// </summary>
+    public float EffectiveSineFrequency => _hasModulationOverride ? _overrideSineFrequency : sineFrequency;
+
     public List<AUTD3Device> ConnectedDevices { get; private set; } = new List<AUTD3Device>();
     public bool IsConnected => _backend != null && _backend.IsConnected;
 
@@ -67,11 +97,18 @@ public class HAP_AUTDHardwareController : MonoBehaviour
             .OrderBy(obj => obj.ID)
             .ToList();
 
-        await _backend.OpenAsync(linkType, soemAdapterName, ConnectedDevices);
+        string linkTarget = linkType switch
+        {
+            AUTDLinkType.SOEM => soemAdapterName,
+            AUTDLinkType.Simulator => simulatorAddress,
+            _ => lanInterfaceName
+        };
+
+        await _backend.OpenAsync(linkType, linkTarget, ConnectedDevices);
 
         if (_backend.IsConnected)
         {
-            _backend.ApplyModulation(modulationMode, sineFrequency, staticAmplitude);
+            _backend.ApplyModulation(EffectiveModulationMode, EffectiveSineFrequency, staticAmplitude);
             _backend.ApplySilencer(silencerMode, silencerStepPhase, silencerStepAmplitude);
             _backend.ApplyFan(enableFan);
             _backend.ApplyTemperature(temperature);
@@ -82,13 +119,43 @@ public class HAP_AUTDHardwareController : MonoBehaviour
     {
         if (_backend == null || !_backend.IsConnected) return;
 
-        _backend.ApplyModulation(modulationMode, sineFrequency, staticAmplitude);
+        _backend.ApplyModulation(EffectiveModulationMode, EffectiveSineFrequency, staticAmplitude);
         _backend.ApplySilencer(silencerMode, silencerStepPhase, silencerStepAmplitude);
         _backend.ApplyFan(enableFan);
         _backend.ApplyTemperature(temperature);
     }
 
-    public void ApplyModulation() => _backend?.ApplyModulation(modulationMode, sineFrequency, staticAmplitude);
+    /// <summary>
+    /// シリアライズ済みのシーン設定を書き換えずに、実行時のみ一時的な変調設定を適用します。
+    /// </summary>
+    public void SetModulationOverride(ModulationMode mode, float frequencyHz)
+    {
+        float clampedFreq = Mathf.Clamp(frequencyHz, 1f, 1999f);
+        if (_hasModulationOverride &&
+            _overrideModulationMode == mode &&
+            Mathf.Approximately(_overrideSineFrequency, clampedFreq))
+        {
+            return;
+        }
+
+        _hasModulationOverride = true;
+        _overrideModulationMode = mode;
+        _overrideSineFrequency = clampedFreq;
+        ApplyModulation();
+    }
+
+    /// <summary>
+    /// 一時的な変調オーバーライドを解除し、シーン本来の変調設定へ復帰させます。
+    /// </summary>
+    public void ClearModulationOverride()
+    {
+        if (!_hasModulationOverride) return;
+
+        _hasModulationOverride = false;
+        ApplyModulation();
+    }
+
+    public void ApplyModulation() => _backend?.ApplyModulation(EffectiveModulationMode, EffectiveSineFrequency, staticAmplitude);
     public void ApplySilencer() => _backend?.ApplySilencer(silencerMode, silencerStepPhase, silencerStepAmplitude);
     public void ApplyFan() => _backend?.ApplyFan(enableFan);
     public void ApplyTemperature() => _backend?.ApplyTemperature(temperature);

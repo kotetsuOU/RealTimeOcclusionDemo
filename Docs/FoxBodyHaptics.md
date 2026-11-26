@@ -37,15 +37,21 @@ Assets/Features/Haptics/Scripts/
 │   ├── HAP_FoxBodyHapticsController.cs     # 狐全身8部位の触覚ターゲット管理
 │   └── HAP_FoxFootHapticsController.cs     # 狐4足・尻尾の足部専用コントローラー
 ├── Processors/
-│   ├── HAP_TargetContactEvaluator.cs       # 接地判定・手近接判定評価クラス (Pure C# static)
-│   └── HAP_ObjectFociGenerator.cs          # STM/追跡モード別焦点データ生成クラス
+│   ├── Foci/
+│   │   └── HAP_ObjectFociGenerator.cs      # STM/追跡モード別焦点データ生成クラス
+│   └── Fox/
+│       ├── HAP_FoxBoneHierarchyResolver.cs # Fox 全身／足部ボーン自動検出ヘルパー (Pure C# static)
+│       └── HAP_TargetContactEvaluator.cs   # 接地判定・手近接判定評価クラス (Pure C# static)
 ├── Debug/
-│   ├── HAP_ObjectGizmoDrawer.cs            # Sceneビュー Gizmo 描画ヘルパー (Pure C# static)
-│   ├── HAP_ObjectHapticsDiagnostics.cs     # 診断レポート生成・出力ヘルパー (Pure C# static)
-│   └── HAP_LogTriggers.cs                  # AppLogManager 連動一元ログトリガー
+│   ├── Diagnostics/
+│   │   ├── HAP_ObjectHapticsDiagnostics.cs # 診断レポート生成・出力ヘルパー (Pure C# static)
+│   │   └── HAP_LogTriggers.cs              # AppLogManager 連動一元ログトリガー
+│   └── Gizmos/
+│       └── HAP_ObjectGizmoDrawer.cs        # Sceneビュー Gizmo 描画ヘルパー (Pure C# static)
 └── Editor/
     └── CustomControllers/
-        └── HAP_FoxBodyHapticsControllerEditor.cs # Inspector 拡張（身体配置グリッド・個別閾値・診断）
+        ├── HAP_FoxBodyHapticsControllerEditor.cs # Inspector 拡張親クラス
+        └── HAP_FoxBodyInspectorSections.cs       # 身体配置グリッド・個別閾値セクション描画ヘルパー
 ```
 
 ### 2.2 クラス相関図

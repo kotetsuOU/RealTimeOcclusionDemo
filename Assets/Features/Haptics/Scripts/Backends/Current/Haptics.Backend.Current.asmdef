@@ -9,9 +9,7 @@
         "AUTD3.Core",
         "AUTD3.Pattern",
         "AUTD3.Pattern.Holo",
-        "AUTD3.Modulation",
-        "AUTD3.Link.TwinCAT",
-        "AUTD3.Link.Remote"
+        "AUTD3.Modulation"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
@@ -25,7 +23,7 @@
     "versionDefines": [
         {
             "name": "com.shinolab.autd3-sdk",
-            "expression": "0.9.0",
+            "expression": "0.14.0",
             "define": "AUTD3_SDK_CURRENT"
         }
     ],

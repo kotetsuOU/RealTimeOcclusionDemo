@@ -104,7 +104,14 @@ public class RsDevice : RsFrameProvider, ILogContextProvider
 
         CancelPendingStart();
         _startCts = new CancellationTokenSource();
-        StartCoroutine(StartWithRetry(_startCts.Token));
+        StartCoroutine(RsPipelineStartHelper.StartWithRetry(
+            this,
+            _session,
+            () => RsPipelineStartHelper.BuildStartRequest(DeviceConfiguration, processMode, this),
+            maxRetries,
+            retryIntervalSeconds,
+            OnPipelineStarted,
+            _startCts.Token));
     }
 
     void Update()
@@ -135,86 +142,20 @@ public class RsDevice : RsFrameProvider, ILogContextProvider
 
     void OnDestroy()
     {
+        OnStart = null;
         OnStop = null;
+        OnNewSample = null;
         CancelPendingStart();
         _session?.Dispose();
         _session = null;
         ActiveProfile = null;
     }
 
-    private IEnumerator StartWithRetry(CancellationToken ct)
+    private void OnPipelineStarted(PipelineProfile profile)
     {
-        // シーンロード(Integration)中の同期ブロックを避けるため1フレーム待ってから非同期起動を開始
-        yield return null;
-
-        for (int attempt = 1; attempt <= maxRetries; attempt++)
-        {
-            if (ct.IsCancellationRequested || !isActiveAndEnabled || _session == null)
-                yield break;
-
-            var request = BuildStartRequest();
-            var startTask = _session.StartBackgroundAsync(request, ct);
-
-            while (!startTask.IsCompleted)
-            {
-                if (ct.IsCancellationRequested || !isActiveAndEnabled)
-                    yield break;
-                yield return null;
-            }
-
-            if (ct.IsCancellationRequested || !isActiveAndEnabled)
-                yield break;
-
-            var result = startTask.Result;
-            if (result.Success)
-            {
-                ActiveProfile = result.Profile;
-                DeviceConfiguration.Profiles = ActiveProfile.Streams.Select(RsVideoStreamRequest.FromProfile).ToArray();
-                StartCoroutine(WaitAndStart());
-                yield break;
-            }
-
-            if (result.Error != null)
-            {
-                AppLogger.LogWarning(this, $"Pipeline start error: {result.Error.Message}");
-            }
-
-            if (attempt < maxRetries)
-            {
-                AppLogger.LogWarning(this, $"Pipeline start failed (attempt {attempt}/{maxRetries}). Retrying in {retryIntervalSeconds}s...");
-                yield return new WaitForSeconds(retryIntervalSeconds);
-            }
-            else
-            {
-                AppLogger.LogError(this, $"Pipeline start failed after {maxRetries} attempts. Camera may not be connected.");
-            }
-        }
-    }
-
-    private RsPipelineSession.StartRequest BuildStartRequest()
-    {
-        var mode = DeviceConfiguration.mode;
-        string resolvedPath = null;
-
-        if (mode == RsConfiguration.Mode.Playback)
-        {
-            resolvedPath = RsDevicePathResolver.ResolveAbsolutePath(DeviceConfiguration.PlaybackFile);
-        }
-        else if (mode == RsConfiguration.Mode.Record)
-        {
-            resolvedPath = RsDevicePathResolver.ResolveAbsolutePath(DeviceConfiguration.RecordPath);
-            RsDevicePathResolver.EnsureRecordDirectory(resolvedPath);
-            AppLogger.Log(this, $"Setup Recording => \nRaw Input: {DeviceConfiguration.RecordPath}\nResolved: {resolvedPath}");
-        }
-
-        return new RsPipelineSession.StartRequest
-        {
-            Mode = mode,
-            SerialNumber = DeviceConfiguration.RequestedSerialNumber,
-            ResolvedFilePath = resolvedPath,
-            Profiles = DeviceConfiguration.Profiles != null ? DeviceConfiguration.Profiles.ToArray() : Array.Empty<RsVideoStreamRequest>(),
-            UseMultithreadWorker = processMode == ProcessMode.Multithread
-        };
+        ActiveProfile = profile;
+        DeviceConfiguration.Profiles = ActiveProfile.Streams.Select(RsVideoStreamRequest.FromProfile).ToArray();
+        StartCoroutine(WaitAndStart());
     }
 
     private static int _lastOnStartFrame = -1;
@@ -237,7 +178,6 @@ public class RsDevice : RsFrameProvider, ILogContextProvider
     private void StopStreaming()
     {
         CancelPendingStart();
-        OnNewSample = null;
         _session?.StopWorker();
 
         if (Streaming)

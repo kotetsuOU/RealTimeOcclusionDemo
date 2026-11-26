@@ -24,7 +24,7 @@ public sealed class ProcessingBlockDataAttribute : System.Attribute
 /// </summary>
 [Serializable]
 [AppLoggable("RealSense (Pipeline)")]
-public class RsProcessingPipe : RsFrameProvider
+public class RsProcessingPipe : RsFrameProvider, IRsProcessIntervalConfigurable
 {
     [Tooltip("フレームの元となるプロバイダー（カメラ・デバイスコントローラー本体など）")]
     public RsFrameProvider Source;
@@ -36,10 +36,9 @@ public class RsProcessingPipe : RsFrameProvider
     public override event Action OnStop;
     public override event Action<Frame> OnNewSample;
 
-    // RealSense SDK標準のCustomProcessingBlockを使用してフレーム送受信をラップする
-    private CustomProcessingBlock _block;
-    private RsDepthToColorCalibration _calibration;
-    private int _frameCounter = 0;
+    // 実際のパイプライン処理・ブロック複製・メモリ管理は RsProcessingRunner に委譲する
+    private RsProcessingRunner _runner;
+    private RsFrameProvider _subscribedSource;
 
     [Tooltip("処理を実行する間隔（フレーム数）。1の場合は毎フレーム処理を行うが、2以上の場合は間引いて（スキップして）パフォーマンスを向上させる。")]
     [SerializeField] private int _processIntervalFrames = 1;
@@ -48,10 +47,17 @@ public class RsProcessingPipe : RsFrameProvider
     /// 現在適用されている処理ブロックの読み取り専用リスト
     /// </summary>
     public IReadOnlyList<RsProcessingBlock> RuntimeBlocks
-        => profile != null ? profile._processingBlocks : (IReadOnlyList<RsProcessingBlock>)Array.Empty<RsProcessingBlock>();
+        => _runner != null
+            ? _runner.RuntimeBlocks
+            : (profile != null && profile._processingBlocks != null
+                ? profile._processingBlocks
+                : (IReadOnlyList<RsProcessingBlock>)Array.Empty<RsProcessingBlock>());
 
     public T GetFirstBlock<T>() where T : RsProcessingBlock
     {
+        if (_runner != null)
+            return _runner.GetFirstBlock<T>();
+
         if (profile == null || profile._processingBlocks == null) return null;
         foreach (var b in profile._processingBlocks)
         {
@@ -60,65 +66,99 @@ public class RsProcessingPipe : RsFrameProvider
         return null;
     }
 
+    private void Reset()
+    {
+        TryAutoAssignSource();
+    }
+
+    private void OnValidate()
+    {
+        if (_processIntervalFrames <= 0)
+            _processIntervalFrames = 1;
+
+        if (_runner != null)
+            _runner.ProcessIntervalFrames = _processIntervalFrames;
+    }
+
     void Awake()
     {
-        if (profile != null)
-        {
-            profile = Instantiate(profile);
+        if (_processIntervalFrames <= 0)
+            _processIntervalFrames = 1;
 
-            for (int i = 0; i < profile._processingBlocks.Count; i++)
+        TryAutoAssignSource();
+
+        _runner = new RsProcessingRunner(profile, _processIntervalFrames, OnFrame);
+        // 既存コード（RsPointCloudInitializer 等）との互換性のため、複製済みランタイムプロファイルを保持する
+        profile = _runner.RuntimeProfile;
+
+        SubscribeSource();
+    }
+
+    private void Start()
+    {
+        // Awake 時点で既に Source がストリーミング開始していた場合のフォールバック
+        if (!Streaming && _subscribedSource != null && _subscribedSource.Streaming)
+        {
+            OnSourceStart(_subscribedSource.ActiveProfile);
+        }
+    }
+
+    private void TryAutoAssignSource()
+    {
+        if (Source != null)
+            return;
+
+        // 同一 GameObject 上の別 RsFrameProvider（主に RsDevice）を自動検出
+        var providers = GetComponents<RsFrameProvider>();
+        for (int i = 0; i < providers.Length; i++)
+        {
+            if (providers[i] != null && providers[i] != this)
             {
-                if (profile._processingBlocks[i] != null)
-                {
-                    profile._processingBlocks[i] = Instantiate(profile._processingBlocks[i]);
-                }
+                Source = providers[i];
+                break;
             }
         }
-        else
+    }
+
+    private void SubscribeSource()
+    {
+        if (Source == null || _subscribedSource == Source)
+            return;
+
+        UnsubscribeSource();
+        _subscribedSource = Source;
+        _subscribedSource.OnStart += OnSourceStart;
+        _subscribedSource.OnStop += OnSourceStop;
+    }
+
+    private void UnsubscribeSource()
+    {
+        if (_subscribedSource == null)
+            return;
+
+        _subscribedSource.OnStart -= OnSourceStart;
+        _subscribedSource.OnStop -= OnSourceStop;
+        if (_runner != null)
         {
-            profile = ScriptableObject.CreateInstance<RsProcessingProfile>();
-            profile._processingBlocks = new List<RsProcessingBlock>();
+            _subscribedSource.OnNewSample -= _runner.EnqueueFrame;
         }
-
-        if (Source != null)
-        {
-            Source.OnStart += OnSourceStart;
-            Source.OnStop += OnSourceStop;
-        }
-
-        _block = new CustomProcessingBlock(ProcessFrame);
-        _block.Start(OnFrame);
-
-        if (_processIntervalFrames <= 0) { _processIntervalFrames = 1; }
+        _subscribedSource = null;
     }
 
     protected virtual void OnSourceStart(PipelineProfile activeProfile)
     {
-        if (Source != null)
+        if (Streaming)
+            return;
+
+        if (_subscribedSource != null && _runner != null)
         {
-            Source.OnNewSample += _block.Process;
+            _subscribedSource.OnNewSample += _runner.EnqueueFrame;
         }
 
         ActiveProfile = activeProfile;
-
-        if (activeProfile != null)
-        {
-            _calibration = new RsDepthToColorCalibration(activeProfile);
-
-            if (profile != null)
-            {
-                foreach (var pb in profile._processingBlocks)
-                {
-                    if (pb is RsIntegratedPointCloud integratedPointCloud)
-                    {
-                        integratedPointCloud.SetCalibration(_calibration);
-                    }
-                }
-            }
-        }
+        _runner?.StartStreaming(activeProfile);
 
         Streaming = true;
-
         OnStart?.Invoke(activeProfile);
     }
 
@@ -127,9 +167,12 @@ public class RsProcessingPipe : RsFrameProvider
         if (!Streaming)
             return;
 
-        if (_block != null && Source != null)
-            Source.OnNewSample -= _block.Process;
+        if (_subscribedSource != null && _runner != null)
+        {
+            _subscribedSource.OnNewSample -= _runner.EnqueueFrame;
+        }
 
+        _runner?.StopStreaming();
         Streaming = false;
 
         OnStop?.Invoke();
@@ -143,75 +186,20 @@ public class RsProcessingPipe : RsFrameProvider
     private void OnDestroy()
     {
         OnSourceStop();
-        if (_block != null)
-        {
-            _block.Dispose();
-            _block = null;
-        }
-    }
+        UnsubscribeSource();
 
-    /// <summary>
-    /// 各フレームごとに実行されるメイン処理。設定した間隔でフレームをスキップしつつ、
-    /// 有効な加工ブロック（フィルタなど）を順番に通し、最終結果を output アクションへ送る。
-    /// </summary>
-    internal void ProcessFrame(Frame frame, Action<Frame> output)
-    {
-        _frameCounter++;
-
-        // 間引き処理：指定フレーム間隔に一致しない場合はスキップ
-        if (_frameCounter % _processIntervalFrames != 0)
-            return;
-
-        try
-        {
-            if (!Streaming)
-                return;
-
-            Frame f = frame;
-
-            if (profile != null)
-            {
-                var filters = profile._processingBlocks;
-
-                foreach (var pb in filters)
-                {
-                    if (pb == null) continue;
-
-                    // ブロックが無効なら処理をスキップ
-                    if (!pb.Enabled)
-                        continue;
-
-                    // ブロック固有の処理（ノイズ除去や点群生成など）を実行
-                    Frame processed = pb.Process(f, default(FrameSource));
-
-                    // 新しいフレームが返された場合、旧フレームを解放（元のフレーム以外の場合）
-                    if (processed != f)
-                    {
-                        if (f != frame)
-                        {
-                            f.Dispose();
-                        }
-                        f = processed;
-                    }
-                }
-            }
-
-            // 最終的に修飾されたフレームを出力へ引き渡す
-            output(f);
-
-            // 入力された元のフレームオブジェクトとは異なる新しいメモリのフレームが生成された場合、最終解放
-            if (f != frame)
-                f.Dispose();
-        }
-        catch (Exception e)
-        {
-            UnityEngine.Debug.LogException(e);
-        }
+        _runner?.Dispose();
+        _runner = null;
+        profile = null;
     }
 
     public void SetProcessIntervalFrames(int value)
     {
-        _processIntervalFrames = value;
+        _processIntervalFrames = value > 0 ? value : 1;
+        if (_runner != null)
+        {
+            _runner.ProcessIntervalFrames = _processIntervalFrames;
+        }
     }
 
     public int GetProcessIntervalFrames()

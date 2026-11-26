@@ -2,6 +2,9 @@
 using UnityEngine;
 using UnityEditor;
 
+/// <summary>
+/// <see cref="HAP_FoxFootHapticsController"/> 用のカスタム Inspector。
+/// </summary>
 [CustomEditor(typeof(HAP_FoxFootHapticsController))]
 public class HAP_FoxFootHapticsControllerEditor : Editor
 {

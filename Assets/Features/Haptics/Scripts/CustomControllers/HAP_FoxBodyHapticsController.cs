@@ -1,14 +1,14 @@
 using UnityEngine;
 using UnityEngine.Serialization;
 using System.Collections.Generic;
-using System;
-using Core.Logging;
+using Features.Haptics.Processors;
 
 #nullable enable
 
 /// <summary>
-/// Foxのボーン階層から頭、耳、4本の足、尻尾の座標を特定し、
-/// HAP_AUTDControllerの送信ループ（UpdateHaptics）内で各位置および照射向きにホログラフィ触覚を照射するクラス。
+/// Fox のボーン階層から頭、耳、4 本の足、尻尾の座標を特定し、
+/// <see cref="HAP_AUTDHapticsController"/> 向けにターゲット情報を提供するコントローラー。
+/// ボーン自動検出ロジックは <see cref="HAP_FoxBoneHierarchyResolver"/> へ委譲します。
 /// </summary>
 public class HAP_FoxBodyHapticsController : HAP_BaseObjectHapticsController
 {
@@ -66,53 +66,56 @@ public class HAP_FoxBodyHapticsController : HAP_BaseObjectHapticsController
     [FormerlySerializedAs("headTargetNormal")]
     [Tooltip("バーチャルオブジェクト（頭部・耳）が接触対象へ触れる/押し当てる向き（デフォルト: Vector3.down）。")]
     public Vector3 headTargetTouchDirection = Vector3.down;
-    // 注: 足・尻尾用の照射法線方向は基底クラスの footTargetTouchDirection (Vector3.down) を使用します。
 
     /// <summary>
-    /// 部位ごとの有効な接触判定しきい値を返します。個別設定が無効または未設定(<=0)の場合は共通値を返します。
+    /// 部位ごとの有効な接触判定しきい値を返します。個別設定が無効または未設定(&lt;=0)の場合は共通値を返します。
     /// </summary>
     public float GetEffectiveContactThreshold(float individualThreshold)
-    {
-        return (useIndividualContactThresholds && individualThreshold > 0f) ? individualThreshold : handContactThreshold;
-    }
+        => (useIndividualContactThresholds && individualThreshold > 0f) ? individualThreshold : handContactThreshold;
 
     /// <summary>
-    /// 各部位のターゲット情報をリストにして返します（基底クラスのGizmo描画や判定に利用）。
-    /// 頭 -> 左耳 -> 右耳 -> 前左 -> 前右 -> 後右 -> 後左 -> 尻尾 の順で定義します。
-    /// ※ 接地判定 (disableWhenInAir) は足（4本）のみに適用し、頭・耳・尻尾は空中に浮いていても維持されます。
+    /// 各部位のターゲット情報一覧（頭 → 左耳 → 右耳 → 前左 → 前右 → 後右 → 後左 → 尻尾）を返します。
+    /// 接地判定は足（4本）のみに適用し、頭・耳・尻尾は滞空中も有効とします。
     /// </summary>
     public override List<HapticsTargetInfo> TargetInfos
     {
         get
         {
-            var list = new List<HapticsTargetInfo>();
-
-            if (headBone != null)
-                list.Add(new HapticsTargetInfo { Name = "Head", Transform = headBone, IsEnabled = enableHead, IsTail = true, ApplyAirborneCheck = false, Offset = Vector3.zero, TouchDirection = headTargetTouchDirection, HandContactThreshold = GetEffectiveContactThreshold(headContactThreshold) });
-
-            if (leftEarBone != null)
-                list.Add(new HapticsTargetInfo { Name = "Left Ear", Transform = leftEarBone, IsEnabled = enableLeftEar, IsTail = true, ApplyAirborneCheck = false, Offset = Vector3.zero, TouchDirection = headTargetTouchDirection, HandContactThreshold = GetEffectiveContactThreshold(leftEarContactThreshold) });
-
-            if (rightEarBone != null)
-                list.Add(new HapticsTargetInfo { Name = "Right Ear", Transform = rightEarBone, IsEnabled = enableRightEar, IsTail = true, ApplyAirborneCheck = false, Offset = Vector3.zero, TouchDirection = headTargetTouchDirection, HandContactThreshold = GetEffectiveContactThreshold(rightEarContactThreshold) });
-
-            if (frontLeftFoot != null)
-                list.Add(new HapticsTargetInfo { Name = "Front Left", Transform = frontLeftFoot, IsEnabled = enableFrontLeft, IsTail = false, ApplyAirborneCheck = true, Offset = Vector3.zero, TouchDirection = footTargetTouchDirection, HandContactThreshold = GetEffectiveContactThreshold(frontLeftContactThreshold) });
-
-            if (frontRightFoot != null)
-                list.Add(new HapticsTargetInfo { Name = "Front Right", Transform = frontRightFoot, IsEnabled = enableFrontRight, IsTail = false, ApplyAirborneCheck = true, Offset = Vector3.zero, TouchDirection = footTargetTouchDirection, HandContactThreshold = GetEffectiveContactThreshold(frontRightContactThreshold) });
-
-            if (backRightFoot != null)
-                list.Add(new HapticsTargetInfo { Name = "Back Right", Transform = backRightFoot, IsEnabled = enableBackRight, IsTail = false, ApplyAirborneCheck = true, Offset = Vector3.zero, TouchDirection = footTargetTouchDirection, HandContactThreshold = GetEffectiveContactThreshold(backRightContactThreshold) });
-
-            if (backLeftFoot != null)
-                list.Add(new HapticsTargetInfo { Name = "Back Left", Transform = backLeftFoot, IsEnabled = enableBackLeft, IsTail = false, ApplyAirborneCheck = true, Offset = Vector3.zero, TouchDirection = footTargetTouchDirection, HandContactThreshold = GetEffectiveContactThreshold(backLeftContactThreshold) });
-
-            if (tailBone != null)
-                list.Add(new HapticsTargetInfo { Name = "Tail", Transform = tailBone, IsEnabled = enableTail, IsTail = true, ApplyAirborneCheck = false, Offset = Vector3.zero, TouchDirection = footTargetTouchDirection, HandContactThreshold = GetEffectiveContactThreshold(tailContactThreshold) });
-
+            var list = new List<HapticsTargetInfo>(8);
+            AddTargetIfValid(list, "Head", headBone, enableHead, true, false, headTargetTouchDirection, headContactThreshold);
+            AddTargetIfValid(list, "Left Ear", leftEarBone, enableLeftEar, true, false, headTargetTouchDirection, leftEarContactThreshold);
+            AddTargetIfValid(list, "Right Ear", rightEarBone, enableRightEar, true, false, headTargetTouchDirection, rightEarContactThreshold);
+            AddTargetIfValid(list, "Front Left", frontLeftFoot, enableFrontLeft, false, true, footTargetTouchDirection, frontLeftContactThreshold);
+            AddTargetIfValid(list, "Front Right", frontRightFoot, enableFrontRight, false, true, footTargetTouchDirection, frontRightContactThreshold);
+            AddTargetIfValid(list, "Back Right", backRightFoot, enableBackRight, false, true, footTargetTouchDirection, backRightContactThreshold);
+            AddTargetIfValid(list, "Back Left", backLeftFoot, enableBackLeft, false, true, footTargetTouchDirection, backLeftContactThreshold);
+            AddTargetIfValid(list, "Tail", tailBone, enableTail, true, false, footTargetTouchDirection, tailContactThreshold);
             return list;
         }
+    }
+
+    private void AddTargetIfValid(
+        List<HapticsTargetInfo> list,
+        string partName,
+        Transform? bone,
+        bool isEnabled,
+        bool isTail,
+        bool applyAirborneCheck,
+        Vector3 touchDirection,
+        float individualThreshold)
+    {
+        if (bone == null) return;
+        list.Add(new HapticsTargetInfo
+        {
+            Name = partName,
+            Transform = bone,
+            IsEnabled = isEnabled,
+            IsTail = isTail,
+            ApplyAirborneCheck = applyAirborneCheck,
+            Offset = Vector3.zero,
+            TouchDirection = touchDirection,
+            HandContactThreshold = GetEffectiveContactThreshold(individualThreshold)
+        });
     }
 
     private void Reset()
@@ -124,87 +127,39 @@ public class HAP_FoxBodyHapticsController : HAP_BaseObjectHapticsController
 
     private void Awake()
     {
-        if (autdController == null)
-        {
-            autdController = FindAnyObjectByType<HAP_AUTDHapticsController>();
-        }
-
-        if (rootTransform == null || rootTransform == this.transform)
-        {
-            ResolveRootTransform();
-        }
-
+        if (autdController == null) autdController = FindAnyObjectByType<HAP_AUTDHapticsController>();
+        if (rootTransform == null || rootTransform == transform) ResolveRootTransform();
         AutoDetectBones();
     }
 
-    protected virtual void OnEnable()
-    {
-        RegisterSelfToController();
-    }
+    protected virtual void OnEnable() => RegisterSelfToController();
 
-    protected virtual void OnDisable()
-    {
-        // 他のコントローラーに影響を与えずに安全に非アクティブ化
-    }
+    protected virtual void OnDisable() { }
 
     public void RegisterSelfToController()
     {
-        if (autdController == null)
+        if (autdController == null) autdController = FindAnyObjectByType<HAP_AUTDHapticsController>();
+        if (autdController != null && !autdController.objectHapticsControllers.Contains(this))
         {
-            autdController = FindAnyObjectByType<HAP_AUTDHapticsController>();
-        }
-
-        if (autdController != null)
-        {
-            if (!autdController.objectHapticsControllers.Contains(this))
-            {
-                autdController.objectHapticsControllers.Add(this);
-            }
+            autdController.objectHapticsControllers.Add(this);
         }
     }
 
     /// <summary>
-    /// キツネモデルのルートTransform（各ボーンの親方向、またはシーン内のアクティブなモデル）を自動解決します。
+    /// キツネモデルのルート Transform を自動解決します。
     /// </summary>
     public void ResolveRootTransform()
     {
-        // 1. 各ボーンが既にアサインされていれば、その親方向からルート（Animator/SkinnedMeshRenderer）を取得
-        Transform? bone = frontLeftFoot ?? headBone ?? tailBone ?? frontRightFoot ?? backLeftFoot ?? backRightFoot;
-        if (bone != null && bone.gameObject.activeInHierarchy)
-        {
-            var anim = bone.GetComponentInParent<Animator>();
-            if (anim != null && anim.gameObject.activeInHierarchy) { rootTransform = anim.transform; return; }
-            var smr = bone.GetComponentInParent<SkinnedMeshRenderer>();
-            if (smr != null && smr.gameObject.activeInHierarchy) { rootTransform = smr.transform; return; }
-            if (bone.root != null && bone.root != this.transform.root && bone.root.gameObject.activeInHierarchy) { rootTransform = bone.root; return; }
-        }
-
-        // 2. 自身がモデルの子階層にある場合
-        var parentAnim = GetComponentInParent<Animator>();
-        if (parentAnim != null && parentAnim.gameObject.activeInHierarchy) { rootTransform = parentAnim.transform; return; }
-        var parentSmr = GetComponentInParent<SkinnedMeshRenderer>();
-        if (parentSmr != null && parentSmr.gameObject.activeInHierarchy) { rootTransform = parentSmr.transform; return; }
-
-        // 3. シーン内のアクティブなFoxモデルを探索
-        var smrs = FindObjectsByType<SkinnedMeshRenderer>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
-        foreach (var s in smrs)
-        {
-            if (s.name.IndexOf("fox", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                s.transform.root.name.IndexOf("fox", StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                var a = s.GetComponentInParent<Animator>();
-                rootTransform = a != null ? a.transform : s.transform.root;
-                return;
-            }
-        }
+        Transform? resolved = HAP_FoxBoneHierarchyResolver.ResolveFoxRootTransform(
+            transform, frontLeftFoot, headBone, tailBone, frontRightFoot, backLeftFoot, backRightFoot);
+        if (resolved != null) rootTransform = resolved;
     }
 
     /// <summary>
-    /// Foxの標準的なボーン階層名から、頭、耳、4本の足、および尻尾のTransformを自動検出してバインドします。
+    /// Fox の標準ボーン階層から全身 8 部位の Transform を自動検出してバインドします。
     /// </summary>
     public virtual void AutoDetectBones(bool forceOverwrite = false)
     {
-        // 全ボーンが既にバインド済みであれば再探索をスキップして起動負荷を削減
         if (!forceOverwrite &&
             headBone != null && leftEarBone != null && rightEarBone != null &&
             frontLeftFoot != null && frontRightFoot != null &&
@@ -214,79 +169,15 @@ public class HAP_FoxBodyHapticsController : HAP_BaseObjectHapticsController
             return;
         }
 
-        // rootTransform が未指定、自身、または非アクティブなオブジェクトの場合の自動解決
-        if (rootTransform == null || !rootTransform.gameObject.activeInHierarchy || rootTransform == this.transform)
+        if (rootTransform == null || !rootTransform.gameObject.activeInHierarchy || rootTransform == transform)
         {
             ResolveRootTransform();
         }
 
-        Transform searchRoot = rootTransform != null ? rootTransform : this.transform;
-
-        if (forceOverwrite)
-        {
-            headBone = null;
-            leftEarBone = null;
-            rightEarBone = null;
-            frontLeftFoot = null;
-            frontRightFoot = null;
-            backLeftFoot = null;
-            backRightFoot = null;
-            tailBone = null;
-        }
-
-        // 頭部の自動検出 (Fox_Head / Head 等)
-        if (headBone == null || !headBone.IsChildOf(searchRoot))
-            headBone = FindChildRecursive(searchRoot, name => name.Equals("Fox_Head", StringComparison.OrdinalIgnoreCase) || name.Equals("Head", StringComparison.OrdinalIgnoreCase) || (name.ToLower().Contains("head") && !name.ToLower().Contains("overhead")));
-
-        // 耳の自動検出 (Fox_LEar1 / Fox_REar1 を最優先とし、Fox_LEar2 / LEar1 / Ear_L 等に対応)
-        if (leftEarBone == null || !leftEarBone.IsChildOf(searchRoot))
-            leftEarBone = FindChildRecursive(searchRoot, name => name.Equals("Fox_LEar1", StringComparison.OrdinalIgnoreCase) || name.Equals("Fox_LEar2", StringComparison.OrdinalIgnoreCase) || name.Contains("LEar1") || name.Contains("Ear1_L") || (name.ToLower().Contains("ear") && (name.ToLower().Contains("left") || name.ToLower().EndsWith("_l") || name.ToLower().Contains("_l_"))));
-
-        if (rightEarBone == null || !rightEarBone.IsChildOf(searchRoot))
-            rightEarBone = FindChildRecursive(searchRoot, name => name.Equals("Fox_REar1", StringComparison.OrdinalIgnoreCase) || name.Equals("Fox_REar2", StringComparison.OrdinalIgnoreCase) || name.Contains("REar1") || name.Contains("Ear1_R") || (name.ToLower().Contains("ear") && (name.ToLower().Contains("right") || name.ToLower().EndsWith("_r") || name.ToLower().Contains("_r_"))));
-
-        // Fox prefabのボーン名: Fox_F_LLegDigit11 / Fox_F_RLegDigit11 / Fox_LLegDigit11 / Fox_RLegDigit11 を対象とする
-        if (frontLeftFoot == null || !frontLeftFoot.IsChildOf(searchRoot))
-            frontLeftFoot = FindChildRecursive(searchRoot, name => name.Contains("F_LLegDigit11") || name.Contains("Fox_F_LLegDigit11") || (name.ToLower().Contains("front") && name.ToLower().Contains("left") && (name.ToLower().Contains("foot") || name.ToLower().Contains("digit"))));
-        
-        if (frontRightFoot == null || !frontRightFoot.IsChildOf(searchRoot))
-            frontRightFoot = FindChildRecursive(searchRoot, name => name.Contains("F_RLegDigit11") || name.Contains("Fox_F_RLegDigit11") || (name.ToLower().Contains("front") && name.ToLower().Contains("right") && (name.ToLower().Contains("foot") || name.ToLower().Contains("digit"))));
-
-        if (backLeftFoot == null || !backLeftFoot.IsChildOf(searchRoot))
-            backLeftFoot = FindChildRecursive(searchRoot, name => (name.Contains("LLegDigit11") && !name.Contains("F_")) || (name.ToLower().Contains("left") && (name.ToLower().Contains("foot") || name.ToLower().Contains("digit")) && !name.ToLower().Contains("front")));
-
-        if (backRightFoot == null || !backRightFoot.IsChildOf(searchRoot))
-            backRightFoot = FindChildRecursive(searchRoot, name => (name.Contains("RLegDigit11") && !name.Contains("F_")) || (name.ToLower().Contains("right") && (name.ToLower().Contains("foot") || name.ToLower().Contains("digit")) && !name.ToLower().Contains("front")));
-
-        // 尻尾の自動検出（先端のTail6から探し、なければTail5、それでもなければTailを含むものを探す）
-        if (tailBone == null || !tailBone.IsChildOf(searchRoot))
-            tailBone = FindChildRecursive(searchRoot, name => name.Contains("Tail6") || name.Contains("Fox_Tail6"));
-        if (tailBone == null || !tailBone.IsChildOf(searchRoot))
-            tailBone = FindChildRecursive(searchRoot, name => name.Contains("Tail5") || name.Contains("Fox_Tail5"));
-        if (tailBone == null || !tailBone.IsChildOf(searchRoot))
-            tailBone = FindChildRecursive(searchRoot, name => name.ToLower().Contains("tail"));
-
-        // 検出できなかった場合のフォールバックとして Ankle や Neck を探す（同一searchRoot内のみ）
-        if (headBone == null)
-            headBone = FindChildRecursive(searchRoot, name => name.Contains("Fox_Neck") || name.ToLower().Contains("neck"));
-        if (frontLeftFoot == null)
-            frontLeftFoot = FindChildRecursive(searchRoot, name => name.Contains("F_LLegAnkle") || (name.ToLower().Contains("front") && name.ToLower().Contains("left") && name.ToLower().Contains("ankle")));
-        if (frontRightFoot == null)
-            frontRightFoot = FindChildRecursive(searchRoot, name => name.Contains("F_RLegAnkle") || (name.ToLower().Contains("front") && name.ToLower().Contains("right") && name.ToLower().Contains("ankle")));
-        if (backLeftFoot == null)
-            backLeftFoot = FindChildRecursive(searchRoot, name => (name.Contains("LLegAnkle") && !name.Contains("F_")) || (name.ToLower().Contains("left") && (name.ToLower().Contains("ankle") && !name.ToLower().Contains("front"))));
-        if (backRightFoot == null)
-            backRightFoot = FindChildRecursive(searchRoot, name => (name.Contains("RLegAnkle") && !name.Contains("F_")) || (name.ToLower().Contains("right") && (name.ToLower().Contains("ankle") && !name.ToLower().Contains("front"))));
-    }
-
-    private Transform? FindChildRecursive(Transform parent, Func<string, bool> predicate)
-    {
-        if (predicate(parent.name)) return parent;
-        foreach (Transform child in parent)
-        {
-            var found = FindChildRecursive(child, predicate);
-            if (found != null) return found;
-        }
-        return null;
+        Transform searchRoot = rootTransform != null ? rootTransform : transform;
+        HAP_FoxBoneHierarchyResolver.DetectBodyBones(
+            searchRoot, forceOverwrite,
+            ref headBone, ref leftEarBone, ref rightEarBone,
+            ref frontLeftFoot, ref frontRightFoot, ref backLeftFoot, ref backRightFoot, ref tailBone);
     }
 }

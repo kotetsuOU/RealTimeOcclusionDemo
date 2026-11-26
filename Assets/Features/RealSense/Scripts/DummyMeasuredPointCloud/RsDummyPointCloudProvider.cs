@@ -14,8 +14,19 @@ namespace RealSense.DummyPointCloud
     /// </summary>
     [AppLoggable("DPC (Dummy Point Cloud)")]
     [DisallowMultipleComponent]
-    public class RsDummyPointCloudProvider : RsFrameProvider, IAppLoggable
+    public class RsDummyPointCloudProvider : RsFrameProvider, IRsDummyPointCloudSource, IAppLoggable
     {
+        List<GameObject> IRsDummyPointCloudSource.TargetObjects => targetObjects;
+        bool IRsDummyPointCloudSource.IncludeChildren => includeChildren;
+        PointDensityUnit IRsDummyPointCloudSource.DensityUnit => densityUnit;
+        float IRsDummyPointCloudSource.DensityValue => densityValue;
+        int IRsDummyPointCloudSource.MaxPointLimit => maxPointLimit;
+        PointColorMode IRsDummyPointCloudSource.ColorMode => colorMode;
+        Color IRsDummyPointCloudSource.SolidColor => solidColor;
+        bool IRsDummyPointCloudSource.UseCameraPerspective => useCameraPerspective;
+        Transform IRsDummyPointCloudSource.SimulatedCameraTransform => simulatedCameraTransform;
+        int IRsDummyPointCloudSource.UpdateFPS => updateFPS;
+        Transform IRsDummyPointCloudSource.OwnerTransform => transform;
         [Header("Target 3D Objects Settings")]
         [Tooltip("実測点群の生成元となる Unity 3D オブジェクトのリスト")]
         public List<GameObject> targetObjects = new List<GameObject>();
@@ -141,17 +152,7 @@ namespace RealSense.DummyPointCloud
         /// </summary>
         public void SetTargetObject(GameObject target, bool forceUpdateNow = true)
         {
-            if (targetObjects == null) targetObjects = new List<GameObject>();
-            targetObjects.Clear();
-            if (target != null)
-            {
-                targetObjects.Add(target);
-            }
-            SetDirty();
-            if (forceUpdateNow)
-            {
-                ForceUpdateSampling();
-            }
+            SetTargetObjects(target != null ? new[] { target } : Array.Empty<GameObject>(), forceUpdateNow);
         }
 
         /// <summary>
@@ -159,20 +160,10 @@ namespace RealSense.DummyPointCloud
         /// </summary>
         public void SetTargetObjects(IEnumerable<GameObject> targets, bool forceUpdateNow = true)
         {
-            if (targetObjects == null) targetObjects = new List<GameObject>();
-            targetObjects.Clear();
-            if (targets != null)
-            {
-                foreach (var t in targets)
-                {
-                    if (t != null) targetObjects.Add(t);
-                }
-            }
+            targetObjects = targets != null ? new List<GameObject>(targets) : new List<GameObject>();
+            targetObjects.RemoveAll(t => t == null);
             SetDirty();
-            if (forceUpdateNow)
-            {
-                ForceUpdateSampling();
-            }
+            if (forceUpdateNow) ForceUpdateSampling();
         }
 
         private void Update()
@@ -268,44 +259,25 @@ namespace RealSense.DummyPointCloud
             UpdateMaterialAndRendererColors();
 
             var prevData = LastSampledData;
-            SampledPointCloudData sampledData;
-
-            if (targetObjects != null && targetObjects.Count > 0)
-            {
-                sampledData = SamplingProcessor.ProcessSampling(
-                    targetObjects,
-                    includeChildren,
-                    densityUnit,
-                    densityValue,
-                    colorMode,
-                    solidColor,
-                    maxPointLimit,
-                    noiseSettings,
-                    out _);
-            }
-            else
-            {
-                sampledData = new SampledPointCloudData
+            SampledPointCloudData sampledData = (targetObjects != null && targetObjects.Count > 0)
+                ? SamplingProcessor.ProcessSampling(
+                    targetObjects, includeChildren, densityUnit, densityValue,
+                    colorMode, solidColor, maxPointLimit, noiseSettings, out _)
+                : new SampledPointCloudData
                 {
                     Positions = Array.Empty<Vector3>(),
                     Colors = Array.Empty<Color>(),
                     Normals = Array.Empty<Vector3>(),
                     PointCount = 0
                 };
-            }
 
             bool isNoiseActive = noiseSettings != null && (noiseSettings.enableNoise || noiseSettings.enableOutliers);
             bool isDynamicNoise = isNoiseActive && noiseSettings.updateMode == NoiseUpdateMode.Dynamic;
 
             LastSampledData = sampledData;
-
-            // データ更新判定 (DataVersion インクリメント)
             if (forceDataVersionAdvance || isDynamicNoise || prevData.Positions != LastSampledData.Positions || prevData.PointCount != LastSampledData.PointCount)
-            {
                 DataVersion++;
-            }
 
-            // ソフトウェアデバイス経由で RealSense DepthFrame / FrameSet を発行
             if (StreamingBridge.IsStreaming && LastSampledData.PointCount > 0)
             {
                 Transform camXform = simulatedCameraTransform != null ? simulatedCameraTransform : transform;

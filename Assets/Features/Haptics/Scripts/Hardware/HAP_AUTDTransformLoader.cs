@@ -1,39 +1,16 @@
-using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using UnityEngine;
 using Core.Logging;
 using Features.Haptics.Debug;
-
+using Features.Haptics.Hardware;
 #if UNITY_EDITOR
 using UnityEditor;
-using UnityEditor.SceneManagement;
 #endif
 
 /// <summary>
-/// 個々のAUTDデバイスのローカル座標・回転とIDを保存する構造体
-/// </summary>
-[Serializable]
-public struct HAP_AUTDTransformSnapshot
-{
-    public int id;
-    public Vector3 localPosition;
-    public Quaternion localRotation;
-}
-
-/// <summary>
-/// 複数のAUTDデバイスの配置データ（位置・回転）を保存・管理する設定クラス (JSON用)
-/// </summary>
-[Serializable]
-public class HAP_AUTDTransformConfig
-
-{
-    public List<HAP_AUTDTransformSnapshot> snapshots = new List<HAP_AUTDTransformSnapshot>();
-}
-
-/// <summary>
-/// シーン上のAUTDデバイス群の配置（位置・回転）をScriptableObjectに保存し、復元するクラス
+/// シーン上の AUTD デバイス群の配置管理（プレハブ生成および配置 JSON 保存／復元の統括）を行うコンポーネント。
+/// ファイル I/O 処理は <see cref="HAP_AUTDTransformSerializer"/> へ委譲します。
 /// </summary>
 [DisallowMultipleComponent]
 public class HAP_AUTDTransformLoader : MonoBehaviour
@@ -41,13 +18,13 @@ public class HAP_AUTDTransformLoader : MonoBehaviour
     [Header("Configuration")]
     [Tooltip("保存・読み込み先のJSONファイル名")]
     public string configFileName = "AUTDTransforms.json";
-    
+
     [Tooltip("自動生成するAUTD3デバイスのプレハブ")]
     public GameObject devicePrefab;
-    
+
     [Tooltip("デバイスを配置する親オブジェクト（未指定時は自身）")]
     public Transform deviceRoot;
-    
+
     [Tooltip("自動生成するデバイスの最大数")]
     public int prefabCount = 20;
 
@@ -56,87 +33,36 @@ public class HAP_AUTDTransformLoader : MonoBehaviour
     public Vector3 offset = Vector3.zero;
 
     /// <summary>
-    /// 現在のシーン上のAUTDデバイスの配置をJSONファイルに保存します。
-    /// （IDの重複は無視されます）
+    /// 現在のシーン上の AUTD デバイスの配置を JSON ファイルに保存します。
     /// </summary>
     public void Save()
     {
-        string fullPath = Path.Combine(AppPaths.HapticsConfigDir, configFileName);
-        string directoryPath = Path.GetDirectoryName(fullPath);
-        
-        if (!string.IsNullOrEmpty(directoryPath) && !Directory.Exists(directoryPath))
-        {
-            Directory.CreateDirectory(directoryPath);
-        }
-
         var devices = ResolveDeviceRoot().GetComponentsInChildren<AUTD3Device>(false);
-        var deviceById = new Dictionary<int, AUTD3Device>();
-
-        foreach (var dev in devices)
-        {
-            if (deviceById.ContainsKey(dev.ID))
-            {
-                AppLogger.LogWarning(this, HAP_LogTriggers.TagTransformLoader, $"Duplicate AUTD3Device ID {dev.ID} found. Skipping duplicate.");
-                continue;
-            }
-            deviceById[dev.ID] = dev;
-        }
-
-        var config = new HAP_AUTDTransformConfig();
-        foreach (var dev in deviceById.Values.OrderBy(d => d.ID))
-        {
-            config.snapshots.Add(new HAP_AUTDTransformSnapshot
-            {
-                id = dev.ID,
-                localPosition = dev.transform.localPosition,
-                localRotation = dev.transform.localRotation
-            });
-        }
-
-        string json = JsonUtility.ToJson(config, true);
-        File.WriteAllText(fullPath, json);
-
-#if UNITY_EDITOR
-        AssetDatabase.Refresh();
-#endif
-        AppLogger.Log(this, HAP_LogTriggers.TagTransformLoader, $"Saved {config.snapshots.Count} AUTD transform snapshots to {fullPath}.");
+        HAP_AUTDTransformSerializer.SaveSnapshots(configFileName, devices, this);
     }
 
     /// <summary>
-    /// JSONファイルに保存されている配置データを読み込み、シーン上のAUTDデバイスに適用します。
-    /// 足りないIDのデバイスがある場合は自動的にプレハブを生成して配置します。
+    /// JSON ファイルに保存されている配置データを読み込み、シーン上の AUTD デバイスに適用します。
+    /// 足りない ID のデバイスがある場合は自動的にプレハブを生成して配置します。
     /// </summary>
     public void Load()
     {
-        string fullPath = Path.Combine(AppPaths.HapticsConfigDir, configFileName);
-        if (!File.Exists(fullPath))
+        if (!HAP_AUTDTransformSerializer.TryLoadSnapshots(configFileName, this, out var snapshotById))
         {
-            AppLogger.LogWarning(this, HAP_LogTriggers.TagTransformLoader, $"Config JSON file not found at {fullPath}");
-            return;
-        }
-
-        string json = File.ReadAllText(fullPath);
-        var config = JsonUtility.FromJson<HAP_AUTDTransformConfig>(json);
-        
-        if (config == null || config.snapshots == null)
-        {
-            AppLogger.LogWarning(this, HAP_LogTriggers.TagTransformLoader, "Failed to parse JSON config.");
             return;
         }
 
         var devices = ResolveDeviceRoot().GetComponentsInChildren<AUTD3Device>(false);
         var deviceById = new Dictionary<int, AUTD3Device>();
-
         foreach (var dev in devices)
         {
             if (!deviceById.ContainsKey(dev.ID))
+            {
                 deviceById.Add(dev.ID, dev);
+            }
         }
 
-        var snapshotById = config.snapshots.ToDictionary(s => s.id, s => s);
-
-        // Generate missing devices based on config
-        foreach (var id in snapshotById.Keys.OrderBy(id => id))
+        foreach (int id in snapshotById.Keys.OrderBy(id => id))
         {
             if (!deviceById.ContainsKey(id))
             {
@@ -145,7 +71,6 @@ public class HAP_AUTDTransformLoader : MonoBehaviour
             }
         }
 
-        // Apply transformations
         foreach (var snapshot in snapshotById.Values.OrderBy(s => s.id))
         {
             if (deviceById.TryGetValue(snapshot.id, out var dev))
@@ -159,7 +84,7 @@ public class HAP_AUTDTransformLoader : MonoBehaviour
     }
 
     /// <summary>
-    /// IDが0から prefabCount-1 までのデバイスを一括で生成します（まだ存在しないIDのみ）。
+    /// ID が 0 から prefabCount - 1 までのデバイスを一括で生成します（まだ存在しない ID のみ）。
     /// </summary>
     public void GeneratePrefabs()
     {
@@ -235,8 +160,5 @@ public class HAP_AUTDTransformLoader : MonoBehaviour
         return device;
     }
 
-    private Transform ResolveDeviceRoot()
-    {
-        return deviceRoot != null ? deviceRoot : transform;
-    }
+    private Transform ResolveDeviceRoot() => deviceRoot != null ? deviceRoot : transform;
 }

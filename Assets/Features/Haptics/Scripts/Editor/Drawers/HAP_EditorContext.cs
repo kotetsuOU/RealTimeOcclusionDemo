@@ -22,7 +22,6 @@ namespace Features.Haptics.Editor
         public SerializedProperty TransformLoaderProp { get; }
         public SerializedProperty SourceModeProp { get; }
         public SerializedProperty HcdPipelineProp { get; }
-        public SerializedProperty HcdFociSettingsProp { get; }
         public SerializedProperty ObjectHapticsControllersProp { get; }
         public SerializedProperty ActiveObjectControllerIndexProp { get; }
 
@@ -33,10 +32,14 @@ namespace Features.Haptics.Editor
         public SerializedProperty EnableDirectionalGroupingProp { get; }
         public SerializedProperty DirectionalAngleThresholdProp { get; }
 
-        // STM
+        // STM & AutoHCD Ellipse STM
         public SerializedProperty StmModeProp { get; }
         public SerializedProperty StmFrequencyProp { get; }
         public SerializedProperty GainStmModeProp { get; }
+        public SerializedProperty StmGenerationModeProp { get; }
+        public SerializedProperty StmCentroidSourceProp { get; }
+        public SerializedProperty StmEllipseSourceProp { get; }
+        public SerializedProperty StmRandomSourceProp { get; }
 
         // Debug & Profiling
         public SerializedProperty VisualizeDevicesProp { get; }
@@ -44,10 +47,24 @@ namespace Features.Haptics.Editor
         public SerializedProperty SynchronousSendProp { get; }
         public SerializedProperty ProfilingLogIntervalProp { get; }
 
+        // Debug Focus / Calibration
+        public SerializedProperty DbgEnableProp { get; }
+        public SerializedProperty DbgTargetTransformProp { get; }
+        public SerializedProperty DbgFocusPositionProp { get; }
+        public SerializedProperty DbgMaximizeDutyProp { get; }
+        public SerializedProperty DbgIntensityProp { get; }
+        public SerializedProperty DbgForceSineProp { get; }
+        public SerializedProperty DbgSineFreqProp { get; }
+        public SerializedProperty DbgApplyOffsetProp { get; }
+        public SerializedProperty DbgReferenceTargetProp { get; }
+        public SerializedProperty DbgShowGizmoProp { get; }
+
         // ─── 連動オブジェクト (Sub-SerializedObjects) ─────────────────────────
         public SerializedObject? HardwareSO { get; private set; }
         public SerializedProperty? HwLinkTypeProp { get; private set; }
         public SerializedProperty? HwSoemAdapterProp { get; private set; }
+        public SerializedProperty? HwLanInterfaceProp { get; private set; }
+        public SerializedProperty? HwSimulatorAddressProp { get; private set; }
         public SerializedProperty? HwTemperatureProp { get; private set; }
         public SerializedProperty? HwEnableFanProp { get; private set; }
         public SerializedProperty? HwModulationModeProp { get; private set; }
@@ -64,12 +81,6 @@ namespace Features.Haptics.Editor
         public SerializedProperty? TlPrefabCountProp { get; private set; }
         public SerializedProperty? TlOffsetProp { get; private set; }
 
-        public SerializedObject? FociSettingsSO { get; private set; }
-        public SerializedProperty? FociGenModeProp { get; private set; }
-        public SerializedProperty? FociCentroidSourceProp { get; private set; }
-        public SerializedProperty? FociEllipseSourceProp { get; private set; }
-        public SerializedProperty? FociRandomSourceProp { get; private set; }
-
         public SerializedObject? DebugDisablerSO { get; private set; }
 
         public HAP_EditorContext(HAP_AUTDHapticsController controller, SerializedObject so)
@@ -83,7 +94,6 @@ namespace Features.Haptics.Editor
             TransformLoaderProp = so.FindProperty("transformLoader");
             SourceModeProp = so.FindProperty("sourceMode");
             HcdPipelineProp = so.FindProperty("hcdPipeline");
-            HcdFociSettingsProp = so.FindProperty("hcdFociSettings");
             ObjectHapticsControllersProp = so.FindProperty("objectHapticsControllers");
             ActiveObjectControllerIndexProp = so.FindProperty("activeObjectControllerIndex");
 
@@ -96,11 +106,26 @@ namespace Features.Haptics.Editor
             StmModeProp = so.FindProperty("stmConfig.stmMode");
             StmFrequencyProp = so.FindProperty("stmConfig.stmFrequency");
             GainStmModeProp = so.FindProperty("stmConfig.gainStmMode");
+            StmGenerationModeProp = so.FindProperty("stmConfig.generationMode");
+            StmCentroidSourceProp = so.FindProperty("stmConfig.centroidSource");
+            StmEllipseSourceProp = so.FindProperty("stmConfig.ellipseSource");
+            StmRandomSourceProp = so.FindProperty("stmConfig.randomSource");
 
             VisualizeDevicesProp = so.FindProperty("visualizeDevices");
             EnableProfilingProp = so.FindProperty("profilingConfig.enableProfiling");
             SynchronousSendProp = so.FindProperty("profilingConfig.synchronousSend");
             ProfilingLogIntervalProp = so.FindProperty("profilingConfig.profilingLogInterval");
+
+            DbgEnableProp = so.FindProperty("debugFocusConfig.enableDebugFocus");
+            DbgTargetTransformProp = so.FindProperty("debugFocusConfig.targetTransform");
+            DbgFocusPositionProp = so.FindProperty("debugFocusConfig.focusPosition");
+            DbgMaximizeDutyProp = so.FindProperty("debugFocusConfig.maximizeDuty");
+            DbgIntensityProp = so.FindProperty("debugFocusConfig.focusIntensityPascal");
+            DbgForceSineProp = so.FindProperty("debugFocusConfig.forceSineModulation");
+            DbgSineFreqProp = so.FindProperty("debugFocusConfig.debugSineFrequency");
+            DbgApplyOffsetProp = so.FindProperty("debugFocusConfig.applyCalibrationOffset");
+            DbgReferenceTargetProp = so.FindProperty("debugFocusConfig.referenceTrueTarget");
+            DbgShowGizmoProp = so.FindProperty("debugFocusConfig.showFocusGizmo");
 
             RefreshLinkedObjects();
         }
@@ -114,6 +139,8 @@ namespace Features.Haptics.Editor
                 HardwareSO = new SerializedObject(hw);
                 HwLinkTypeProp = HardwareSO.FindProperty("linkType");
                 HwSoemAdapterProp = HardwareSO.FindProperty("soemAdapterName");
+                HwLanInterfaceProp = HardwareSO.FindProperty("lanInterfaceName");
+                HwSimulatorAddressProp = HardwareSO.FindProperty("simulatorAddress");
                 HwTemperatureProp = HardwareSO.FindProperty("temperature");
                 HwEnableFanProp = HardwareSO.FindProperty("enableFan");
                 HwModulationModeProp = HardwareSO.FindProperty("modulationMode");
@@ -126,6 +153,10 @@ namespace Features.Haptics.Editor
             else
             {
                 HardwareSO = null;
+                HwLinkTypeProp = null;
+                HwSoemAdapterProp = null;
+                HwLanInterfaceProp = null;
+                HwSimulatorAddressProp = null;
             }
 
             // 2. TransformLoader
@@ -149,22 +180,7 @@ namespace Features.Haptics.Editor
                 TlOffsetProp = null;
             }
 
-            // 3. HCDFociSettings
-            var foci = Controller.hcdFociSettings;
-            if (foci != null)
-            {
-                FociSettingsSO = new SerializedObject(foci);
-                FociGenModeProp = FociSettingsSO.FindProperty("generationMode");
-                FociCentroidSourceProp = FociSettingsSO.FindProperty("centroidSource");
-                FociEllipseSourceProp = FociSettingsSO.FindProperty("ellipseSource");
-                FociRandomSourceProp = FociSettingsSO.FindProperty("randomSource");
-            }
-            else
-            {
-                FociSettingsSO = null;
-            }
-
-            // 4. DebugDisabler
+            // 3. DebugDisabler
             var disabler = Controller.debugDisabler;
             if (disabler != null)
             {
@@ -181,7 +197,6 @@ namespace Features.Haptics.Editor
             SerializedObject.Update();
             HardwareSO?.Update();
             TransformLoaderSO?.Update();
-            FociSettingsSO?.Update();
             DebugDisablerSO?.Update();
         }
 
@@ -190,7 +205,6 @@ namespace Features.Haptics.Editor
             SerializedObject.ApplyModifiedProperties();
             HardwareSO?.ApplyModifiedProperties();
             TransformLoaderSO?.ApplyModifiedProperties();
-            FociSettingsSO?.ApplyModifiedProperties();
             DebugDisablerSO?.ApplyModifiedProperties();
         }
     }

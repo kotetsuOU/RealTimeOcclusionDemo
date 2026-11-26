@@ -1,5 +1,4 @@
 using Intel.RealSense;
-using System.Diagnostics;
 using UnityEngine;
 using Core.Logging;
 
@@ -50,33 +49,16 @@ public class RsPointCloudRenderer : MonoBehaviour
         set => isGlobalRangeFilterEnabled = value;
     }
 
-    // PCA等によって推定された主要軸の基準点
-    public Vector3 EstimatedPoint
-    {
-        get
-        {
-            if (RsGlobalPointCloudManager.Instance != null && RsGlobalPointCloudManager.Instance.IsIntegratedPCAMode)
-            {
-                return RsGlobalPointCloudManager.Instance.GetLineEstimation().point;
-            }
-            return _initializer?.FrameProcessor?.EstimatedPoint ?? Vector3.zero;
-        }
-    }
+    // PCA等によって推定された主要軸の基準点と方向ベクトル
+    public Vector3 EstimatedPoint =>
+        (RsGlobalPointCloudManager.Instance != null && RsGlobalPointCloudManager.Instance.IsIntegratedPCAMode)
+            ? RsGlobalPointCloudManager.Instance.GetLineEstimation().point
+            : (_initializer?.FrameProcessor?.EstimatedPoint ?? Vector3.zero);
 
-    // PCA等によって推定された主要軸の方向ベクトル
-    public Vector3 EstimatedDir
-    {
-        get
-        {
-            if (RsGlobalPointCloudManager.Instance != null && RsGlobalPointCloudManager.Instance.IsIntegratedPCAMode)
-            {
-                return RsGlobalPointCloudManager.Instance.GetLineEstimation().dir;
-            }
-            return _initializer?.FrameProcessor?.EstimatedDir ?? Vector3.forward;
-        }
-    }
-
-
+    public Vector3 EstimatedDir =>
+        (RsGlobalPointCloudManager.Instance != null && RsGlobalPointCloudManager.Instance.IsIntegratedPCAMode)
+            ? RsGlobalPointCloudManager.Instance.GetLineEstimation().dir
+            : (_initializer?.FrameProcessor?.EstimatedDir ?? Vector3.forward);
 
     #endregion
 
@@ -129,24 +111,7 @@ public class RsPointCloudRenderer : MonoBehaviour
     /// </summary>
     public Vector3[] GetFilteredVertices()
     {
-        var compute = _initializer?.Compute;
-        if (compute == null)
-        {
-            AppLogger.LogWarning(this, "Compute instance is null.");
-            return new Vector3[0];
-        }
-
-        int count = compute.GetLastFilteredCount();
-        if (count <= 0)
-        {
-            AppLogger.LogWarning(this, $"Vertex count is {count}.");
-            return new Vector3[0];
-        }
-
-        Vector3[] result = new Vector3[count];
-        // CPU配列に書き出す
-        compute.GetFilteredVerticesData(result, count);
-        return result;
+        return _initializer != null ? _initializer.ReadFilteredVertices(this) : System.Array.Empty<Vector3>();
     }
 
     /// <summary> フィルタリング後の座標位置が格納されたComputeBufferを取得する </summary>
@@ -158,29 +123,14 @@ public class RsPointCloudRenderer : MonoBehaviour
     /// <summary> 非同期カウントのリードバックが完了待ちかどうか </summary>
     public bool IsFilteredCountReadbackPending => _initializer?.Compute?.IsFilteredCountReadbackPending ?? false;
 
-    /// <summary> オクルージョン処理など他のシェーダーが参照するための元バッファを取得する </summary>
-    public virtual ComputeBuffer GetPCDSourceBuffer()
-    {
-        return GetFilteredVerticesBuffer();
-    }
-
-    /// <summary> オクルージョン処理などで参照する点群の総数を取得する </summary>
-    public virtual int GetPCDSourceCount()
-    {
-        return GetLastFilteredCount();
-    }
+    public virtual ComputeBuffer GetPCDSourceBuffer() => GetFilteredVerticesBuffer();
+    public virtual int GetPCDSourceCount() => GetLastFilteredCount();
 
     /// <summary>
     /// オクルージョン専用グローバルバッファマージ用のバッファを取得する。
-    /// デフォルトは GetPCDSourceBuffer() と同じ。ダミーレンダラーはX鏡像変換済みバッファをオーバーライドで返す。
     /// </summary>
     public virtual ComputeBuffer GetOcclusionSourceBuffer() => GetPCDSourceBuffer();
-
-    /// <summary> GetOcclusionSourceBuffer に対応する点数を返す </summary>
     public virtual int GetOcclusionSourceCount() => GetPCDSourceCount();
-
-    public ComputeBuffer GetRawBuffer() => GetFilteredVerticesBuffer();
-    public int GetLastVertexCount() => GetLastFilteredCount();
     public RsComputeStats GetComputeStats() => _initializer?.Compute?.Stats;
 
     #endregion
@@ -189,19 +139,83 @@ public class RsPointCloudRenderer : MonoBehaviour
 
     private string _cachedSourceName; // gameObject.name の毎フレーム取得によるGC防止
 
+    protected RsPointCloudInitializer Initializer => _initializer;
+
+    private void Reset()
+    {
+        TryAutoAssignDependencies();
+    }
+
+    protected virtual void TryAutoAssignDependencies()
+    {
+        if (processingPipe == null)
+        {
+            processingPipe = GetComponent<RsProcessingPipe>() ?? GetComponentInParent<RsProcessingPipe>();
+        }
+
+        if (rsDeviceController == null)
+        {
+            rsDeviceController = FindFirstObjectByType<RsDeviceController>();
+        }
+    }
+
     void Start()
     {
         _cachedSourceName = gameObject.name;
+        TryAutoAssignDependencies();
         _visualization = new RsPointCloudVisualization(GetComponent<MeshRenderer>());
+        OnRendererStart();
+    }
+
+    /// <summary>
+    /// レンダラー固有の開始処理（標準構成では processingPipe に接続する）
+    /// </summary>
+    protected virtual void OnRendererStart()
+    {
         _initializer = new RsPointCloudInitializer(processingPipe, pointCloudFilterShader, pointCloudTransformerShader);
+
+        if (processingPipe == null)
+        {
+            AppLogger.LogWarning(this, "processingPipe is not assigned.");
+            return;
+        }
 
         // RealSenseからデータを受け取るためストリーミング開始イベントを監視
         processingPipe.OnStart += OnStartStreaming;
+
+        // Start 時点で既にストリーミングが開始していた場合は即座に初期化する
+        if (processingPipe.Streaming)
+        {
+            OnStartStreaming(processingPipe.ActiveProfile);
+        }
+    }
+
+    /// <summary>
+    /// 指定されたフレームソースとプロファイルを用いて点群処理を初期化する
+    /// </summary>
+    protected void InitializePointCloud(IRsFrameSource frameSource, RsProcessingProfile runtimeProfile, PipelineProfile profile)
+    {
+        if (rsDeviceController == null)
+        {
+            AppLogger.LogError(this, "rsDeviceController is not assigned. Cannot initialize point cloud.");
+            return;
+        }
+
+        if (_initializer != null && _initializer.IsInitialized)
+            return;
+
+        _initializer = new RsPointCloudInitializer(frameSource, runtimeProfile, pointCloudFilterShader, pointCloudTransformerShader);
+        _initializer.InitializeOnStreaming(profile, rsDeviceController, maxPlaneDistance);
+
+        if (_initializer.UseIntegratedPointCloud && _initializer.IntegratedPointCloud != null)
+        {
+            _initializer.UpdateIntegratedTransform(transform.localToWorldMatrix);
+        }
     }
 
     void LateUpdate()
     {
-        if (!_initializer.IsInitialized) return;
+        if (_initializer == null || !_initializer.IsInitialized) return;
 
         // 計算処理側へ現在のゲームオブジェクト名を伝える（主に出力ログ等の識別用）
         if (_initializer.FrameProcessor != null)
@@ -213,12 +227,12 @@ public class RsPointCloudRenderer : MonoBehaviour
 
         _frameCounter++;
         // メインとなる毎フレームの点群処理（フィルタ、サンプリング、PCA等）の実行
-        ComputeBuffer argsBuffer = ProcessCurrentFrame();
+        ComputeBuffer argsBuffer = _initializer.ExecuteFrame(
+            EstimatedPoint, EstimatedDir, IsGlobalRangeFilterEnabled, _frameCounter, maxPlaneDistance);
 
         // 処理が成功し、描画用の引数(Args)バッファが返って来た場合、実際の描画プロセスへ進む
         if (argsBuffer != null)
         {
-            // `Graphics.DrawProcedural` または MeshRenderer を利用して点群を描画する
             _visualization.Draw(_initializer.Compute.GetFilteredVerticesBuffer(), argsBuffer, pointCloudColor, gameObject.layer);
         }
     }
@@ -235,78 +249,21 @@ public class RsPointCloudRenderer : MonoBehaviour
     // パイプライン経由でカメラからプロファイル情報が渡されたときに呼び出される
     private void OnStartStreaming(PipelineProfile profile)
     {
+        if (_initializer == null || _initializer.IsInitialized)
+            return;
+
+        if (rsDeviceController == null)
+        {
+            AppLogger.LogError(this, "rsDeviceController is not assigned. Cannot initialize point cloud.");
+            return;
+        }
 
         _initializer.InitializeOnStreaming(profile, rsDeviceController, maxPlaneDistance);
 
         // RsGlobalPointCloudManagerなどから統合された点群を扱う設定がされた場合のイベント監視
-        if (_initializer.UseIntegratedPointCloud)
+        if (_initializer.UseIntegratedPointCloud && _initializer.IntegratedPointCloud != null)
         {
-            _initializer.IntegratedPointCloud.OnPointCloudUpdated += OnIntegratedPointCloudUpdated;
             _initializer.UpdateIntegratedTransform(transform.localToWorldMatrix);
-        }
-    }
-
-    private void OnIntegratedPointCloudUpdated() { } // デリゲートの受け口。実装はInitializer等に委譲されている想定
-
-    #endregion
-
-    #region Frame Processing
-
-    /// <summary>
-    /// 現在のフレームでComputeShader側に与える各データを取得し、計算を実行させる。
-    /// 返り値としてプロシージャル描画に利用するArgsBufferを返す。
-    /// </summary>
-    private ComputeBuffer ProcessCurrentFrame()
-    {
-        var processor = _initializer?.FrameProcessor;
-        if (processor == null) return null;
-
-        // 他デバイスと結合されたPCA軸が存在する場合は取得する
-        (Vector3 linePoint, Vector3 lineDir) = GetLineEstimation();
-
-        // ローカル点群ではなくグローバル空間で統合済みの点群を扱うモード
-        if (_initializer.UseIntegratedPointCloud)
-        {
-            return ProcessIntegratedFrame(processor, linePoint, lineDir);
-        }
-
-        // それ以外の場合、単純にRealSenseの新規フレームを取得して処理する
-        return ProcessRealSenseFrame(processor, linePoint, lineDir);
-    }
-
-    // PCAのライン推定結果を自身またはグローバルマネージャから取得する
-    private (Vector3 point, Vector3 dir) GetLineEstimation()
-    {
-        return (EstimatedPoint, EstimatedDir);
-    }
-
-    // 複数カメラから統合されたPointCloudバッファを使用する場合のフレーム実行
-    private ComputeBuffer ProcessIntegratedFrame(RsPointCloudFrameProcessor processor, Vector3 linePoint, Vector3 lineDir)
-    {
-        var integrated = _initializer.IntegratedPointCloud;
-        if (integrated?.PointCloudBuffer == null) return null;
-
-        int pointCount = integrated.LastPointCount;
-        if (pointCount == 0) return null;
-
-        return processor.ProcessIntegratedFrame(
-            integrated.PointCloudBuffer, pointCount,
-            linePoint, lineDir, IsGlobalRangeFilterEnabled, _frameCounter, maxPlaneDistance);
-    }
-
-    // 単体のRealSenseカメラからの新規フレームを取り出して実行する
-    private ComputeBuffer ProcessRealSenseFrame(RsPointCloudFrameProcessor processor, Vector3 linePoint, Vector3 lineDir)
-    {
-        var dataProvider = _initializer.DataProvider;
-        // カメラから新しい点群データ（フレーム）が届いているかどうか確認
-        if (dataProvider == null || !dataProvider.PollForFrame(out var points)) return null;
-
-        // usingブロックにより取得したデータフレーム（C++側の解放）を適切にDisposeする
-        using (points)
-        {
-            return processor.ProcessRealSenseFrame(
-                points, _initializer.RawVertices, _initializer.RawVerticesBuffer,
-                linePoint, lineDir, IsGlobalRangeFilterEnabled, _frameCounter, maxPlaneDistance);
         }
     }
 
@@ -315,16 +272,16 @@ public class RsPointCloudRenderer : MonoBehaviour
     #region Cleanup
 
     // 関連するリソース（イベント購読、ComputeBufferなど）を破棄する
-    private void Dispose()
+    protected virtual void OnRendererDispose()
     {
-        if (_initializer?.IntegratedPointCloud != null)
+        if (processingPipe != null)
         {
-            _initializer.IntegratedPointCloud.OnPointCloudUpdated -= OnIntegratedPointCloudUpdated;
+            processingPipe.OnStart -= OnStartStreaming;
         }
-
-        processingPipe.OnStart -= OnStartStreaming;
         _initializer?.Dispose();
     }
+
+    private void Dispose() => OnRendererDispose();
 
     #endregion
 }

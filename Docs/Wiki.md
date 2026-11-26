@@ -111,14 +111,14 @@ graph TD
 ## 3. 各サブシステム概要
 
 ### ⚙️ 0. 基盤・初期化・ログ
-複数 RealSense カメラの位置合わせ（キャリブレーション）と、JSON ベースのアライメント設定の保存・復元を管理します。PCV デバッグビューアにより点群データのプレビューが可能です。また、統制ログ管理システム (`AppLogManager` & `AppLogger`) により全モジュールのログトグルを一元制御します。
+複数 RealSense カメラの位置合わせ（キャリブレーション）と、JSON ベースのアライメント設定の保存・復元を管理します。親管理コンポーネント群は `RsGeneralController`（`RsGeneralControllerEditor` の統合タブ UI）から一元操作でき、PCV デバッグビューアにより点群データのプレビューが可能です。また、統制ログ管理システム (`AppLogManager` & `AppLogger`) により全モジュールのログトグルを一元制御します。
 
 📎 詳細: [Initialization.md](./Initialization.md) / [DebugPCV.md](./DebugPCV.md) / [Logging.md](./Logging.md)
 
 ---
 
 ### 📦 1. 点群ストリーミング・統合パイプライン
-RealSense からの非同期データ取得（`RsDevice` / `RsPipelineSession` / `RsDevicePathResolver` による責務分離とバックグラウンド直列化起動）、HSV/YCbCr カラーフィルタリング、および GPU ゼロコピー CommandBuffer マージを行います。統合点群バッファはオクルージョンとハプティクスの両パイプラインへ供給されます。実機カメラなし環境向けにダミー点群生成および法線ノイズ・外れ値付与機能 (`DummyPointCloud`) も提供します。
+RealSense からの非同期データ取得（`RsRealSenseRenderer` による統合窓口、`RsPipelineSession` / `RsProcessingRunner` / `RsPipelineStartHelper` による Pure C# 分離とバックグラウンド直列化起動）、HSV/YCbCr カラーフィルタリング、および `RsGlobalRendererRegistry` を用いた GPU ゼロコピー CommandBuffer マージを行います。統合点群バッファはオクルージョンとハプティクスの両パイプラインへ供給されます。実機カメラなし環境向けに 1 コンポーネント統合版のダミー点群システム（`RsDummyRealSenseRenderer`）および法線ノイズ・外れ値付与機能 (`DummyPointCloud`) も提供します。
 
 📎 詳細: [PointCloudPipeline.md](./PointCloudPipeline.md) / [DummyPointCloud.md](./DummyPointCloud.md)
 
