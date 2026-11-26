@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using UnityEngine;
 
 #nullable enable
 
@@ -60,5 +61,22 @@ namespace Features.Haptics.Core
             HAP_AUTDPerformanceProfiler? profiler,
             HAP_AUTDDebugDisabler? debugDisabler = null,
             uint gspatRepeat = 20);
+
+        /// <summary>
+        /// 指定デバイス群だけを使って、1点の静止焦点を指定音圧（Pa）で出力します（実験用）。
+        /// 指定外のデバイスの振動子は出力しません。未対応バックエンドでは何もしません。
+        /// </summary>
+        /// <param name="position">焦点のワールド座標</param>
+        /// <param name="pascal">焦点の目標音圧（Pa）。0 以下は無音扱い（呼び出し側で SendNull を使うこと）</param>
+        /// <param name="activeDeviceIds">出力に使う AUTD3Device.ID の一覧</param>
+        /// <param name="connectedDevices">接続中のデバイス一覧（Geometry の並びと対応付ける）</param>
+        void SendGroupedSingleFocus(
+            Vector3 position,
+            float pascal,
+            IReadOnlyList<int> activeDeviceIds,
+            IReadOnlyList<AUTD3Device> connectedDevices)
+        {
+            UnityEngine.Debug.LogWarning($"[{BackendName}] SendGroupedSingleFocus is not supported by this backend.");
+        }
     }
 }

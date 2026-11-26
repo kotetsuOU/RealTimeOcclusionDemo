@@ -111,6 +111,25 @@ namespace Features.Haptics.Backends.Current
                 gspatRepeat);
         }
 
+        public void SendGroupedSingleFocus(
+            Vector3 position,
+            float pascal,
+            IReadOnlyList<int> activeDeviceIds,
+            IReadOnlyList<AUTD3Device> connectedDevices)
+        {
+            // 送信中に呼び出し側のリストが書き換わっても安全なようにコピーしておく
+            var ids = new List<int>(activeDeviceIds);
+            var devices = new List<AUTD3Device>(connectedDevices);
+            float soundSpeed = _hardwareConfigurator.SoundSpeed;
+
+            EnqueueExclusiveCommand("SendGroupedSingleFocus", HAP_LogTriggers.TagLinkService, "Error in SendGroupedSingleFocus",
+                async (client, geometry, token) =>
+                {
+                    using var built = _patternBuilder.BuildGroupedSingleFocus(geometry, soundSpeed, position, pascal, ids, devices);
+                    await client.SendAsync(built.Command, token).ConfigureAwait(false);
+                });
+        }
+
         private void EnqueueExclusiveCommand(
             string holderName,
             string logTag,

@@ -88,6 +88,59 @@ namespace Features.Haptics.Backends.Current
         }
 
         /// <summary>
+        /// 指定デバイス群だけを使う 1 点の静止焦点パターン（Holo.Naive）を構築します。
+        /// 指定外のデバイスは全振動子をマスクして出力しません。
+        /// </summary>
+        public BuiltCommand BuildGroupedSingleFocus(
+            Geometry geometry,
+            float soundSpeed,
+            UnityEngine.Vector3 position,
+            float pascal,
+            IReadOnlyList<int> activeDeviceIds,
+            IReadOnlyList<AUTD3Device> connectedDevices)
+        {
+            Length wavelength = Pattern.Wavelength(soundSpeed * m / s);
+
+            var activeSet = new HashSet<int>(activeDeviceIds);
+            var orderedDevices = connectedDevices.OrderBy(d => d.ID).ToList();
+            int deviceCount = Math.Min(geometry.NumDevices, orderedDevices.Count);
+
+            bool[][] maskBuffer = geometry.OutputMaskBuffer();
+            for (int i = 0; i < maskBuffer.Length; i++)
+            {
+                bool enabled = i < deviceCount && activeSet.Contains(orderedDevices[i].ID);
+                Array.Fill(maskBuffer[i], enabled);
+            }
+            TransducerMask mask = TransducerMask.Masked(maskBuffer);
+
+            var targets = new[]
+            {
+                new AUTD3.Holo.AmplitudeTarget(position, AUTD3.Holo.Amplitude.FromPascal(pascal))
+            };
+
+            var phases = geometry.PhaseBuffer();
+            var intensities = geometry.IntensityBuffer();
+            try
+            {
+                AUTD3.Holo.Holo.Naive(
+                    geometry,
+                    targets,
+                    wavelength,
+                    new AUTD3.Holo.NaiveOption { Mask = mask },
+                    phases,
+                    intensities);
+
+                return new BuiltCommand(new Pattern(phases, intensities), useStreaming: false, phases, intensities);
+            }
+            catch
+            {
+                phases.Dispose();
+                intensities.Dispose();
+                throw;
+            }
+        }
+
+        /// <summary>
         /// <see cref="HAP_AUTDDebugDisabler"/> の設定に基づき、無効化されたデバイスの全振動子を停止するマスクを構築します。
         /// 全デバイス有効時はアロケーションを行わず <see cref="TransducerMask.AllEnabled"/> を返します。
         /// </summary>
