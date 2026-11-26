@@ -83,8 +83,27 @@ public class AmbiguityTask : MonoBehaviour
     [Tooltip("{0} = 終了試行数, {1} = 全試行数")]
     [TextArea(2, 4)] public string expRest = "休憩です（{0}/{1}）。手の位置がずれていないか確認してください。\nEnter：続ける ／ Space：位置合わせをやり直す";
 
+    [Header("実験者向け表示（Game ビューは SRD に出るため、既定では出さない）")]
+    [Tooltip("ON なら Play 後すぐに開始する（Inspector の被験者・パターン設定を使う）。OFF なら Setup 画面（IMGUI）から開始")]
+    public bool autoStart = true;
+    [Tooltip("ON なら実験者向けの案内と Setup 画面を Game ビュー（IMGUI）に出す。Game ビューが SRD のときは OFF のままにする")]
+    public bool showExperimenterGUI = false;
+    [Tooltip("実験者向けの現在の案内（読み取り用）。Console にも同じ内容を出す。Play 中にこのオブジェクトを選択して見る")]
+    [SerializeField, TextArea(2, 6)] private string experimenterStatus = "";
+
     private Phase _phase = Phase.Setup;
-    private string _expMsg = "";
+    private string _expMsgValue = "";
+    private string _expMsg
+    {
+        get => _expMsgValue;
+        set
+        {
+            if (value == _expMsgValue) return;
+            _expMsgValue = value;
+            experimenterStatus = value;
+            if (!string.IsNullOrEmpty(value)) Debug.Log("[Ambiguity][実験者向け] " + value);
+        }
+    }
     private StreamWriter _alignWriter;
     private IAmbiguityHaptics _haptics;
     private List<AmbiguityTrial> _trials;
@@ -130,6 +149,11 @@ public class AmbiguityTask : MonoBehaviour
         _setupFixedText = fixedValue.ToString(CultureInfo.InvariantCulture);
     }
 
+    private void Start()
+    {
+        if (autoStart) StartExperiment();
+    }
+
     private void OnDisable() => Shutdown();
     private void OnApplicationQuit() => Shutdown();
 
@@ -153,6 +177,17 @@ public class AmbiguityTask : MonoBehaviour
     // ------------------------------------------------------------------ UI
 
     private void OnGUI()
+    {
+        if (showExperimenterGUI) DrawExperimenterGUI();
+
+        if (participantDisplay == null && _phase == Phase.Running && _showFixation)
+        {
+            var style = new GUIStyle(GUI.skin.label) { fontSize = 48, alignment = TextAnchor.MiddleCenter };
+            GUI.Label(new Rect(0, 0, Screen.width, Screen.height), "+", style);
+        }
+    }
+
+    private void DrawExperimenterGUI()
     {
         const int w = 420;
         var area = new Rect((Screen.width - w) / 2f, Screen.height * 0.25f, w, 400);
@@ -184,11 +219,6 @@ public class AmbiguityTask : MonoBehaviour
         }
         GUILayout.EndArea();
 
-        if (participantDisplay == null && _phase == Phase.Running && _showFixation)
-        {
-            var style = new GUIStyle(GUI.skin.label) { fontSize = 48, alignment = TextAnchor.MiddleCenter };
-            GUI.Label(new Rect(0, 0, Screen.width, Screen.height), "+", style);
-        }
         if (!string.IsNullOrEmpty(_status) && debugLog)
             GUI.Label(new Rect(8, 8, 600, 24), _status);
     }
