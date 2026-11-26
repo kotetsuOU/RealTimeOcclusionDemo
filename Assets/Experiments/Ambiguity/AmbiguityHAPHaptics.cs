@@ -62,6 +62,8 @@ public class AmbiguityHAPHaptics : MonoBehaviour, IAmbiguityHaptics
                 if (disableWhileRunning[i] != null) disableWhileRunning[i].enabled = _wasEnabled[i];
     }
 
+    public bool IsReady => hardware != null && hardware.IsConnected;
+
     public void Present(AmbiguitySide side, int intensity)
     {
         intensity = Mathf.Clamp(intensity, 0, 255);

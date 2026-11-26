@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -54,6 +55,18 @@ public class AmbiguityPalmTracker : MonoBehaviour
     /// <summary>現在の手のひら面（上面）の中央位置</summary>
     public Vector3 PalmPoint { get; private set; }
     public string Status { get; private set; } = "未接続";
+    /// <summary>点群ブロックに接続できているか</summary>
+    public bool IsConnected => _subscribed;
+    /// <summary>Measure() の計測中か</summary>
+    public bool IsMeasuring => _measuring;
+    /// <summary>Measure() 成功後、Unfreeze() するまで焦点を固定しているか</summary>
+    public bool IsFrozen => _frozen;
+    public Vector3 UpperFocusPosition => PalmPoint + upperOffset;
+    public Vector3 DownFocusPosition => PalmPoint + Vector3.down * handThickness + downOffset;
+
+    private bool _frozen;
+    private bool _measuring;
+    private readonly List<float> _measureSamples = new List<float>();
 
     private RsIntegratedPointCloud _cloud;
     private bool _subscribed;
@@ -139,7 +152,18 @@ public class AmbiguityPalmTracker : MonoBehaviour
         _count = data.Length;
 
         if (palmReference == null) return;
-        if (!TryFrameMedianY(palmReference.position.x, palmReference.position.z, out float y))
+        bool ok = TryFrameMedianY(palmReference.position.x, palmReference.position.z, out float y);
+
+        // Measure() 中は、フレームごとの中央値を集めるだけ（焦点は動かさない）
+        if (_measuring)
+        {
+            if (ok) _measureSamples.Add(y);
+            return;
+        }
+        // 計測後は固定。点群が来ても焦点を更新しない
+        if (_frozen) return;
+
+        if (!ok)
         {
             Status = $"点が足りない（±{sampleRange} m 内に {minPoints} 点未満）";
             return;
@@ -158,6 +182,52 @@ public class AmbiguityPalmTracker : MonoBehaviour
         HasPalm = true;
         Status = $"OK palmY={palmY:F4}（{_frameMedians.Count} フレーム）";
         ApplyFocus();
+    }
+
+    /// <summary>
+    /// 位置合わせ用の計測。durationSec の間に届いた点群フレームごとの中央値を集め、その中央値を手のひら高さとして焦点を固定する。
+    /// 有効なフレームが minFrames 未満なら失敗（固定しない）。完了時に onDone(成功したか) を呼ぶ。
+    /// </summary>
+    public void Measure(float durationSec, int minFrames, Action<bool> onDone)
+    {
+        if (_measuring) return;
+        StartCoroutine(MeasureRoutine(durationSec, minFrames, onDone));
+    }
+
+    /// <summary>固定を解除し、点群への連続追従に戻す。</summary>
+    public void Unfreeze()
+    {
+        _frozen = false;
+        _frameMedians.Clear();
+    }
+
+    private IEnumerator MeasureRoutine(float durationSec, int minFrames, Action<bool> onDone)
+    {
+        _measuring = true;
+        _frozen = false;
+        _measureSamples.Clear();
+
+        float end = Time.realtimeSinceStartup + durationSec;
+        while (Time.realtimeSinceStartup < end) yield return null;
+        _measuring = false;
+
+        if (palmReference == null || _measureSamples.Count < minFrames)
+        {
+            Status = $"計測失敗（有効フレーム {_measureSamples.Count} / 必要 {minFrames}）";
+            onDone?.Invoke(false);
+            yield break;
+        }
+
+        _measureSamples.Sort();
+        float palmY = _measureSamples[_measureSamples.Count / 2];
+        var p = palmReference.position;
+        PalmPoint = new Vector3(p.x, palmY, p.z);
+        HasPalm = true;
+        _lastApplied = null;   // 必ず反映させる
+        ApplyFocus();
+        _frozen = true;
+        Status = $"固定 palmY={palmY:F4}（{_measureSamples.Count} フレーム）";
+        onDone?.Invoke(true);
     }
 
     private bool TryFrameMedianY(float cx, float cz, out float y)

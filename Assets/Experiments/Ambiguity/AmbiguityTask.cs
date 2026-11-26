@@ -16,7 +16,7 @@ using UnityEngine.InputSystem;
 /// </summary>
 public class AmbiguityTask : MonoBehaviour
 {
-    private enum Phase { Setup, Running, Rest, Finished }
+    private enum Phase { Setup, AlignWait, Measuring, Confirm, Running, Rest, Finished }
 
     [Header("被験者・パターン（開始前UIでも変更可）")]
     [Tooltip("P1, P2, ... （本人は S0）。氏名は入れない")]
@@ -51,7 +51,39 @@ public class AmbiguityTask : MonoBehaviour
     [Tooltip("現在の試行番号・側・水準・出力強度を Console に出す（本番では OFF）")]
     public bool debugLog = true;
 
+    [Header("位置合わせ（palmTracker が未設定ならスキップして、すぐ試行を始める）")]
+    [Tooltip("手の位置合わせ。Space で計測して焦点を固定する")]
+    [SerializeField] private AmbiguityPalmTracker palmTracker;
+    [Tooltip("計測時間（この間に届いた点群フレームの中央値を使う）")]
+    public float measureDurationSec = 0.5f;
+    [Tooltip("有効な点群フレームがこの数未満なら計測失敗")]
+    public int measureMinFrames = 3;
+
+    [Header("被験者向け表示（SRD。未設定なら出さない）")]
+    [SerializeField] private AmbiguityParticipantDisplay participantDisplay;
+    [TextArea(2, 5)] public string participantAlignText = "準備中です。\n手を動かさずに、しばらくお待ちください。";
+    [TextArea(4, 10)] public string instructionText =
+        "これから、手に弱い振動が出ます。\n"
+      + "振動が手のひら側（上）と手の甲側（下）のどちらから来たかを、感じたままキーで答えてください。\n"
+      + "↑：手のひら側　↓：手の甲側　Space：感じなかった\n"
+      + "手は動かさず、画面中央の＋を見ていてください。\n"
+      + "約3秒以内に答えてください。";
+    [TextArea(2, 5)] public string restText = "休憩です。";
+    [TextArea(2, 5)] public string finishText = "実験は終了しました。ありがとうございました。";
+
+    [Header("実験者向け文言（PC画面）")]
+    [TextArea(2, 4)] public string expAlignWait = "手のひらを上にして、目印の位置に手を置いてください。置いたら Space キーを押してください。";
+    [TextArea(2, 4)] public string expAlignNotReady = "点群または AUTD に接続されていません。接続を確認してください。";
+    [TextArea(2, 4)] public string expMeasuring = "計測中です。手を動かさないでください。";
+    [TextArea(2, 4)] public string expMeasureFailed = "手の位置を読み取れませんでした。手を置き直して、Space キーを押してください。";
+    [Tooltip("{0} = 手のひら高さ(m)")]
+    [TextArea(2, 4)] public string expConfirm = "計測できました（手のひらの高さ: {0:F3} m）。\nEnter：実験を始める ／ Space：もう一度計測する";
+    [Tooltip("{0} = 終了試行数, {1} = 全試行数")]
+    [TextArea(2, 4)] public string expRest = "休憩です（{0}/{1}）。手の位置がずれていないか確認してください。\nEnter：続ける ／ Space：位置合わせをやり直す";
+
     private Phase _phase = Phase.Setup;
+    private string _expMsg = "";
+    private StreamWriter _alignWriter;
     private IAmbiguityHaptics _haptics;
     private List<AmbiguityTrial> _trials;
     private StreamWriter _writer;
@@ -59,7 +91,16 @@ public class AmbiguityTask : MonoBehaviour
     private int _trialIndex;      // 実行中の試行（1始まり）
     private int _usedSeed;
     private string _status = "";
-    private bool _showFixation;
+    private bool _showFixationValue;
+    private bool _showFixation
+    {
+        get => _showFixationValue;
+        set
+        {
+            _showFixationValue = value;
+            if (participantDisplay != null) participantDisplay.ShowFixation(value);
+        }
+    }
     private string _setupParticipant, _setupSeedText, _setupFixedText;
     private int _setupPattern;
 
@@ -80,6 +121,7 @@ public class AmbiguityTask : MonoBehaviour
         }
 
         SetVisual(false);
+        if (participantDisplay != null) { participantDisplay.ShowFixation(false); participantDisplay.ShowMessage(""); }
         _setupParticipant = participant;
         _setupPattern = pattern;
         _setupSeedText = seed.ToString(CultureInfo.InvariantCulture);
@@ -98,6 +140,11 @@ public class AmbiguityTask : MonoBehaviour
         {
             try { _writer.Flush(); _writer.Dispose(); } catch { }
             _writer = null;
+        }
+        if (_alignWriter != null)
+        {
+            try { _alignWriter.Flush(); _alignWriter.Dispose(); } catch { }
+            _alignWriter = null;
         }
     }
 
@@ -123,8 +170,11 @@ public class AmbiguityTask : MonoBehaviour
                 _setupSeedText = GUILayout.TextField(_setupSeedText); GUILayout.EndHorizontal();
                 if (GUILayout.Button("開始", GUILayout.Height(32))) BeginFromUi();
                 break;
+            case Phase.AlignWait:
+            case Phase.Measuring:
+            case Phase.Confirm:
             case Phase.Rest:
-                GUILayout.Label($"休憩（{_trialIndex}/{_trials.Count} 終了）\nEnter キーで再開");
+                GUILayout.Label(_expMsg);
                 break;
             case Phase.Finished:
                 GUILayout.Label("終了しました");
@@ -132,7 +182,7 @@ public class AmbiguityTask : MonoBehaviour
         }
         GUILayout.EndArea();
 
-        if (_phase == Phase.Running && _showFixation)
+        if (participantDisplay == null && _phase == Phase.Running && _showFixation)
         {
             var style = new GUIStyle(GUI.skin.label) { fontSize = 48, alignment = TextAnchor.MiddleCenter };
             GUI.Label(new Rect(0, 0, Screen.width, Screen.height), "+", style);
@@ -155,7 +205,7 @@ public class AmbiguityTask : MonoBehaviour
     /// <summary>Inspector の設定で開始する（UI を使わない場合はこれを呼ぶ）。</summary>
     public void StartExperiment()
     {
-        if (_phase == Phase.Running) return;
+        if (_phase != Phase.Setup) return;
         participant = SanitizeLabel(participant);
         _usedSeed = seed != 0 ? seed : AmbiguityTrialGenerator.DeriveSeed(participant, pattern);
         _trials = AmbiguityTrialGenerator.Generate(pattern, fixedValue, _usedSeed, visualDelayMinMs, visualDelayMaxMs);
@@ -165,8 +215,7 @@ public class AmbiguityTask : MonoBehaviour
 
         _timingRng = new System.Random(_usedSeed ^ 0x5A5A5A5A); // ITI 用（試行順序とは独立）
         OpenLog();
-        _phase = Phase.Running;
-        StartCoroutine(RunAll());
+        StartCoroutine(Main());
     }
 
     private void OpenLog()
@@ -180,9 +229,115 @@ public class AmbiguityTask : MonoBehaviour
         _writer.WriteLine("participant,pattern,seed,trialIndex,side,level,outputIntensity,visual,visualDelayMs,response,rtMs,timestamp");
         _writer.Flush();
         Debug.Log("[Ambiguity] ログ: " + path);
+
+        string alignPath = Path.Combine(dir, $"{participant}_pattern{pattern}_{DateTime.Now:yyyyMMdd_HHmmss}_alignment.csv");
+        _alignWriter = new StreamWriter(alignPath, false, new UTF8Encoding(true)) { AutoFlush = true };
+        _alignWriter.WriteLine("timestamp,trialsCompleted,success,palmY,upperX,upperY,upperZ,downX,downY,downZ");
+        _alignWriter.Flush();
     }
 
     // ------------------------------------------------------------------ 進行
+
+    private IEnumerator Main()
+    {
+        if (palmTracker != null) yield return AlignRoutine();
+        SetParticipantMessage("");
+        _phase = Phase.Running;
+        yield return RunAll();
+    }
+
+    /// <summary>
+    /// AlignWait → (Space) → Measuring → 成功: Confirm → (Enter: 終了 / Space: 再計測)、失敗: AlignWait に戻る。
+    /// </summary>
+    private IEnumerator AlignRoutine()
+    {
+        string note = "";
+        _showFixation = false;
+        while (true)
+        {
+            // --- AlignWait ---
+            _phase = Phase.AlignWait;
+            SetParticipantMessage(participantAlignText);
+            while (true)
+            {
+                bool ready = palmTracker.IsConnected && _haptics.IsReady;
+                _expMsg = (string.IsNullOrEmpty(note) ? "" : note + "\n\n")
+                        + (ready ? expAlignWait
+                                 : $"{expAlignNotReady}\n（点群: {palmTracker.IsConnected} / AUTD: {_haptics.IsReady}）");
+                if (ready && SpacePressed()) break;
+                yield return null;
+            }
+
+            // --- Measuring（Confirm で Space なら、ここへ戻って再計測）---
+            while (true)
+            {
+                _phase = Phase.Measuring;
+                _expMsg = expMeasuring;
+                bool ok = false, done = false;
+                palmTracker.Measure(measureDurationSec, measureMinFrames, r => { ok = r; done = true; });
+                while (!done) yield return null;
+                LogAlignment(ok);
+
+                if (!ok) { note = expMeasureFailed; break; }   // AlignWait に戻る
+                note = "";
+
+                // --- Confirm ---
+                _phase = Phase.Confirm;
+                SetParticipantMessage(instructionText);
+                _expMsg = string.Format(expConfirm, palmTracker.PalmPoint.y);
+                bool again = false;
+                while (true)
+                {
+                    if (EnterPressed()) yield break;                 // 実験へ
+                    if (SpacePressed()) { again = true; break; }     // 再計測
+                    yield return null;
+                }
+                if (again) continue;
+            }
+        }
+    }
+
+    private IEnumerator RestRoutine()
+    {
+        _showFixation = false;
+        _phase = Phase.Rest;
+        SetParticipantMessage(restText);
+        _expMsg = string.Format(expRest, _trialIndex, _trials.Count);
+        while (true)
+        {
+            if (EnterPressed()) break;
+            if (palmTracker != null && SpacePressed())
+            {
+                yield return AlignRoutine();
+                break;
+            }
+            yield return null;
+        }
+        SetParticipantMessage("");
+        _phase = Phase.Running;
+    }
+
+    private void SetParticipantMessage(string text)
+    {
+        if (participantDisplay != null) participantDisplay.ShowMessage(text);
+    }
+
+    private void LogAlignment(bool ok)
+    {
+        if (_alignWriter == null) return;
+        var inv = CultureInfo.InvariantCulture;
+        string pos = ",,,,,,";
+        if (ok)
+        {
+            var u = palmTracker.UpperFocusPosition; var d = palmTracker.DownFocusPosition;
+            pos = string.Join(",", palmTracker.PalmPoint.y.ToString("F4", inv),
+                u.x.ToString("F4", inv), u.y.ToString("F4", inv), u.z.ToString("F4", inv),
+                d.x.ToString("F4", inv), d.y.ToString("F4", inv), d.z.ToString("F4", inv));
+        }
+        _alignWriter.WriteLine(string.Join(",",
+            DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss.fff", inv), _trialIndex, ok ? 1 : 0, pos));
+        _alignWriter.Flush();
+    }
 
     private IEnumerator RunAll()
     {
@@ -193,15 +348,13 @@ public class AmbiguityTask : MonoBehaviour
 
             bool last = _trialIndex == _trials.Count;
             if (!last && breakEvery > 0 && _trialIndex % breakEvery == 0)
-            {
-                _showFixation = false;
-                _phase = Phase.Rest;
-                while (!EnterPressed()) yield return null;
-                _phase = Phase.Running;
-            }
+                yield return RestRoutine();
         }
         _showFixation = false;
         _phase = Phase.Finished;
+        _expMsg = "実験は終了しました。";
+        SetParticipantMessage(finishText);
+        if (palmTracker != null) palmTracker.Unfreeze();
         _haptics.Stop();
         if (_writer != null) { _writer.Flush(); _writer.Dispose(); _writer = null; }
     }
@@ -312,6 +465,16 @@ public class AmbiguityTask : MonoBehaviour
         else if (Input.GetKeyDown(KeyCode.Space)) response = "felt_nothing";
 #endif
         return response != null;
+    }
+
+    private static bool SpacePressed()
+    {
+#if ENABLE_INPUT_SYSTEM
+        var kb = Keyboard.current;
+        return kb != null && kb.spaceKey.wasPressedThisFrame;
+#else
+        return Input.GetKeyDown(KeyCode.Space);
+#endif
     }
 
     private static bool EnterPressed()
