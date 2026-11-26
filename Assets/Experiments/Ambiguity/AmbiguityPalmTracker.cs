@@ -9,12 +9,16 @@ using UnityEngine.Rendering;
 ///   ・X,Z は固定の目印（palmReference）の位置
 ///   ・Y は、その X,Z 付近（±sampleRange）の点群の Y の中央値
 ///   ・手のひら側の焦点 = (X, Y, Z)、手の甲側の焦点 = (X, Y - handThickness, Z)
-/// 点群は RsIntegratedPointCloud の GPU バッファを非同期に読み戻して使う（座標はワールド座標の前提。要確認）。
+/// 点群は RsIntegratedPointCloud の GPU バッファを非同期に読み戻して使う。
+/// 座標はワールド座標：RsPointCloudRenderer が統合点群の変換行列に自身の localToWorldMatrix を渡しているため。
+/// 取得元は、統合構成の RsRealSenseRenderer（GetFirstBlock）を優先し、旧構成の RsProcessingPipe（ダミー含む）も使える。
 /// </summary>
 public class AmbiguityPalmTracker : MonoBehaviour
 {
-    [Header("点群")]
-    [Tooltip("手を撮っているカメラの RsProcessingPipe（上側カメラ）")]
+    [Header("点群の取得元（どちらか一方でよい）")]
+    [Tooltip("手のひら側（上）から手を撮っているカメラの RsRealSenseRenderer。このシーンの標準構成")]
+    [SerializeField] private RsRealSenseRenderer realSenseRenderer;
+    [Tooltip("旧構成用。RsProcessingPipe（RsDummyProcessingPipe を含む）。renderer が未設定のときだけ使う")]
     [SerializeField] private RsProcessingPipe processingPipe;
 
     [Header("目印（手の中央の真上／真下に置く）")]
@@ -61,22 +65,43 @@ public class AmbiguityPalmTracker : MonoBehaviour
     private readonly List<float> _scratch = new List<float>();
     private Vector3? _lastApplied;
 
-    private void OnDisable()
+    private void Reset()
+    {
+        if (realSenseRenderer == null) realSenseRenderer = FindFirstObjectByType<RsRealSenseRenderer>();
+    }
+
+    private void OnDisable() => Disconnect();
+
+    private void Disconnect()
     {
         if (_subscribed && _cloud != null) _cloud.OnPointCloudUpdated -= OnCloudUpdated;
         _subscribed = false;
         _cloud = null;
     }
 
-    // ストリーミング開始後でないとブロックが見つからないので、見つかるまで毎フレーム試す
+    private RsIntegratedPointCloud FindCloud()
+    {
+        if (realSenseRenderer != null) return realSenseRenderer.GetFirstBlock<RsIntegratedPointCloud>();
+        if (processingPipe != null) return processingPipe.GetFirstBlock<RsIntegratedPointCloud>();
+        return null;
+    }
+
+    // ストリーミング開始後でないとブロックが見つからない（再起動でブロックが作り直されることもある）ので、毎フレーム確認する
     private void TryConnect()
     {
-        if (_subscribed || processingPipe == null) return;
-        var cloud = processingPipe.GetFirstBlock<RsIntegratedPointCloud>();
-        if (cloud == null) return;
+        var cloud = FindCloud();
+        if (cloud == _cloud) return;
+        Disconnect();
+        if (cloud == null)
+        {
+            Status = (realSenseRenderer == null && processingPipe == null)
+                ? "取得元が未設定（RsRealSenseRenderer を設定）" : "統合点群ブロックが未生成（ストリーミング待ち）";
+            return;
+        }
         _cloud = cloud;
         _cloud.OnPointCloudUpdated += OnCloudUpdated;
         _subscribed = true;
+        _frameMedians.Clear();
         Status = "接続済み（点群待ち）";
     }
 
