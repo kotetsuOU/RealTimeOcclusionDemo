@@ -54,6 +54,8 @@ public class AmbiguityTask : MonoBehaviour
     [Header("位置合わせ（palmTracker が未設定ならスキップして、すぐ試行を始める）")]
     [Tooltip("手の位置合わせ。Space で計測して焦点を固定する")]
     [SerializeField] private AmbiguityPalmTracker palmTracker;
+    [Tooltip("位置合わせの間だけ、視覚刺激を表示する（目印と視覚刺激が同じオブジェクトのとき用）。試行が始まると、通常どおり試行ごとに出し入れする")]
+    public bool showVisualDuringAlignment = true;
     [Tooltip("計測時間（この間に届いた点群フレームの中央値を使う）")]
     public float measureDurationSec = 0.5f;
     [Tooltip("有効な点群フレームがこの数未満なら計測失敗")]
@@ -240,7 +242,7 @@ public class AmbiguityTask : MonoBehaviour
 
     private IEnumerator Main()
     {
-        if (palmTracker != null) yield return AlignRoutine();
+        if (palmTracker != null) { yield return AlignRoutine(); SetVisual(false); }
         SetParticipantMessage("");
         _phase = Phase.Running;
         yield return RunAll();
@@ -253,6 +255,7 @@ public class AmbiguityTask : MonoBehaviour
     {
         string note = "";
         _showFixation = false;
+        if (showVisualDuringAlignment) SetVisual(true);
         while (true)
         {
             // --- AlignWait ---
@@ -309,6 +312,7 @@ public class AmbiguityTask : MonoBehaviour
             if (palmTracker != null && SpacePressed())
             {
                 yield return AlignRoutine();
+                SetVisual(false);
                 break;
             }
             yield return null;
